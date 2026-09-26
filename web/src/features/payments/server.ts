@@ -5,6 +5,7 @@ import { notBuilt } from "@/lib/not-built";
 export { mandateSummary } from "./lib/mandate-summary";
 export { type ApproveHoldResult, approveHold, approverFor, type PaymentsDeps } from "./server/approve-hold";
 export { createMandate, type CreateMandateInput, type CreateMandateResult } from "./server/create-mandate";
+export { expireMandates } from "./server/expire-mandates";
 export { type FinalizeDeps, finalizeMandate } from "./server/finalize-mandate";
 export { handleStripeEvent, type StripeEventOutcome } from "./server/handle-stripe-event";
 export { onPlaceholderClaimed } from "./server/on-placeholder-claimed";
