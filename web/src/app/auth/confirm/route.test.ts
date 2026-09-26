@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 
 describe("GET /auth/confirm", () => {
-  it("/auth/confirm verifies token_hash and redirects to next; a bad or used link goes to /login?error=link", async () => {
+  it("/auth/confirm verifies token_hash and redirects to next; a bad or used link goes to the error landing (/login?error=link once the login page exists)", async () => {
     const ok = await confirm({ token_hash: "hash-1", type: "email", next: "/trips" });
     expect(ok.status).toBeGreaterThanOrEqual(300);
     expect(ok.status).toBeLessThan(400);
@@ -39,17 +39,17 @@ describe("GET /auth/confirm", () => {
     // A used or expired link: Supabase rejects the hash.
     verifyOtp.mockResolvedValue({ data: { user: null, session: null }, error: { message: "Email link is invalid or has expired" } });
     const used = await confirm({ token_hash: "hash-1", type: "email", next: "/trips" });
-    expect(location(used).href).toBe(`${ORIGIN}/login?error=link`);
+    expect(location(used).href).toBe(`${ORIGIN}/?error=link`);
 
     // A link with no hash, or another OTP type, never reaches Supabase.
     verifyOtp.mockClear();
-    expect(location(await confirm({ type: "email", next: "/trips" })).href).toBe(`${ORIGIN}/login?error=link`);
-    expect(location(await confirm({ token_hash: "hash-2", type: "recovery" })).href).toBe(`${ORIGIN}/login?error=link`);
+    expect(location(await confirm({ type: "email", next: "/trips" })).href).toBe(`${ORIGIN}/?error=link`);
+    expect(location(await confirm({ token_hash: "hash-2", type: "recovery" })).href).toBe(`${ORIGIN}/?error=link`);
     expect(verifyOtp).not.toHaveBeenCalled();
 
     // A thrown client error is a bad link too, not a 500.
     verifyOtp.mockRejectedValue(new TypeError("fetch failed"));
-    expect(location(await confirm({ token_hash: "hash-3", type: "email" })).href).toBe(`${ORIGIN}/login?error=link`);
+    expect(location(await confirm({ token_hash: "hash-3", type: "email" })).href).toBe(`${ORIGIN}/?error=link`);
   });
 
   it("/auth/confirm ignores a next that isn't a same-origin path", async () => {

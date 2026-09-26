@@ -3,6 +3,9 @@ import { getServerClient } from "@/lib/supabase/server";
 
 // `/` sends a signed-in member on to their trips (design §8.1), so it's a safe landing for any link.
 const DEFAULT_NEXT = "/";
+// Design §2.4 sends a failed link to `/login?error=link`. Until the login page exists, `/` takes it,
+// so no redirect points at a missing page (src/app/routes.test.ts). The login page (VO-106) switches it.
+const FAILED_LINK = "/?error=link";
 
 /**
  * The same-origin URL for `next`, or null for anything that could leave the site. Resolving it
@@ -29,13 +32,13 @@ function redirect(target: URL): NextResponse {
 /**
  * Verifies a magic link's `token_hash` (design §2.4), which sets the session cookie through the
  * server client, then redirects to `next` if it's a same-origin path, or to `/` otherwise. A
- * missing, used, or expired link goes to `/login?error=link`.
+ * missing, used, or expired link goes to `FAILED_LINK`.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = request.nextUrl;
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") ?? "email";
-  const failed = redirect(new URL("/login?error=link", origin));
+  const failed = redirect(new URL(FAILED_LINK, origin));
 
   // The template only ever sends `type=email`; recovery and email-change links aren't part of sign-in.
   if (!tokenHash || type !== "email") return failed;
