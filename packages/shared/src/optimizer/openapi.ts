@@ -32,7 +32,9 @@ export interface paths {
         put?: never;
         /**
          * Plan
-         * @description Stub planner: everyone together at each slot's first candidate. The engines replace it.
+         * @description Score the request, run the engines, and return up to `max_plans` ranked plans with voting options.
+         *
+         *     No plan is a 200 with status infeasible. Input beyond the engine limits is a 422 too_large.
          */
         post: operations["plan_v1_plan_post"];
         delete?: never;
@@ -314,6 +316,11 @@ export interface components {
             ends_at: string;
             /** Together */
             together: boolean;
+            /**
+             * Category
+             * @description The item's category. Dietary needs apply only to food and dessert slots.
+             */
+            category?: ("food" | "activity" | "dessert" | "nightlife" | "lodging" | "other") | null;
             /** @description Set for booked or pinned context slots. */
             pinned: components["schemas"]["Pinned"] | null;
             /** Candidates */

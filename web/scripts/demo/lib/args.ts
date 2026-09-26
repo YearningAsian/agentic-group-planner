@@ -34,5 +34,7 @@ export function parseSeedArgs(argv: string[]): SeedArgs {
       throw new Error(`Unknown option ${flag}. Use --batch <name>, --stage <stage>, or --all.`);
     }
   }
+  // The demo batch is for checks on the deployed app; it always starts from a fresh seed.
+  if (args.stage && args.batch === "demo") throw new Error("--stage isn't allowed on the demo batch; pass --batch <name>.");
   return args;
 }

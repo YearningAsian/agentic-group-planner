@@ -167,6 +167,7 @@ describe("the plan_day slice", () => {
     expect(request!.request_id).toBe("replay-1");
     expect(request!.slots.map((s) => s.key)).toEqual(["morning", "lunch", "afternoon"]);
     expect(request!.slots.map((s) => s.together)).toEqual([true, true, false]);
+    expect(request!.slots.map((s) => s.category)).toEqual(["activity", "food", "activity"]);
     expect(request!.members).toHaveLength(4);
     expect(request!.members.every((m) => m.budget_cents === 8000)).toBe(true);
     expect(request!.members.find((m) => m.id === memberIds[1])!.dietary).toEqual(["vegetarian"]);

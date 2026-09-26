@@ -1,4 +1,4 @@
-import { Dietary } from "@agp/shared";
+import { Dietary, PlaceCategory } from "@agp/shared";
 import type { PlanRequest } from "./client";
 
 /** The database CHECKs keep these to the dietary enum; this narrows the type and drops anything else. */
@@ -87,6 +87,8 @@ export function buildPlanRequest(input: {
         key: item.slot_key,
         starts_at: item.starts_at,
         ends_at: item.ends_at,
+        // Dietary rules apply only to food and dessert slots, so the engines need the category.
+        category: PlaceCategory.parse(item.category),
         together: item.together,
         pinned: null,
         candidates,

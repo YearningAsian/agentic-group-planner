@@ -1,0 +1,28 @@
+{
+  "plans": [
+    {
+      "rank": 1,
+      "assignment": [[0, 1, 1, 0], [0, 0, 0, 0]],
+      "total_score": 0.86925,
+      "fairness": 0.5225,
+      "split_slots": 1,
+      "member_scores": [0.58, 0.5225, 0.5225, 0.58]
+    },
+    {
+      "rank": 2,
+      "assignment": [[2, 2, 2, 2], [0, 0, 0, 0]],
+      "total_score": 0.818375,
+      "fairness": 0.4425,
+      "split_slots": 0,
+      "member_scores": [0.4425, 0.53, 0.4425, 0.4425]
+    },
+    {
+      "rank": 3,
+      "assignment": [[0, 0, 0, 0], [0, 0, 0, 0]],
+      "total_score": 0.8165,
+      "fairness": 0.405,
+      "split_slots": 0,
+      "member_scores": [0.58, 0.405, 0.405, 0.58]
+    }
+  ]
+}

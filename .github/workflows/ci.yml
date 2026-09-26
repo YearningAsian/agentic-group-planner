@@ -1,0 +1,78 @@
+# Three jobs (checklist B11), every provider mocked and no real keys. Database tests need a
+# Supabase stack and run locally (`pnpm --filter web test:db`), not here.
+name: CI
+
+on:
+  push:
+    branches: [main, testing]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web and shared
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # tsc reads Next.js's generated route types (LayoutProps and friends).
+      - run: pnpm --filter web exec next typegen
+      - run: pnpm -r lint
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+  optimizer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: optimizer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: optimizer/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check
+      - run: pytest -q
+
+  contracts:
+    name: contracts drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: optimizer/requirements.txt
+      - run: pnpm install --frozen-lockfile
+      - run: pip install -r optimizer/requirements.txt
+      - name: Start the optimizer
+        working-directory: optimizer
+        env:
+          OPTIMIZER_TOKEN: ci-only-token
+        run: |
+          uvicorn app.main:app --port 8000 &
+          for _ in $(seq 1 30); do curl -sf http://localhost:8000/health && exit 0; sleep 1; done
+          exit 1
+      - run: pnpm api:types
+      # The committed OpenAPI types must match what the service serves.
+      - run: git diff --exit-code packages/shared/src/optimizer
