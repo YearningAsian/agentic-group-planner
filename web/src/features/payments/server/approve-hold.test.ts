@@ -16,6 +16,7 @@ type Hold = {
   pays_share: boolean | null;
   stripe_payment_intent_id: string | null;
   lease_expires_at: string | null;
+  idempotency_key?: string;
 };
 
 function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; holds: Hold[] }) => void) {
@@ -28,6 +29,7 @@ function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; hold
   const holds: Hold[] = [{
     id: "own", mandate_id: "mandate", payer_member_id: "person1", share_member_id: "person1", kind: "own",
     status: "pending", cap_cents: 4800, pays_share: null, stripe_payment_intent_id: null, lease_expires_at: null,
+    idempotency_key: "share:mandate:person1:own",
   }];
   const releases: { paymentIntentId: string; idempotencyKey: string }[] = [];
   const payments = {
@@ -54,6 +56,16 @@ function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; hold
       is(column: string, value: unknown) { filters.push((row) => row[column] === value); return builder; },
       or() { filters.push((row) => row.lease_expires_at === null); return builder; },
       order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
+        });
+        return builder;
+      },
       update(values: Record<string, unknown>) { patch = values; return builder; },
       async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
       async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
@@ -128,6 +140,16 @@ describe("approveHold after a late authorization", () => {
         is(column: string, value: unknown) { filters.push((row) => row[column] === value); return builder; },
         or() { return builder; },
         order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
+        });
+        return builder;
+      },
         update(values: Record<string, unknown>) { patch = values; return builder; },
         async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
         async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
@@ -167,6 +189,16 @@ describe("approveHold after a late authorization", () => {
         is() { return builder; },
         or() { return builder; },
         order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
+        });
+        return builder;
+      },
         update() { return builder; },
         async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
         async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },

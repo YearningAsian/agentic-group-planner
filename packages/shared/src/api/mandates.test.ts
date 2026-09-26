@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { ApproveBody, ApproveResponse, CoverBody, CoverResponse, DeclineBody, DeclineResponse, MandateParams } from "./mandates";
+import {
+  ApproveBody,
+  ApproveResponse,
+  CancelBody,
+  CancelResponse,
+  CoverBody,
+  CoverResponse,
+  DeclineBody,
+  DeclineResponse,
+  MandateParams,
+} from "./mandates";
 
 describe("mandate routes", () => {
-  it("approve, decline, and cover take an empty body, so a client can't send an amount", () => {
-    for (const body of [ApproveBody, DeclineBody, CoverBody]) {
+  it("approve, decline, cover, and cancel take an empty body, so a client can't send an amount", () => {
+    for (const body of [ApproveBody, DeclineBody, CoverBody, CancelBody]) {
       expect(body.safeParse({}).success).toBe(true);
       expect(body.safeParse({ amount_cents: 4800 }).success).toBe(false);
     }
@@ -18,5 +28,7 @@ describe("mandate routes", () => {
     expect(DeclineResponse.safeParse({ hold_status: "declined", mandate_status: "partially_declined" }).success).toBe(true);
     expect(CoverResponse.safeParse({ mandate_status: "authorized" }).success).toBe(true);
     expect(CoverResponse.safeParse({ mandate_status: "covered" }).success).toBe(false);
+    expect(CancelResponse.safeParse({ mandate_status: "cancelled" }).success).toBe(true);
+    expect(CancelResponse.safeParse({ mandate_status: "canceled" }).success).toBe(false);
   });
 });

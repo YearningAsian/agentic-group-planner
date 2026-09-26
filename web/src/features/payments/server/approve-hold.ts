@@ -3,6 +3,7 @@ import type { HoldStatus } from "@agp/shared";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
+import { type Hold, holdFilter, holdSuffix } from "../lib/hold";
 import { type FinalizeDeps, finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 import { settleFrontedShare } from "./settle-fronted-share";
@@ -26,18 +27,22 @@ export interface ApproveHoldResult {
   satisfied: boolean;
 }
 
-interface Member {
+export interface Member {
   id: string;
   profile_id: string | null;
   display_name: string;
 }
 
-async function payerRows(admin: AdminClient, mandateId: string, memberId: string) {
+const MAIN: Hold = { kind: "main" };
+
+/** The payer's rows on one hold: their main hold unless a cover hold is named. */
+async function payerRows(admin: AdminClient, mandateId: string, memberId: string, hold: Hold = MAIN) {
   const { data, error } = await admin
     .from("payment_holds")
     .select("id, status, cap_cents, kind, pays_share, stripe_payment_intent_id")
     .eq("mandate_id", mandateId)
     .eq("payer_member_id", memberId)
+    .filter(...holdFilter(mandateId, hold))
     .order("kind", { ascending: false });
   if (error) throw readError(error, "the holds");
   return data;
@@ -92,17 +97,21 @@ async function paymentMethodFor(admin: AdminClient, payments: PaymentsProvider, 
 }
 
 /**
- * Authorizes the payer's one hold for every row they may pay, if this call wins the claim on
- * their pending rows. A concurrent approval by the same payer finds nothing to claim and returns,
- * so the provider is called once; its idempotency key covers a retry after a crash.
+ * Authorizes one of the payer's holds for every row on it, if this call wins the claim on its
+ * pending rows: their main hold, or a cover hold the organizer takes on for a declined share.
+ * A concurrent approval by the same payer finds nothing to claim and returns, so the provider is
+ * called once; its idempotency key covers a retry after a crash.
  */
-async function authorizeHold(
+export async function authorizeHold(
   admin: AdminClient,
   payments: PaymentsProvider,
   mandate: { id: string; trip_id: string; currency: string },
   member: Member,
   phase: "approving" | "settling",
+  hold: Hold = MAIN,
 ): Promise<void> {
+  const scope = holdFilter(mandate.id, hold);
+  const suffix = holdSuffix(member.id, hold);
   // Resolve the card before claiming the lease so Stripe's slow customer/card calls aren't under it.
   const { customerId, paymentMethodId } = await paymentMethodFor(admin, payments, member);
   const now = new Date();
@@ -111,6 +120,7 @@ async function authorizeHold(
     .update({ lease_expires_at: new Date(now.getTime() + PROVIDER_LEASE_MS).toISOString() })
     .eq("mandate_id", mandate.id)
     .eq("payer_member_id", member.id)
+    .filter(...scope)
     .eq("status", "pending")
     .or(`lease_expires_at.is.null,lease_expires_at.lt."${now.toISOString()}"`)
     .select("id");
@@ -130,15 +140,18 @@ async function authorizeHold(
     }
 
     // Customer and card before authorize only — they were resolved before the lease was claimed.
-    const rows = await payerRows(admin, mandate.id, member.id);
+    const rows = await payerRows(admin, mandate.id, member.id, hold);
     const amountCents = rows.reduce((sum, r) => sum + r.cap_cents, 0);
+    const metadata: Record<string, string> = { mandate_id: mandate.id, payer_member_id: member.id, trip_id: mandate.trip_id };
+    // Webhooks find a cover hold's rows by this, since the payer's main hold has the same payer.
+    if (hold.kind === "cover") metadata.cover_share_member_id = hold.shareMemberId;
     const result = await payments.authorize({
       customerId,
       paymentMethodId,
       amountCents,
       currency: mandate.currency,
-      metadata: { mandate_id: mandate.id, payer_member_id: member.id, trip_id: mandate.trip_id },
-      idempotencyKey: `pi-auth:${mandate.id}:${member.id}`,
+      metadata,
+      idempotencyKey: `pi-auth:${mandate.id}:${suffix}`,
     });
 
     if (result.status !== "authorized") {
@@ -152,6 +165,7 @@ async function authorizeHold(
         })
         .eq("mandate_id", mandate.id)
         .eq("payer_member_id", member.id)
+        .filter(...scope)
         .eq("status", "pending");
       if (error) throw readError(error, "the holds");
       if (phase === "approving") {
@@ -171,14 +185,15 @@ async function authorizeHold(
         .update({ status: "authorized", stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null, authorized_at: new Date().toISOString() })
         .eq("mandate_id", mandate.id)
         .eq("payer_member_id", member.id)
+        .filter(...scope)
         .eq("status", "pending")
         .is("pays_share", null);
       if (error) throw readError(error, "the holds");
-      const pending = (await payerRows(admin, mandate.id, member.id)).filter((r) => r.status === "pending");
+      const pending = (await payerRows(admin, mandate.id, member.id, hold)).filter((r) => r.status === "pending");
       excluded = pending.filter((r) => r.pays_share === false);
       if (pending.length === excluded.length) break;
     }
-    const currentRows = await payerRows(admin, mandate.id, member.id);
+    const currentRows = await payerRows(admin, mandate.id, member.id, hold);
     const paysAnyShare = currentRows.some((r) => r.status === "authorized" || r.status === "captured");
     const cancelledWhileAuthorizing = currentRows.length > 0 && currentRows.every((r) => r.status === "released");
     if (cancelledWhileAuthorizing) {
@@ -189,6 +204,7 @@ async function authorizeHold(
         .update({ stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null })
         .eq("mandate_id", mandate.id)
         .eq("payer_member_id", member.id)
+        .filter(...scope)
         .eq("status", "released")
         .is("stripe_payment_intent_id", null);
       if (saved.error) throw readError(saved.error, "the holds");
@@ -196,7 +212,7 @@ async function authorizeHold(
     if (!paysAnyShare && (excluded.length > 0 || cancelledWhileAuthorizing)) {
       // Only release the PaymentIntent when none of its rows pays a share. An excluded fronted
       // row can coexist with an own row that has already captured on the same PaymentIntent.
-      await payments.release({ paymentIntentId: result.paymentIntentId, idempotencyKey: `pi-release:${mandate.id}:${member.id}` });
+      await payments.release({ paymentIntentId: result.paymentIntentId, idempotencyKey: `pi-release:${mandate.id}:${suffix}` });
     }
     if (excluded.length > 0) {
       const released = await admin
@@ -206,10 +222,54 @@ async function authorizeHold(
         .eq("status", "pending");
       if (released.error) throw readError(released.error, "the holds");
     }
+    if (phase === "approving" && paysAnyShare) await releaseIfCancelled(admin, payments, mandate.id, member.id, hold, result.paymentIntentId);
   } catch (error) {
     await release();
     throw error;
   }
+}
+
+/**
+ * Moves a satisfied mandate to authorized and finalizes it, if this caller wins the conditional
+ * update. A partially declined mandate is satisfied only once the organizer has covered every
+ * declined share (design §4.2), so it finalizes the same way.
+ */
+export async function finalizeIfWon(admin: AdminClient, mandateId: string, deps: PaymentsDeps): Promise<void> {
+  const { data: won, error } = await admin
+    .from("mandates")
+    .update({ status: "authorized" })
+    .eq("id", mandateId)
+    .in("status", ["open", "partially_declined"])
+    .select("id");
+  if (error) throw readError(error, "the purchase");
+  if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandateId);
+}
+
+/**
+ * A cancel or an expiry flips the mandate before it reads the rows. If this hold authorized after
+ * that read, the cancel will mark the rows released without ever seeing this PaymentIntent, so the
+ * hold would stay on the card. The flip happened first, so reading the mandate here always sees it.
+ */
+async function releaseIfCancelled(
+  admin: AdminClient,
+  payments: PaymentsProvider,
+  mandateId: string,
+  memberId: string,
+  hold: Hold,
+  paymentIntentId: string,
+): Promise<void> {
+  const { data, error } = await admin.from("mandates").select("status").eq("id", mandateId).single();
+  if (error) throw readError(error, "the purchase");
+  if (data.status !== "cancelled") return;
+  await payments.release({ paymentIntentId, idempotencyKey: `pi-release:${mandateId}:${holdSuffix(memberId, hold)}` });
+  const released = await admin
+    .from("payment_holds")
+    .update({ status: "released", lease_expires_at: null })
+    .eq("mandate_id", mandateId)
+    .eq("payer_member_id", memberId)
+    .filter(...holdFilter(mandateId, hold))
+    .eq("status", "authorized");
+  if (released.error) throw readError(released.error, "the holds");
 }
 
 function finalizing(): AppError {
@@ -299,14 +359,7 @@ export async function approveHold(input: { mandateId: string; memberId: string }
 
   const satisfied = await isSatisfied(admin, mandate.id);
   if (satisfied && open) {
-    const { data: won, error: winError } = await admin
-      .from("mandates")
-      .update({ status: "authorized" })
-      .eq("id", mandate.id)
-      .eq("status", "open")
-      .select("id");
-    if (winError) throw readError(winError, "the purchase");
-    if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
+    await finalizeIfWon(admin, mandate.id, deps);
   } else if (mandate.status === "authorized") {
     // No pending rows left for this member: retry a finalize that crashed after open → authorized.
     await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);

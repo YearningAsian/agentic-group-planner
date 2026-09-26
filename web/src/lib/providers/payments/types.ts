@@ -6,7 +6,7 @@ export interface AuthorizeInput {
   amountCents: number;
   currency: string;
   metadata: Record<string, string>;
-  /** `pi-auth:{mandate_id}:{payer_member_id}` */
+  /** `pi-auth:{mandate_id}:{payer_member_id}`, plus `:cover:{share_member_id}` for a cover hold (features/payments/lib/hold). */
   idempotencyKey: string;
 }
 
@@ -16,7 +16,7 @@ export interface PaymentsEvent {
   type: string;
   paymentIntentId: string | null;
   status: string | null;
-  /** The PaymentIntent's metadata (`mandate_id`, `payer_member_id`, `trip_id`), or the charge's. */
+  /** The PaymentIntent's metadata (`mandate_id`, `payer_member_id`, `trip_id`, and a cover hold's `cover_share_member_id`), or the charge's. */
   metadata: Record<string, string>;
   /** Set on a failed payment that the card issuer declined. */
   declineCode: string | null;

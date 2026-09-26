@@ -6,6 +6,7 @@ import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/paym
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { quoteChangeReason } from "../lib/approved-quote";
+import { holdOfIntent, holdSuffix } from "../lib/hold";
 import { type CapturePlan, planCaptures, type ShareRow } from "../lib/plan-captures";
 import { readError, rpcError } from "./rpc-error";
 
@@ -28,9 +29,11 @@ type HoldRow = {
   stripe_payment_intent_id: string | null;
   pays_share: boolean | null;
   lease_expires_at: string | null;
+  idempotency_key: string;
 };
 
-export const HOLD_COLUMNS = "id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share, lease_expires_at";
+export const HOLD_COLUMNS =
+  "id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share, lease_expires_at, idempotency_key";
 const PLAN_ATTEMPTS = 5;
 
 const toShareRow = (r: HoldRow): ShareRow => ({
@@ -120,7 +123,11 @@ async function capturePlan(admin: AdminClient, mandateId: string): Promise<Store
   throw new AppError("internal", "The share rows kept changing while the purchase was being finalized.", { retryable: true });
 }
 
-const payerOf = (rows: HoldRow[], intentId: string) => rows.find((r) => r.stripe_payment_intent_id === intentId)?.payer_member_id;
+/** What follows the mandate in a PaymentIntent's capture and release keys: its payer, and its cover share if it's a cover hold. */
+const holdKeyOf = (rows: HoldRow[], intentId: string) => {
+  const { payer, hold } = holdOfIntent(rows, intentId);
+  return holdSuffix(payer, hold);
+};
 type FinalizeCancelReason = "booking_failed" | "price_above_cap" | "price_changed";
 
 function isFinalizeCancelReason(value: string | null): value is FinalizeCancelReason {
@@ -142,7 +149,7 @@ export async function releaseCancelledHolds(
     ),
   ];
   for (const intentId of intents) {
-    await payments.release({ paymentIntentId: intentId, idempotencyKey: `pi-release:${mandateId}:${payerOf(rows, intentId)}` });
+    await payments.release({ paymentIntentId: intentId, idempotencyKey: `pi-release:${mandateId}:${holdKeyOf(rows, intentId)}` });
   }
   const released = await admin
     .from("payment_holds")
@@ -184,7 +191,7 @@ async function cancelMandate(
  * Books and pays for an authorized mandate (design §4.2): exactly one finalizer claims it, stores
  * which row pays each share (a share's own authorized hold wins over the organizer's fronted
  * row), re-quotes and books with key `booking:{mandate_id}`, captures each PaymentIntent once for
- * `holdFees`' total of the rows it pays (`pi-capture:{mandate_id}:{payer}`), and records it all
+ * `holdFees`' total of the rows it pays (`pi-capture:{mandate_id}:{payer}`, or a cover hold's own key), and records it all
  * with `complete_mandate`. A failed booking releases every hold and cancels the mandate
  * (`booking_failed`). Returns the mandate's status; a mandate that isn't authorized, or that
  * another finalizer holds, is left as it is.
@@ -301,10 +308,10 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
     }
 
     for (const [intentId, amountCents] of plan.captureByIntent) {
-      await payments.capture({ paymentIntentId: intentId, amountCents, idempotencyKey: `pi-capture:${mandateId}:${payerOf(rows, intentId)}` });
+      await payments.capture({ paymentIntentId: intentId, amountCents, idempotencyKey: `pi-capture:${mandateId}:${holdKeyOf(rows, intentId)}` });
     }
     for (const intentId of plan.releaseIntents) {
-      await payments.release({ paymentIntentId: intentId, idempotencyKey: `pi-release:${mandateId}:${payerOf(rows, intentId)}` });
+      await payments.release({ paymentIntentId: intentId, idempotencyKey: `pi-release:${mandateId}:${holdKeyOf(rows, intentId)}` });
     }
 
     const bookingId = randomUUID();

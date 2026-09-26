@@ -1830,13 +1830,16 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S02 · Declines and covering the shortfall · Should
 
-- **Files:** `web/src/features/payments/server/{decline-hold.ts,cover-shortfall.ts}`, `web/src/app/api/mandates/[id]/{decline,cover}/route.ts`, `web/tests/db/decline-cover.test.ts`
+- **Files:** `supabase/migrations/20260926150000_cover_shortfall.sql`, `web/src/features/payments/server/{decline-hold.ts,cover-shortfall.ts,cancel-by-organizer.ts,approve-hold.ts,finalize-mandate.ts,handle-stripe-event.ts}`, `web/src/features/payments/lib/{hold.ts,hold.test.ts}`, `web/src/app/api/mandates/[id]/{action.ts,decline,cover,cancel}/`, `packages/shared/src/api/mandates.ts`, `web/tests/db/decline-cover.test.ts`
 - **Depends on:** CO-210
+- **Produces:** `declineHold`, `coverShortfall`, `cancelByOrganizer`, and `POST /api/mandates/:id/{decline,cover,cancel}`. The organizer covers on a cover hold per declined share (design §11.7 item 8).
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/decline-cover.test.ts` passes:
     - `a decline moves the mandate to partially_declined`
     - `the organizer covering the shortfall adds a fronted row to their hold, and the mandate proceeds`
     - `the organizer cancelling releases every hold`
+  - [x] `pnpm --filter web test -- src/features/payments/lib/hold.test.ts src/app/api/mandates` and `pnpm --filter @agp/shared test -- src/api/mandates.test.ts` pass.
+- **Status:** in review (2026-09-26). Unit proof: `hold.test.ts` 4, the mandate routes 10, the shared contracts 2 (RED first: missing `./hold`, the three route modules, and `CancelBody`). `decline-cover.test.ts` has 18 database cases, the three above plus: a member who already approved (declining twice is part of the first case), a placeholder who claims and declines, the organizer can't decline, a decline recorded without moving the mandate is finished by a retry, an open mandate with an unpayable share can still be covered, covering before the others approve, two overlapping covers, a webhook for the main hold leaving a cover row alone and one for a cover hold leaving the main rows alone, a declined cover card, cancelling after a cover, an approval whose authorization lands during a cancel releasing its own hold, organizer-only cover and cancel, and `cover_shortfall` rejecting a non-member or another trip's organizer. `expire-mandates.test.ts` adds that the cron also finishes an organizer cancel's releases. They run in CI's database job (no local Docker).
 - **Commit:** `feat(payments): declines and organizer cover`
 
 #### AI-S02 · `summarize` tool · Should
