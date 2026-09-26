@@ -103,22 +103,6 @@ describe("mock LLM provider", () => {
     expect(calls).toEqual([]);
   });
 
-  it("mock runAgent stops after maxSteps tool calls", async () => {
-    const key = "three steps";
-    const dir = recordingsWith(key, [1, 2, 3].map((n) => ({ toolName: "plan_day", input: { n } })));
-    const calls: string[] = [];
-
-    const result = await createMockLlmProvider({ recordingsDir: dir, ...noDelay }).runAgent({
-      ...base,
-      tools: { plan_day: echoTool(calls, "plan_day") },
-      recordingKey: key,
-      maxSteps: 2,
-    });
-
-    expect(calls).toHaveLength(2);
-    expect(result.steps).toHaveLength(2);
-  });
-
   it("waits 400–900 ms before each replayed step", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     const key = "one step";
@@ -158,5 +142,57 @@ describe("mock LLM provider", () => {
     const provider = createMockLlmProvider(noDelay);
 
     await expect(provider.generateObject({ schema: z.object({}), prompt: "x" })).rejects.toBeInstanceOf(NotBuiltError);
+  });
+
+  it("a recording with more tool calls than the step cap fails, like a live run would", async () => {
+    const key = "loop forever";
+    const dir = recordingsWith(key, Array.from({ length: 3 }, () => ({ toolName: "plan_day", input: { mode: "initial" } })));
+    const calls: string[] = [];
+
+    await expect(
+      createMockLlmProvider({ recordingsDir: dir, ...noDelay }).runAgent({
+        ...base,
+        tools: { plan_day: echoTool(calls, "plan_day") },
+        recordingKey: key,
+        maxSteps: 2,
+      }),
+    ).rejects.toMatchObject({ name: "AppError", message: expect.stringContaining("too many steps") });
+    expect(calls).toEqual([]);
+  });
+
+  it("an aborted run stops before the next recorded step", async () => {
+    const key = "plan then search";
+    const dir = recordingsWith(key, [
+      { toolName: "plan_day", input: { mode: "initial" } },
+      { toolName: "search_places", input: { query: "tacos" } },
+    ]);
+    const calls: string[] = [];
+    const controller = new AbortController();
+    const tools = {
+      plan_day: tool({
+        description: "plan",
+        inputSchema: z.looseObject({}),
+        execute: async () => {
+          calls.push("plan_day");
+          controller.abort(new Error("run budget spent"));
+          return {};
+        },
+      }),
+      search_places: echoTool(calls, "search_places"),
+    };
+
+    await expect(
+      createMockLlmProvider({ recordingsDir: dir, ...noDelay }).runAgent({ ...base, tools, recordingKey: key, signal: controller.signal }),
+    ).rejects.toThrow("run budget spent");
+    expect(calls).toEqual(["plan_day"]);
+  });
+
+  it("a recording stored under another key, or a key too long for a file name, is not found", async () => {
+    // "café" and "cafè" share a file name; replaying one for the other would be a silent wrong answer.
+    const dir = recordingsWith("book the café", [], "Booked.");
+    const provider = createMockLlmProvider({ recordingsDir: dir, ...noDelay });
+
+    await expect(provider.runAgent({ ...base, tools: {}, recordingKey: "book the cafè" })).rejects.toBeInstanceOf(RecordingNotFoundError);
+    await expect(provider.runAgent({ ...base, tools: {}, recordingKey: "x".repeat(400) })).rejects.toBeInstanceOf(RecordingNotFoundError);
   });
 });

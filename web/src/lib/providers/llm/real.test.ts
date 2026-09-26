@@ -173,4 +173,73 @@ describe("meta LLM provider", () => {
     );
     expect(requests).toHaveLength(1);
   });
+
+  it("input that fails the tool's schema goes back to the model, which can correct itself", async () => {
+    const { fetch, requests } = scriptedFetch([
+      toolCall("plan_day", '{"mode":"bogus"}'),
+      toolCall("plan_dya", '{"mode":"initial"}'),
+      completion({ content: "Which slot should I plan?" }, "stop"),
+    ]);
+    const execute = vi.fn(async () => ({ ok: true }));
+    const planDay = tool({ description: "Plan the day.", inputSchema: z.object({ mode: z.enum(["initial", "replan"]) }), execute });
+
+    const result = await metaWith(fetch).runAgent({ ...planPrompt, tools: { plan_day: planDay } });
+
+    expect(result.text).toBe("Which slot should I plan?");
+    expect(requests).toHaveLength(3);
+    expect(execute).not.toHaveBeenCalled();
+    // The model saw why each call failed.
+    expect(JSON.stringify(requests[2]!.body.messages)).toMatch(/plan_dya|Invalid input/);
+  });
+
+  it("a model that keeps calling tools past the step cap fails the run", async () => {
+    const { fetch, requests } = scriptedFetch(Array.from({ length: 6 }, () => toolCall("plan_day", '{"mode":"initial"}')));
+    const planDay = tool({
+      description: "Plan the day.",
+      inputSchema: z.object({ mode: z.enum(["initial", "replan"]) }),
+      execute: async () => ({ ok: true }),
+    });
+
+    await expect(metaWith(fetch).runAgent({ ...planPrompt, tools: { plan_day: planDay } })).rejects.toMatchObject({
+      name: "AppError",
+      code: "internal",
+      message: expect.stringContaining("too many steps"),
+    });
+    expect(requests).toHaveLength(6);
+  });
+
+  it("the run budget ends the run with a timeout AppError", async () => {
+    // The model asks for a tool, then its next call hangs past the (shortened) run budget.
+    const requests: unknown[] = [];
+    const fetch = (_: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(init);
+      if (requests.length === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify(toolCall("plan_day", '{"mode":"initial"}')), { headers: { "content-type": "application/json" } }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+    };
+    const planDay = tool({
+      description: "Plan the day.",
+      inputSchema: z.object({ mode: z.enum(["initial", "replan"]) }),
+      execute: async () => ({ ok: true }),
+    });
+    const provider = createMetaProvider({
+      apiKey: "test-key",
+      baseURL: "https://meta.test/v1",
+      agentModel: "muse-spark-1.3",
+      fetch: fetch as typeof globalThis.fetch,
+      runMs: 300,
+    });
+
+    await expect(provider.runAgent({ ...planPrompt, tools: { plan_day: planDay } })).rejects.toMatchObject({
+      name: "AppError",
+      code: "timeout",
+      retryable: true,
+    });
+    expect(requests).toHaveLength(2);
+  });
 });

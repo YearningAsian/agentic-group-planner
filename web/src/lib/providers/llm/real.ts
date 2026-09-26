@@ -13,6 +13,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { AppError, withPolicy } from "@/lib/reliability";
+import { stepLimitError } from "./errors";
 import type { LlmProvider, LlmProviderName } from "./types";
 
 // Design §7.4: each model call gets 25 s and one retry; a whole run gets 90 s. The budget is per
@@ -46,11 +47,29 @@ const modelCallPolicy: LanguageModelMiddleware = {
     ),
 };
 
-/** A tool that throws ends the run; the SDK would otherwise hand the error to the model and go on. */
-const toolFailed: StopCondition<ToolSet> = ({ steps }) =>
-  steps.at(-1)?.content.some((part) => part.type === "tool-error") ?? false;
+type Step = Parameters<StopCondition<ToolSet>>[0]["steps"][number];
 
-function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel): LlmProvider {
+/**
+ * The error from a tool that threw in this step, if any. A `tool-error` for an invalid call (input
+ * that fails the schema, or a tool that doesn't exist) is not one: the SDK sends that back to the
+ * model, which can correct itself (design §2.1).
+ */
+function thrownToolError(step: Step | undefined): { error: unknown } | undefined {
+  if (!step) return undefined;
+  const invalid = new Set(
+    step.content.flatMap((part) => (part.type === "tool-call" && part.invalid === true ? [part.toolCallId] : [])),
+  );
+  return step.content.find((part) => part.type === "tool-error" && !invalid.has(part.toolCallId)) as { error: unknown } | undefined;
+}
+
+/** A tool that throws ends the run; the SDK would otherwise hand the error to the model and go on. */
+const toolFailed: StopCondition<ToolSet> = ({ steps }) => thrownToolError(steps.at(-1)) !== undefined;
+
+function isTimeout(error: unknown): boolean {
+  return (error as { name?: unknown } | null)?.name === "TimeoutError";
+}
+
+function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, runMs = RUN_MS): LlmProvider {
   const generateObject: LlmProvider["generateObject"] = async ({ schema, prompt }) => {
     const result = await generateText({
       model: agentModel,
@@ -67,6 +86,7 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel): 
     name,
 
     async runAgent(input) {
+      const maxSteps = input.maxSteps ?? DEFAULT_MAX_STEPS;
       const result = await generateText({
         model: agentModel,
         instructions: input.system,
@@ -74,13 +94,17 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel): 
         tools: input.tools,
         // Meta returns 400 for any tool_choice but "auto" (ADR 0017), so the loop never forces one.
         toolChoice: "auto",
-        stopWhen: [isStepCount(input.maxSteps ?? DEFAULT_MAX_STEPS), toolFailed],
-        timeout: { totalMs: RUN_MS },
+        stopWhen: [isStepCount(maxSteps), toolFailed],
+        timeout: { totalMs: runMs },
         maxRetries: 0,
         abortSignal: input.signal,
+      }).catch((error: unknown) => {
+        throw isTimeout(error) ? new AppError("timeout", "The agent took too long. Try again.", { cause: error }) : error;
       });
-      const failure = result.steps.at(-1)?.content.find((part) => part.type === "tool-error");
+      const failure = thrownToolError(result.steps.at(-1));
       if (failure) throw failure.error;
+      // Design §4.4: a run that hits the step cap while still calling tools fails.
+      if (result.steps.length >= maxSteps && result.finishReason === "tool-calls") throw stepLimitError(maxSteps);
       const steps = result.steps.flatMap((step) =>
         step.toolResults.map(({ toolName, input: toolInput, output }) => ({ toolName, input: toolInput, output })),
       );
@@ -98,6 +122,8 @@ export interface MetaProviderOptions {
   agentModel: string;
   /** Tests pass a scripted fetch; production uses the global one. */
   fetch?: typeof globalThis.fetch;
+  /** The whole run's budget; 90 s unless a test shortens it. */
+  runMs?: number;
 }
 
 /** Muse on Meta's Model API over Chat Completions (ADR 0017). */
@@ -112,6 +138,7 @@ export function createMetaProvider(options: MetaProviderOptions): LlmProvider {
   return createAiSdkProvider(
     "meta",
     wrapLanguageModel({ model: meta.chatModel(options.agentModel), middleware: modelCallPolicy }),
+    options.runMs,
   );
 }
 

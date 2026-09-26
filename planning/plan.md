@@ -407,7 +407,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-103, VO-103
 - **Produces:**
   - `getLlmProvider()`, picking `meta`, `google`, or `mock` from `LLM_PROVIDER`. `meta` is `@ai-sdk/openai-compatible` at `META_MODEL_API_BASE_URL` with `supportsStructuredOutputs: true` (ADR 0017).
-  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most, 25 s per step, 90 s per run.
+  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most (a run still calling tools at the cap fails), 25 s and one retry per model call, 90 s per run.
   - `recordingKey(prompt | { trigger, slotKey })` and `recordingFileName(key)`.
 - **Done when:**
   - [x] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:

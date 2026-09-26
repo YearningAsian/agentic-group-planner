@@ -467,7 +467,7 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 
 | Method | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s per step; 90 s per run |
+| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s and one retry per model call (tools never count against it); 90 s per run; a run still calling tools at the step cap fails |
 
 Meta's Model API accepts only `tool_choice: "auto"`; `"required"`, `"none"`, and named tools return HTTP 400. So the runner never forces a tool, and `generateObject` uses `response_format` with a JSON schema, never a forced tool call ([ADR 0017](adr/0017-meta-model-api.md)).
 
@@ -1388,7 +1388,7 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 
 | Dependency | Timeout | Retries | Fallback |
 | --- | --- | --- | --- |
-| Muse Spark, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
+| Muse Spark, per model call | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
 | Meta ASR, voice note | 30 s | 1 | the composer keeps the recording and shows Try again; nothing is posted |
 | FastAPI `/v1/plan` | 8 s | 1 | an error card with Try again. Inside FastAPI, enumeration covers a CP-SAT failure (§2.2). |
 | Stripe | 10 s | 2 (SDK `maxNetworkRetries`, same idempotency key) | the hold becomes `failed`; the card shows "Try again" |
