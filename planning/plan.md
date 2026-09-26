@@ -118,7 +118,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - [ ] That run went through a real model (`LLM_PROVIDER=meta`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
 - [ ] The same prompt with `LLM_PROVIDER=mock` produces the same card, and `agent_runs.replayed = true`.
 - [ ] `GET https://<vercel-url>/api/health` returns `{ web: ok, db: ok, optimizer: ok }`.
-- [ ] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
+- [x] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
 
 **If it fails:** nobody starts Milestone 2. Everyone swarms the broken step of the slice. CI (CO-106, Should) is worth landing before Milestone 2, because four people share `main`.
 
@@ -161,7 +161,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `trip_members rejects status joined with a null profile_id`
     - `a trip can't have two organizers`
   - [ ] The migration is pushed first, before files 2–4, and `pnpm db:types` is committed with it.
-- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): foundation tables, membership helpers, and db test harness`
 
 #### VO-103 · Env loader and env examples · Must
@@ -178,7 +178,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `rejects a live Stripe key (sk_live_)`
     - `accepts the build profile: every provider mock and no provider keys`
   - [ ] Check: `web/.env.example` contains no phone number.
-- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
+- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0. Re-verified 2026-09-26 after the journey pivot: the voice, segmentation, image, grounding, and vision-model variables are gone, and dev mode needs only `DEMO_ADMIN_TOKEN`. `pnpm --filter web test src/lib/env` → 9 passed (RED first: every case failed while the loader still required `VOICE_PROVIDER`).
 - **Commit:** `feat(env): validated server and client env with examples`
 
 #### VO-104 · Supabase clients and session proxy · Must
@@ -305,11 +305,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** FE-102, VO-104, CO-102, AI-103
 - **Produces:** `sendMessage({ tripId, clientId, body, itemId? })`, which returns `{ messageId, agentRunId }`. A message whose body contains `@agent` (case-insensitive, as a whole word) inserts one queued `agent_runs` row through the admin client, and the route starts it with `after(() => startAgentRun(agentRunId))`. `maxDuration = 300`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
     - `the same client_id twice returns the same message_id and one row`
     - `a body with @agent creates exactly one queued agent_run linked by trigger_message_id`
     - `a non-member gets not_permitted`
-  - [ ] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+  - [x] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/send-message.test.ts` → 6 passed (RED first: `sendMessage` was a stub, and the insert policy accepted another trip's item); `pnpm --filter web test src/app/api/messages src/features/chat` → 7 passed (RED first: no route). Migration `20260926071157_messages_same_trip_links.sql` makes the members' insert policy require `item_id` and `reply_to_message_id` on the message's own trip.
 - **Commit:** `feat(chat): idempotent send-message route that starts agent runs`
 
 #### FE-106 · Trip route and chat view · Must
@@ -383,7 +384,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `plan_day rejects options_per_slot outside 2–3`
     - `the plan card requires applied_plan_rank = 1`
     - `CardPayload picks the schema by card_type`
-- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules. Re-verified 2026-09-26 after the journey pivot: 5 tool inputs, 9 card schemas, and the design §3.1 enums (no call, photo, or match enums). `pnpm --filter @agp/shared test` → 8 files, 32 passed (RED first: the enum test on 27 enums, and a new api-barrel test on the votes, voice-tools, recaps, and photos modules).
 - **Commit:** `feat(shared): enums, handles, tool result, events, and contract barrels`
 
 #### AI-103 · Web skeleton: entry points, tool folders, provider folders · Must
@@ -398,7 +399,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0. Re-verified 2026-09-26 after the journey pivot: the registry lists 5 tools, `cards.tsx` maps 9 card types, the gallery, recap, and voice features and the grounding, image, segmentation, and voice providers are gone, and `features/profile` exists. `pnpm --filter web test src/lib/tools` → 4 passed (RED first: 7 tools and 11 card types).
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
 
 #### AI-104 · LLM provider and recording keys · Must
@@ -407,15 +408,16 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-103, VO-103
 - **Produces:**
   - `getLlmProvider()`, picking `meta`, `google`, or `mock` from `LLM_PROVIDER`. `meta` is `@ai-sdk/openai-compatible` at `META_MODEL_API_BASE_URL` with `supportsStructuredOutputs: true` (ADR 0017).
-  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most, 25 s per step, 90 s per run.
+  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most (a run still calling tools at the cap fails), 25 s and one retry per model call, 90 s per run.
   - `recordingKey(prompt | { trigger, slotKey })` and `recordingFileName(key)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
     - `normalizes the plan prompt to "plan saturday 80 each person 2s vegetarian person 4 joins later"`
     - `mock runAgent returns the recorded steps in order and replayed = true`
     - `mock runAgent without a recording throws a named error`
     - `the meta provider never sends a tool_choice other than auto` (Meta returns 400 otherwise)
     - `meta generateObject sends response_format json_schema, not a forced tool call`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm` → 17 passed (RED first: "Cannot find module ./mock", "./real", "./recording-key"). The two meta tests live in `real.test.ts`, and provider selection in `index.test.ts`. Each model request goes through `withPolicy` (25 s, one retry) by `wrapLanguageModel` middleware, so tools are never retried and never count against the 25 s; the run has a 90 s total. A tool that throws ends the run on every provider (`runAgent` rejects). After review: 21 tests in `src/lib/providers/llm` and `src/lib/agent`. The mock's `generateObject` throws `NotBuiltError` until a caller needs fixtures. Typecheck and lint exit 0. 2026-09-26: `describeImage` and the vision model left with the photo flow (journey pivot); 20 tests remain in those two folders.
 - **Commit:** `feat(agent): llm provider with meta, google, and replay mock`
 
 #### AI-105 · Agent context and handles · Must
@@ -424,11 +426,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-102, CO-102 (types generated)
 - **Produces:** `buildContext(tripId, requesterMemberId) → { system, messages, handles }`, and `resolveHandle(handles, 'I2') → uuid`. An unknown handle throws a `ToolError` with code `unknown_handle`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent` passes:
     - `assigns M# by sort_order, I# by starts_at, and O# by rank, identically on repeated calls`
     - `renders members as "M1 Person 1 (organizer)" with budgets, and "M4 Person 4 (placeholder)"`
     - `includes the last 30 messages with sender names, and the requester's handle`
     - `resolveHandle on an unknown handle throws unknown_handle`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test src/lib/agent` → 14 passed in `handles.test.ts` and `context.test.ts` (RED first: "Cannot find module ./handles" and "./context"); `pnpm --filter web test:db tests/db/agent-context.test.ts` → 2 passed (`loadTripSnapshot` against the local stack). The rendering is pure (`renderContext` over a `TripSnapshot`); `buildContext(tripId, requesterMemberId, admin?)` loads and renders.
 - **Commit:** `feat(agent): trip context with stable handles`
 
 #### AI-106 · Agent runner · Must
@@ -440,12 +443,13 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `runTool(ctx, toolName, input)`: returns a stored `succeeded` output without re-running the handler.
   - `agent.status` broadcasts. Any failure writes an `error` card and marks the run `failed`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
+  - [x] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
     - `a queued run is claimed once; a second claim for the same trip returns null while it's running`
     - `a succeeded tool_calls row is returned without calling the handler again`
     - `a handler that throws writes one error card and marks the run failed`
     - `a successful run ends succeeded with exactly one agent text message`
     - `a final text that makes the agent the payer (pairsAgentWithPaid, speaker agent) is replaced with "I proposed it. Each of you approves your own share."` (HumanInLoopLabel)
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/runner.test.ts` → 11 passed on the local stack (RED first: "Cannot find package @/lib/agent/runner"): the five listed, plus broadcasts in order, an unknown handle returned to the model, the recorded plan prompt replayed through the mock LLM, a missing recording ending in an error card, and `finish_agent_run` rejecting a non-member, finishing once, and refusing clients. The end of a run goes through a new write function, `finish_agent_run` (migration `20260926070135`; design §3.4). `runTool(ctx, tool, input)` takes the tool definition rather than its name.
 - **Commit:** `feat(agent): runner with leases, idempotent tool calls, and status broadcasts`
 
 #### AI-107 · Optimizer client and the `plan_day` slice · Must
@@ -475,11 +479,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - [ ] `pnpm --filter web test:db -- tests/db/itinerary-schema.test.ts` passes:
     - `an item can't go from tbd to voting without passing through proposing`
     - `area_label, area_lat, and area_lng are all set or all null`
-    - `a vote can't point at another item's option (composite foreign key)`
+    - `an item has at most one option per rank and per place`
     - `members select items; non-members select none`
     - `ends_at must be after starts_at`
   - [ ] Pushed right after file 1. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): places, routes, and itinerary tables`
 
 #### CO-102 · Migration 3 (agent and chat) · Must
@@ -494,7 +498,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `messages.client_id is unique`
     - `card_type is required exactly when kind = card`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): agent runs, messages, and tool calls`
 
 #### CO-103 · Migration 4 (commerce, calls, and webhooks) · Must
@@ -509,7 +513,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `an authenticated user can't read webhook_events`
     - `a share has at most one own row and one fronted row`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): mandates, holds, bookings, and webhook events`
 
 #### CO-104 · `apply_plan`, first version, and the function audit · Must
@@ -1086,10 +1090,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/lib/agent/{queue.ts,runner.ts}`, `web/tests/db/run-queue.test.ts`
 - **Depends on:** AI-106
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
     - `a run started while another is running stays queued, then runs when the first finishes`
     - `a running run with an expired lease is marked failed by the next claimant`
     - `a queued run older than 5 minutes is failed, not started`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/run-queue.test.ts` → 4 passed (RED first: the queued run never started, the expired lease was never failed, and the stale run was started): the three listed plus "a live lease is left alone". Before claiming, the runner sweeps the trip (an expired lease or a queued run older than 5 minutes is failed with a timeout error card), and a finished run starts the oldest queued one in the same `after()`.
 - **Commit:** `feat(agent): one running run per trip with a queue`
 
 #### AI-213 · Agent run recorder · Should

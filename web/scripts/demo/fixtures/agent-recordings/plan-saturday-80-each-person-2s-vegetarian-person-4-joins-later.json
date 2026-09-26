@@ -1,0 +1,17 @@
+{
+  "key": "plan saturday 80 each person 2s vegetarian person 4 joins later",
+  "steps": [
+    {
+      "toolName": "plan_day",
+      "input": {
+        "mode": "initial",
+        "constraint_updates": [
+          { "member_handle": "all", "budget_cents": 8000 },
+          { "member_handle": "M2", "dietary": ["vegetarian"] }
+        ],
+        "options_per_slot": 3
+      }
+    }
+  ],
+  "finalText": "Here's a plan for Saturday. Comment on any stop you'd change."
+}

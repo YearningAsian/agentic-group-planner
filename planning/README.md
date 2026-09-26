@@ -4,7 +4,7 @@ These docs describe the product and how to build it. They're tracked, except `ad
 
 ## Read in this order
 
-1. [`design.md`](design.md) §5, **Core user flows**: the six things the product does, with sequence diagrams.
+1. [`design.md`](design.md) §5, **Core user flows**: the five things the product does, with sequence diagrams.
 2. [`design.md`](design.md) §1 (module map and ownership), then the sections your workstream's row points to.
 3. [`plan.md`](plan.md): your tasks, their tiers, files, dependencies, and tests.
 4. [`adr/`](adr/README.md) before reopening any decision.
@@ -16,6 +16,7 @@ These docs describe the product and how to build it. They're tracked, except `ad
 | --- | --- |
 | [`design.md`](design.md) | The technical design: core flows, contracts, data model, state machines, Realtime, reliability, frontend, env, and seed data. §11 logs every deviation from the master plan and every review ruling. |
 | [`plan.md`](plan.md) | The build plan: four milestones, tasks per workstream (tiered Must or Should against the core flows), who works on what, and the critical path. |
+| [`progress.md`](progress.md) | The running log of backend and data work: each feature's commits, the proof behind each status in `plan.md`, and what's blocked. |
 | [`stack.md`](stack.md) | Pinned versions. Verify them on npm and PyPI before installing. |
 | [`checklist.md`](checklist.md) | Account and key setup, then the scaffold steps in order. |
 | [`adr/`](adr/README.md) | Architecture decision records. Gitignored. |

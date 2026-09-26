@@ -467,7 +467,7 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 
 | Method | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s per step; 90 s per run |
+| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s and one retry per model call (tools never count against it); 90 s per run; a run still calling tools at the step cap fails |
 
 Meta's Model API accepts only `tool_choice: "auto"`; `"required"`, `"none"`, and named tools return HTTP 400. So the runner never forces a tool, and `generateObject` uses `response_format` with a JSON schema, never a forced tool call ([ADR 0017](adr/0017-meta-model-api.md)).
 
@@ -987,6 +987,7 @@ revoke execute on function public.apply_plan(jsonb) from public, anon, authentic
 | `create_mandate(payload jsonb)` | `createMandate` (`propose_purchase`) | the mandate, its share rows (`own`, `awaiting_member`, and `fronted`), and the `approval` card | CO |
 | `complete_mandate(payload jsonb)` | `finalizeMandate`, after `book()` and the captures | the booking, the captured and released share rows (one paying row per share), `final_cents`, the item booked and pinned, and the `booking_confirmed` card | CO |
 | `apply_item_change(payload jsonb)` | `update_item` | the item change and the `itinerary_change` card | AI |
+| `finish_agent_run(payload jsonb)` | the runner (`startAgentRun`), at the end of every run | the run `succeeded` with one agent text message, or `failed` with one `error` card; step count, usage, replay flag, and error | AI |
 | `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer). | FE |
 
 ---
@@ -1387,7 +1388,7 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 
 | Dependency | Timeout | Retries | Fallback |
 | --- | --- | --- | --- |
-| Muse Spark, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
+| Muse Spark, per model call | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
 | Meta ASR, voice note | 30 s | 1 | the composer keeps the recording and shows Try again; nothing is posted |
 | FastAPI `/v1/plan` | 8 s | 1 | an error card with Try again. Inside FastAPI, enumeration covers a CP-SAT failure (§2.2). |
 | Stripe | 10 s | 2 (SDK `maxNetworkRetries`, same idempotency key) | the hold becomes `failed`; the card shows "Try again" |
@@ -1792,6 +1793,6 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 
 - **Votes are gone.** There is no `cast_vote`, no majority lock, and no `votes` table. Items move `voting → decided` through the organizer's `swap_option` lock or the agent on an explicit confirmation in chat. The plan card shows comment counts, not tallies.
 - **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 5 tools and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
-- **Dormant migration content.** Migrations 1–4 as applied still contain the `votes` and `calls` tables and their triggers. They are unused: no function, route, or policy writes to them. A later cleanup migration may drop them; until then, schema tests cover only the tables in §3.2.
+- **Dormant migration content, dropped.** Migrations 1–4 created the `votes` and `calls` tables, `agent_runs.trigger_call_id`, and `bookings.call_id`, and their CHECKs allowed the dropped tool names, card types, run trigger, and providers. `20260926063958_journey_pivot_cleanup.sql` drops those tables and columns and narrows each CHECK to the §3.1 values; `web/tests/db/pivot-cleanup.test.ts` pins it.
 - **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
 - **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.

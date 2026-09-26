@@ -149,7 +149,7 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
       mode: input.mode,
       slots: payloadSlots,
       card,
-      result_summary: `Posted a plan card for the group to vote on. ${summary}.`.slice(0, 600),
+      result_summary: `Posted a plan card for the group to discuss. ${summary}.`.slice(0, 600),
     },
   });
   if (error) throw rpcError(error);

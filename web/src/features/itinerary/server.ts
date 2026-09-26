@@ -5,5 +5,6 @@ import { notBuilt } from "@/lib/not-built";
 export { type ApplyPlanInput, type ApplyPlanResult, applyPlan } from "./server/apply-plan";
 
 // Stubs until their owners build them.
-export const castVote = notBuilt("castVote");
+export const postComment = notBuilt("postComment");
 export const supersedeItem = notBuilt("supersedeItem");
+export const buildItineraryExport = notBuilt("buildItineraryExport");

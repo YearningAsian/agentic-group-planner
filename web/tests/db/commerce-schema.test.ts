@@ -69,18 +69,6 @@ function share(mandateId: string, shareMember: string, kind: "own" | "fronted", 
   };
 }
 
-function call(itemId: string) {
-  return {
-    trip_id: tripId,
-    item_id: itemId,
-    place_id: placeId,
-    to_number: "+15555550100",
-    provider: "mock",
-    request: { party_size: 4 },
-    idempotency_key: `call:${randomUUID()}`,
-  };
-}
-
 beforeAll(async () => {
   person1 = await createUser({ batch, displayName: "Person 1" });
   ({ tripId, memberIds } = await createTrip(batch, {
@@ -91,7 +79,7 @@ beforeAll(async () => {
 
 afterAll(() => cleanup(batch));
 
-describe("commerce, calls, and webhooks migration", () => {
+describe("commerce and webhooks migration", () => {
   it("a share row can't go from captured back to authorized", async () => {
     const { itemId, optionId } = await itemWithOption("morning");
     const { id: mandateId } = await insert("mandates", mandate(itemId, optionId));
@@ -113,16 +101,6 @@ describe("commerce, calls, and webhooks migration", () => {
     expect((await admin.from("mandates").update({ status: "cancelled" }).eq("id", first)).error).toBeNull();
     const retry = await admin.from("mandates").insert({ ...mandate(itemId, optionId), supersedes_mandate_id: first, seed_batch: batch });
     expect(retry.error).toBeNull();
-  });
-
-  it("an item has at most one active call", async () => {
-    const { itemId } = await itemWithOption("dinner");
-    const { id: first } = await insert("calls", call(itemId));
-    const second = await admin.from("calls").insert({ ...call(itemId), seed_batch: batch });
-    expect(second.error?.code).toBe("23505");
-
-    expect((await admin.from("calls").update({ status: "failed" }).eq("id", first)).error).toBeNull();
-    expect((await admin.from("calls").insert({ ...call(itemId), seed_batch: batch })).error).toBeNull();
   });
 
   it("an authenticated user can't read webhook_events", async () => {
