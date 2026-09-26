@@ -1,0 +1,198 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Dark mode follows the OS setting. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+ * Design tokens. These variables are the source of truth; the shadcn variables below map onto
+ * them, so generated components follow the same palette.
+ */
+:root {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #efede7;
+  --border: #dcd8cf;
+  --text: #1b1b18;
+  --text-muted: #5b584f;
+  --primary: #1f4e5f;
+  --primary-contrast: #ffffff;
+  --success: #1e7b4a;
+  --warning: #945700;
+  --danger: #b42318;
+  --info: #1d5fa8;
+  --focus: #0b63ce;
+
+  /* Lanes: Okabe-Ito, color-blind safe. Never the only signal; lanes also show initials. */
+  --lane-1: #0072b2;
+  --lane-2: #e69f00;
+  --lane-3: #009e73;
+  --lane-4: #cc79a7;
+  --lane-5: #56b4e9;
+  --lane-6: #d55e00;
+
+  --shadow-sm: 0 1px 2px rgb(27 27 24 / 0.08);
+  --shadow-md: 0 4px 12px rgb(27 27 24 / 0.1), 0 1px 3px rgb(27 27 24 / 0.08);
+
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+
+  /* shadcn's names, mapped onto the tokens. */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary-foreground: var(--primary-contrast);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--focus);
+  /* Controls: 8 px. */
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121412;
+    --surface: #1b1e1c;
+    --surface-2: #262a27;
+    --border: #363b37;
+    --text: #ededea;
+    --text-muted: #a8aaa1;
+    --primary: #82c7d8;
+    --primary-contrast: #0e2a33;
+    --success: #5fca8f;
+    --warning: #f0b455;
+    --danger: #f28b80;
+    --info: #80b5f0;
+    --focus: #80b5f0;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.4);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-primary-contrast: var(--primary-contrast);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-focus: var(--focus);
+  --color-lane-1: var(--lane-1);
+  --color-lane-2: var(--lane-2);
+  --color-lane-3: var(--lane-3);
+  --color-lane-4: var(--lane-4);
+  --color-lane-5: var(--lane-5);
+  --color-lane-6: var(--lane-6);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+
+  /* Type scale: 12 / 14 / 16 / 18 / 22 / 28. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+
+  /* Radius: controls 8, inputs 12, cards 16, pills 999. */
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 2.5);
+  --radius-4xl: calc(var(--radius) * 3);
+  --radius-control: var(--radius);
+  --radius-input: 0.75rem;
+  --radius-card: 1rem;
+  --radius-pill: 999px;
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --default-transition-duration: var(--duration-fast);
+}
+
+/* The minimum touch target for every control: 44 × 44 px. */
+@utility touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* The shared focus ring: 2 px of --focus, offset 2 px, on keyboard focus only. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    line-height: 1.4;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Reduced motion: no movement (transforms, slides); fades and color changes stay. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-property: opacity, color, background-color, border-color, box-shadow !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+  }
+}
