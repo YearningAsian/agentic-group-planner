@@ -16,6 +16,7 @@ function setup() {
       create: vi.fn().mockResolvedValue({ id: "pi_1", status: "requires_capture" }),
       capture: vi.fn().mockResolvedValue({ id: "pi_1", status: "succeeded", amount_received: 4325 }),
       cancel: vi.fn().mockResolvedValue({ id: "pi_1", status: "canceled" }),
+      retrieve: vi.fn(),
     },
     refunds: { create: vi.fn().mockResolvedValue({ id: "re_1" }) },
     webhooks: realWebhooks,
@@ -107,7 +108,7 @@ describe("Stripe payments provider", () => {
     );
   });
 
-  it("verifies the exact raw webhook body and normalizes PaymentIntent and charge refunds", () => {
+  it("verifies the exact raw webhook body and normalizes PaymentIntent and refund events", () => {
     const { provider, realWebhooks } = setup();
     const paymentIntentBody = JSON.stringify({
       id: "evt_pi", type: "payment_intent.payment_failed",
@@ -120,13 +121,66 @@ describe("Stripe payments provider", () => {
     });
     expect(() => provider.parseWebhook({ rawBody: `${paymentIntentBody} `, signature: piSignature })).toThrow();
 
-    const chargeBody = JSON.stringify({
-      id: "evt_refund", type: "charge.refunded",
-      data: { object: { id: "ch_1", object: "charge", payment_intent: "pi_1", status: "succeeded", metadata: { mandate_id: mandateId }, refunds: { data: [{ id: "re_1", amount: 4325, metadata: { mandate_id: mandateId, share_member_id: memberId } }] } } },
+    // Real Stripe charge.refunded payloads omit Charge.refunds (API ≥ 2022-11-15); we ignore that list.
+    const bareChargeBody = JSON.stringify({
+      id: "evt_charge", type: "charge.refunded",
+      data: { object: { id: "ch_1", object: "charge", payment_intent: "pi_1", status: "succeeded", metadata: { mandate_id: mandateId } } },
     });
-    const chargeSignature = realWebhooks.generateTestHeaderString({ payload: chargeBody, secret: webhookSecret });
-    expect(provider.parseWebhook({ rawBody: chargeBody, signature: chargeSignature })).toMatchObject({
-      paymentIntentId: "pi_1", refunds: [{ id: "re_1", amountCents: 4325, metadata: { mandate_id: mandateId, share_member_id: memberId } }],
+    const bareSignature = realWebhooks.generateTestHeaderString({ payload: bareChargeBody, secret: webhookSecret });
+    expect(provider.parseWebhook({ rawBody: bareChargeBody, signature: bareSignature })).toMatchObject({
+      type: "charge.refunded", paymentIntentId: "pi_1", refunds: [],
     });
+
+    // Prefer refund.created / refund.updated: the Refund object carries amount and our metadata.
+    const refundBody = JSON.stringify({
+      id: "evt_refund", type: "refund.created",
+      data: { object: { id: "re_1", object: "refund", amount: 4325, payment_intent: "pi_1", status: "succeeded", metadata: { mandate_id: mandateId, share_member_id: memberId } } },
+    });
+    const refundSignature = realWebhooks.generateTestHeaderString({ payload: refundBody, secret: webhookSecret });
+    expect(provider.parseWebhook({ rawBody: refundBody, signature: refundSignature })).toEqual({
+      id: "evt_refund", type: "refund.created", paymentIntentId: "pi_1", status: "succeeded",
+      metadata: { mandate_id: mandateId, share_member_id: memberId }, declineCode: null,
+      refunds: [{ id: "re_1", amountCents: 4325, metadata: { mandate_id: mandateId, share_member_id: memberId } }],
+    });
+  });
+
+  it("capture and release succeed when the PaymentIntent is already in that final state", async () => {
+    const { sdk, provider } = setup();
+    sdk.paymentIntents.capture.mockRejectedValueOnce({
+      type: "StripeInvalidRequestError",
+      code: "payment_intent_unexpected_state",
+    });
+    sdk.paymentIntents.retrieve = vi.fn().mockResolvedValue({ id: "pi_1", status: "succeeded", amount_received: 4325 });
+    await expect(provider.capture({ paymentIntentId: "pi_1", amountCents: 4325, idempotencyKey: "cap:1" })).resolves.toEqual({
+      status: "captured",
+      capturedCents: 4325,
+    });
+
+    sdk.paymentIntents.cancel.mockRejectedValueOnce({
+      type: "StripeInvalidRequestError",
+      code: "payment_intent_unexpected_state",
+    });
+    sdk.paymentIntents.retrieve = vi.fn().mockResolvedValue({ id: "pi_1", status: "canceled" });
+    await expect(provider.release({ paymentIntentId: "pi_1", idempotencyKey: "rel:1" })).resolves.toEqual({ status: "released" });
+  });
+
+  it("any card error with a PaymentIntent is a decline, not a retryable failure", async () => {
+    const { sdk, provider } = setup();
+    sdk.paymentIntents.create.mockRejectedValueOnce({
+      type: "StripeCardError",
+      code: "expired_card",
+      decline_code: "expired_card",
+      payment_intent: { id: "pi_declined" },
+    });
+    await expect(
+      provider.authorize({
+        customerId: "cus_1",
+        paymentMethodId: "pm_1",
+        amountCents: 100,
+        currency: "usd",
+        metadata: {},
+        idempotencyKey: "pi-auth:m:p",
+      }),
+    ).resolves.toEqual({ paymentIntentId: "pi_declined", status: "declined", declineCode: "expired_card" });
   });
 });
