@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stayCardsForDestination } from "@/lib/providers/stays/mock";
 import { PlannerStudio } from "./planner-studio";
 import type { TripState } from "@/features/trip-draft/trip-context";
 
@@ -97,6 +98,21 @@ describe("PlannerStudio", () => {
     confirmDestination.mockClear();
     lockStay.mockClear();
     tripMap.mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        const stays = stayCardsForDestination(url.searchParams.get("destinationId"));
+        return new Response(JSON.stringify({ stays }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("keeps an empty draft empty instead of showing the Barcelona sample as saveable", () => {
@@ -127,5 +143,69 @@ describe("PlannerStudio", () => {
     render(<PlannerStudio />);
 
     expect(screen.getAllByText("Over budget")).toHaveLength(2);
+  });
+
+  it("hides Browse stays until a destination is confirmed", () => {
+    const { rerender } = render(<PlannerStudio />);
+
+    expect(screen.queryByRole("button", { name: /browse stays/i })).not.toBeInTheDocument();
+
+    currentState = state({ destinationId: "lisbon" });
+    rerender(<PlannerStudio />);
+
+    expect(screen.getByRole("button", { name: /browse stays/i })).toBeInTheDocument();
+  });
+
+  it("returns to the same chat thread after closing browse", async () => {
+    currentState = state({ destinationId: "lisbon", startDate: "2026-06-01", endDate: "2026-06-04" });
+    render(<PlannerStudio />);
+
+    await userEvent.type(screen.getByLabelText(/message the trip agent/i), "We need a quiet street.");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+    expect(screen.getByText("We need a quiet street.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /browse stays/i }));
+    expect(screen.queryByLabelText(/message the trip agent/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /alfama townhouse/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /back to chat/i }));
+    expect(screen.getByText("We need a quiet street.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/message the trip agent/i)).toBeInTheDocument();
+  });
+
+  it("locks the clicked browse listing through the same stay handler as chat", async () => {
+    currentState = state({ destinationId: "lisbon", startDate: "2026-06-01", endDate: "2026-06-04" });
+    render(<PlannerStudio />);
+
+    await userEvent.click(screen.getByRole("button", { name: /browse stays/i }));
+    const link = await screen.findByRole("link", { name: /view tile-roof flat/i });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("href")).toContain("/stays/lisbon-stay-1");
+    await userEvent.click(screen.getByRole("button", { name: /choose tile-roof flat/i }));
+
+    expect(lockStay).toHaveBeenCalledWith("lisbon-stay-1");
+  });
+
+  it("sends price-bubble markers to the map only while browsing", async () => {
+    currentState = state({ destinationId: "lisbon" });
+    render(<PlannerStudio />);
+
+    expect(tripMap).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        markers: expect.arrayContaining([
+          expect.objectContaining({ id: "lisbon-stay-0", label: "Alfama", variant: "place" }),
+        ]),
+      }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /browse stays/i }));
+
+    expect(tripMap).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        markers: expect.arrayContaining([
+          expect.objectContaining({ id: "lisbon-stay-0", label: "$168", variant: "price" }),
+        ]),
+      }),
+    );
   });
 });

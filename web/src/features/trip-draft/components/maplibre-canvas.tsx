@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import Map, { Marker, NavigationControl, type MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { FallbackMap, type MapMarker } from "@/features/trip-draft/components/fallback-map";
+import { FallbackMap, PricePin, type MapMarker } from "@/features/trip-draft/components/fallback-map";
 import type { Destination } from "@/features/trip-draft/fixtures";
 
 const STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -32,7 +32,7 @@ export function MapLibreCanvas({
 
   function fly() {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !loadedRef.current) return;
     const current = focusRef.current;
     if (!current) {
       map.flyTo({ center: [-30, 24], zoom: 1.25, duration: 900, essential: true });
@@ -82,18 +82,22 @@ export function MapLibreCanvas({
     >
       {markers.map((marker) => (
         <Marker key={marker.id} longitude={marker.lng} latitude={marker.lat} anchor="bottom">
-          <button
-            type="button"
-            onClick={() => onSelectMarker?.(marker.id)}
-            className={
-              marker.selected
-                ? "pin-pop flex items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-                : "flex items-center gap-1.5 rounded-[11px] border border-line bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-            }
-          >
-            <span className={marker.selected ? "size-2.5 rounded-full bg-accent" : "size-2.5 rounded-full bg-ink"} />
-            <span className="text-[12px] font-bold whitespace-nowrap text-ink">{marker.label}</span>
-          </button>
+          {marker.variant === "price" ? (
+            <PricePin marker={marker} onSelect={onSelectMarker} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSelectMarker?.(marker.id)}
+              className={
+                marker.selected
+                  ? "pin-pop flex items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
+                  : "flex items-center gap-1.5 rounded-[11px] border border-line bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
+              }
+            >
+              <span className={marker.selected ? "size-2.5 rounded-full bg-accent" : "size-2.5 rounded-full bg-ink"} />
+              <span className="text-[12px] font-bold whitespace-nowrap text-ink">{marker.label}</span>
+            </button>
+          )}
         </Marker>
       ))}
       {markers.length > 0 ? <NavigationControl position="bottom-right" showCompass={false} /> : null}

@@ -6,9 +6,10 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BUDGETS, DESTINATIONS, DIETARY, VIBES, destinationById, matchDestination } from "@/features/trip-draft/fixtures";
+import { DestinationSearch } from "@/features/trip-draft/components/destination-search";
+import { BUDGETS, DESTINATIONS, DIETARY, VIBES, destinationById, type Destination } from "@/features/trip-draft/fixtures";
 import { money, validRange } from "@/features/trip-draft/format";
-import { useTrip } from "@/features/trip-draft/trip-context";
+import { useTrip, type TripState } from "@/features/trip-draft/trip-context";
 import { Chip, PrimaryButton } from "@/features/trip-draft/components/chrome";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,22 @@ const STEPS = [
 
 type StepId = (typeof STEPS)[number]["id"];
 
+function mapPreview(state: TripState): Destination | null {
+  const fixture = destinationById(state.destinationId);
+  if (fixture) return fixture;
+  if (state.destinationLat == null || state.destinationLng == null) return null;
+  return {
+    id: state.destinationIata ?? "picked",
+    label: state.destinationLabel || state.destinationQuery,
+    country: state.destinationIata ?? "",
+    code: state.destinationIata ?? "",
+    lat: state.destinationLat,
+    lng: state.destinationLng,
+    blurb: "",
+    photos: ["", "", ""],
+  };
+}
+
 export function OnboardingFlow() {
   const router = useRouter();
   const trip = useTrip();
@@ -67,7 +84,7 @@ export function OnboardingFlow() {
 
   const step = STEPS[index];
   const destination = destinationById(state.destinationId);
-  const preview = destination ?? matchDestination(state.destinationQuery);
+  const preview = mapPreview(state);
 
   function go(next: number) {
     if (next === index || handingOff) return;
@@ -81,7 +98,7 @@ export function OnboardingFlow() {
   }
 
   function canContinue(id: StepId = step.id): boolean {
-    if (id === "where") return Boolean(state.destinationId || matchDestination(state.destinationQuery));
+    if (id === "where") return Boolean(state.destinationIata);
     if (id === "when") return validRange(state.startDate, state.endDate);
     if (id === "budget") return state.budget != null && state.budget > 0;
     if (id === "who") return state.members[0]?.name.trim().length > 0;
@@ -97,12 +114,10 @@ export function OnboardingFlow() {
 
   function next() {
     if (step.id === "where") {
-      const match = destination ?? matchDestination(state.destinationQuery);
-      if (!match) {
-        setError("Pick a city, or choose Surprise me.");
+      if (!state.destinationIata) {
+        setError("Pick a city or airport from the list, or choose Surprise me.");
         return;
       }
-      trip.confirmDestination(match.id);
     }
     if (step.id === "when" && !validRange(state.startDate, state.endDate)) {
       setError("Choose an arrival and a later departure.");
@@ -145,14 +160,6 @@ export function OnboardingFlow() {
       setRolling(false);
     }, 700);
   }
-
-  const query = state.destinationQuery.trim().toLowerCase();
-  const suggestions =
-    query.length > 0
-      ? DESTINATIONS.filter(
-          (item) => item.label.toLowerCase().includes(query) || item.country.toLowerCase().includes(query),
-        )
-      : DESTINATIONS;
 
   return (
     <div className="grid min-h-dvh grid-rows-[minmax(0,1fr)_240px] lg:grid-cols-[minmax(420px,540px)_minmax(0,1fr)] lg:grid-rows-1">
@@ -202,36 +209,30 @@ export function OnboardingFlow() {
                 <p className="text-[13px] font-semibold text-muted">
                   Question {index + 1} of {STEPS.length}
                 </p>
-                <h1 className="mt-2 text-[32px] font-semibold tracking-tight text-balance">{step.title}</h1>
+                <h1 className="font-display mt-2 text-[2.15rem] leading-[1.08] font-medium tracking-[-0.03em] text-balance">{step.title}</h1>
                 <div className="mt-6">
                   {step.id === "where" ? (
                     <div className="flex flex-col gap-4">
-                      <label className="block">
-                        <span className="sr-only">Destination</span>
-                        <input
-                          value={state.destinationQuery}
-                          onChange={(event) => trip.setDestinationQuery(event.target.value)}
-                          placeholder="Try Lisbon, Kyoto, Mexico City…"
-                          autoComplete="off"
-                          className="h-14 w-full rounded-xl border border-[#b0b0b0] px-4 text-[16px] outline-none focus:border-ink"
-                        />
-                      </label>
-                      {state.pinDropped && destination ? (
+                      <DestinationSearch
+                        value={state.destinationQuery}
+                        onQueryChange={trip.setDestinationQuery}
+                        onSelect={(place) =>
+                          trip.confirmPlace({
+                            label: place.name,
+                            iataCode: place.iataCode,
+                            airportIatas: place.airports.map((airport) => airport.iataCode),
+                            lat: place.lat,
+                            lng: place.lng,
+                          })
+                        }
+                      />
+                      {state.pinDropped && (destination || state.destinationIata) ? (
                         <p className="text-[14px] text-ink">
-                          {destination.label}, {destination.country} · pinned on the map
+                          {state.destinationLabel || destination?.label}
+                          {destination?.country ? `, ${destination.country}` : state.destinationIata ? ` · ${state.destinationIata}` : ""}
+                          {" · pinned on the map"}
                         </p>
                       ) : null}
-                      <div className="flex flex-wrap gap-2">
-                        {suggestions.map((item) => (
-                          <Chip
-                            key={item.id}
-                            pressed={state.destinationId === item.id}
-                            onClick={() => trip.confirmDestination(item.id)}
-                          >
-                            {item.label}
-                          </Chip>
-                        ))}
-                      </div>
                       <button
                         type="button"
                         onClick={surprise}
@@ -399,7 +400,7 @@ export function OnboardingFlow() {
       </section>
 
       <aside className="min-h-[240px] border-t border-line-soft lg:border-t-0 lg:border-l">
-        <TripMap focus={preview} pinned={Boolean(state.pinDropped && destination)} />
+        <TripMap focus={preview} pinned={Boolean(state.pinDropped && (destination || state.destinationIata))} />
       </aside>
 
       {handingOff ? (
@@ -407,7 +408,7 @@ export function OnboardingFlow() {
           <div className="max-w-sm text-center">
             <p className="text-[13px] font-semibold text-muted">Group Trip Agent</p>
             <h2 className="mt-2 text-[28px] font-semibold tracking-tight">
-              Opening the map{destination ? ` for ${destination.label}` : ""}…
+              Opening the map{destination?.label || state.destinationLabel ? ` for ${destination?.label || state.destinationLabel}` : ""}…
             </h2>
           </div>
         </div>

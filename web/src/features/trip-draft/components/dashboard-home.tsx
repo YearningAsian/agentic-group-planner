@@ -54,7 +54,7 @@ export function DashboardHome() {
   return (
     <AppShell>
       <div className="mx-auto max-w-[1080px] px-6 py-9 sm:px-10">
-        <div className="relative mb-7 flex min-h-[220px] items-end overflow-hidden rounded-[20px] shadow-[var(--shadow)]">
+        <div className="relative mb-7 flex min-h-[260px] items-end overflow-hidden rounded-[20px] shadow-[var(--shadow)]">
           <Image
             src="https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1600&q=80"
             alt="A yellow tram on a steep city street"
@@ -63,13 +63,13 @@ export function DashboardHome() {
             sizes="(min-width: 1080px) 1080px, 100vw"
             className="object-cover"
           />
-          <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/40 to-black/25" />
-          <div className="relative z-10 px-7 py-6 text-white">
-            <p className="mb-1.5 text-[13px] font-semibold text-[#f3d9c6]">{greetingFor(profile.greeting)}</p>
-            <h1 className="max-w-[520px] text-[26px] leading-tight font-extrabold tracking-tight">
+          <div className="absolute inset-0 bg-linear-to-t from-[#1a1410]/92 via-[#1a1410]/62 to-[#1a1410]/28" />
+          <div className="relative z-10 px-7 py-7 text-white">
+            <p className="mb-2 text-[13px] font-medium tracking-wide text-white/80">{greetingFor(profile.greeting)}</p>
+            <h1 className="font-display max-w-[16ch] text-[2rem] leading-[1.05] font-medium tracking-[-0.035em] text-balance sm:text-[2.45rem]">
               Plan the trip before everyone&rsquo;s in the chat.
             </h1>
-            <p className="mt-2 max-w-[460px] text-[14px] leading-normal text-[#ede6d9]">
+            <p className="mt-3 max-w-[42ch] text-[15px] leading-relaxed text-white/88">
               A few questions, a flight, a stay, then a link for the people who haven&rsquo;t joined.
             </p>
           </div>
@@ -114,7 +114,7 @@ export function DashboardHome() {
                 <span className="mt-4 flex items-center gap-2.5">
                   <Progress value={card.progress} className="min-w-0 flex-1 gap-0">
                     <ProgressTrack className="h-[7px] bg-bg-muted">
-                      <ProgressIndicator className="bg-linear-to-r from-accent to-[#ff8fa3]" />
+                      <ProgressIndicator className="bg-accent" />
                     </ProgressTrack>
                   </Progress>
                   <span className="shrink-0 text-[12.5px] font-semibold text-muted">Flight → Hotel → Invite</span>
@@ -151,11 +151,11 @@ export function DashboardHome() {
         )}
 
         <h2 className="mb-3.5 text-[17px] font-bold tracking-tight">Quick actions</h2>
-        <div className="mb-9 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-9 grid gap-4 md:grid-cols-2 xl:grid-cols-12">
           <Link
             href="/onboarding"
             onClick={() => trip.startNewTrip()}
-            className="flex min-h-[132px] flex-col justify-between rounded-[14px] bg-linear-to-br from-ink to-[#3a342a] p-[18px] text-white transition hover:-translate-y-0.5 hover:shadow-[var(--shadow)]"
+            className="flex min-h-[148px] flex-col justify-between rounded-[14px] bg-ink p-[18px] text-white transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-7"
           >
             <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-white/12">
               <CirclePlus className="size-4" />
@@ -172,7 +172,7 @@ export function DashboardHome() {
             onClick={() => {
               if (!trip.state.destinationId) trip.startNewTrip();
             }}
-            className="flex min-h-[132px] flex-col justify-between rounded-[14px] bg-accent-tint p-[18px] text-ink transition hover:-translate-y-0.5 hover:shadow-[var(--shadow)]"
+            className="flex min-h-[148px] flex-col justify-between rounded-[14px] bg-accent-tint p-[18px] text-ink transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-5"
           >
             <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-white text-accent">
               <TrendingUp className="size-4" />
@@ -190,7 +190,7 @@ export function DashboardHome() {
             <DialogTrigger
               disabled={!card}
               className={cn(
-                "flex min-h-[132px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left text-ink transition hover:-translate-y-0.5 hover:shadow-[var(--shadow)]",
+                "flex min-h-[148px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left text-ink transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-6",
                 !card && "opacity-60 cursor-not-allowed hover:translate-y-0 hover:shadow-none"
               )}
             >
@@ -218,7 +218,7 @@ export function DashboardHome() {
                   {trip.state.members.map((member) => (
                     <li key={member.id} className="flex items-center gap-3">
                       <Avatar className="size-8">
-                        <AvatarFallback className="bg-[#fff0f3] text-[12px] font-bold text-accent">
+                        <AvatarFallback className="bg-accent-tint text-[12px] font-semibold text-accent">
                           {initials(member.name.trim() || "Traveler")}
                         </AvatarFallback>
                       </Avatar>
@@ -240,7 +240,7 @@ export function DashboardHome() {
             onClick={card ? copyInvite : undefined}
             disabled={!card}
             className={cn(
-              "flex min-h-[132px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left transition hover:-translate-y-0.5 hover:shadow-[var(--shadow)]",
+              "flex min-h-[148px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-6",
               !card && "opacity-60 cursor-not-allowed hover:translate-y-0 hover:shadow-none"
             )}
           >

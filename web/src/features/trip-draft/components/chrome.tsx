@@ -44,7 +44,7 @@ export function ScreenHeader({
           </nav>
         </div>
         <div>
-          <h1 className="text-[28px] font-semibold tracking-tight text-balance">{title}</h1>
+          <h1 className="font-display text-[1.85rem] leading-[1.1] font-medium tracking-[-0.03em] text-balance">{title}</h1>
           {subtitle ? <p className="mt-1 text-[15px] text-muted">{subtitle}</p> : null}
         </div>
       </div>
@@ -61,7 +61,7 @@ export function PrimaryButton({
     <button
       {...props}
       className={cn(
-        "inline-flex h-12 items-center justify-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white transition hover:bg-[#e00b41] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#ebebeb] disabled:text-[#8c8c8c] disabled:active:scale-100",
+        "inline-flex h-12 items-center justify-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-faint disabled:active:scale-100",
         className,
       )}
     >

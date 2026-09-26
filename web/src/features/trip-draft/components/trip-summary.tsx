@@ -4,8 +4,8 @@
  * Current-trip dashboard (port of `Trip summary graph - Flights -> Hotel -> Invite.html`).
  * Reads the session draft from `useTrip` - destination, dates, locked flight/stay, and members -
  * and writes picks back through the same actions, so Picks and Progress stay in sync.
- * Comments and the "someone just suggested a fare" beat are local to this screen.
- * TODO: replace the timed suggestion and simulated join with live trip-view events.
+ * Comments are local to this screen and start empty until someone posts.
+ * TODO: replace the simulated join with live trip-view events.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import Image from "next/image";
@@ -20,12 +20,13 @@ import {
   type StayOption,
 } from "@/features/trip-draft/fixtures";
 import { formatRange, initials, money } from "@/features/trip-draft/format";
-import { useTrip, type Member, type TripState } from "@/features/trip-draft/trip-context";
+import { useTrip, type Member } from "@/features/trip-draft/trip-context";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { cn } from "@/lib/utils";
 
 type Marker = "done" | "active" | "pending";
 type Thread = "flight" | "stay";
+type MemberChoice = { member: Member; index: number };
 
 type Suggestion = {
   id: string;
@@ -42,9 +43,8 @@ type Comment = {
   memberIndex: number;
   name: string;
   text: string;
-  /** Epoch ms. Null keeps the fixed `timeLabel` (seeded lines that predate this visit). */
-  at: number | null;
-  timeLabel?: string;
+  /** Epoch ms. */
+  at: number;
   suggestion?: Suggestion;
 };
 
@@ -93,10 +93,18 @@ function SummaryBody() {
   const destination = destinationById(state.destinationId);
   const flights = flightsFor(state.destinationId);
   const stays = staysFor(state.destinationId);
-  const lockedFlight = findFlight(state.destinationId, state.lockedFlightId);
-  const lockedStay = findStay(state.destinationId, state.lockedStayId);
-  const flight = lockedFlight ?? cheapest(flights);
-  const stay = lockedStay ?? topRated(stays);
+  const joinedChoices: MemberChoice[] = state.members
+    .map((member, index) => ({ member, index }))
+    .filter(({ member }) => member.joined);
+  const joined = joinedChoices.map(({ member }) => member);
+  const flight = leadingOption(flights, joined, "flightId", state.lockedFlightId, cheapest);
+  const stay = leadingOption(stays, joined, "stayId", state.lockedStayId, topRated);
+  const allJoinedHaveFlight = joined.length > 0 && joined.every((member) => Boolean(member.flightId));
+  const allJoinedHaveStay = joined.length > 0 && joined.every((member) => Boolean(member.stayId));
+  const sameFlightId = allJoinedHaveFlight && joined.every((member) => member.flightId === joined[0]?.flightId) ? joined[0]?.flightId ?? null : null;
+  const sameStayId = allJoinedHaveStay && joined.every((member) => member.stayId === joined[0]?.stayId) ? joined[0]?.stayId ?? null : null;
+  const lockedFlight = findFlight(state.destinationId, sameFlightId);
+  const lockedStay = findStay(state.destinationId, sameStayId);
 
   const origin = useSyncExternalStore(
     () => () => {},
@@ -114,34 +122,27 @@ function SummaryBody() {
   const [posted, setPosted] = useState<Array<Comment & { thread: Thread }>>([]);
   const [drafts, setDrafts] = useState<Record<Thread, string>>({ flight: "", stay: "" });
   const [dismissed, setDismissed] = useState<string[]>([]);
-  const [live, setLive] = useState<Comment | null>(null);
   const [copied, setCopied] = useState(false);
+  const [suggesting, setSuggesting] = useState<Thread | null>(null);
 
-  const talkTouched = useRef(false);
   const joinSeen = useRef<string | null | undefined>(undefined);
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(id);
   }, []);
 
-  // A group member drops a real alternate fare into the flight thread shortly after open.
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const built = buildLiveFlightComment(stateRef.current);
-      if (!built) return;
-      setLive(built.comment);
-      setActivity({ detail: built.activity, at: built.comment.at ?? Date.now() });
-      setNow(Date.now());
-      if (!talkTouched.current) setFlightTalkOpen(true);
-    }, 2400);
-    return () => window.clearTimeout(timeout);
-  }, []);
+    if (!suggesting) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSuggesting(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [suggesting]);
 
-  // Same join beat as Progress: once both picks are locked, the next pending person joins.
-  const inviteReached = Boolean(lockedFlight && lockedStay);
+  // Same join beat as Progress: once everyone joined has both picks, the next pending person joins.
+  const inviteReached = allJoinedHaveFlight && allJoinedHaveStay;
   useEffect(() => {
     if (!inviteReached || state.didSimulateJoin) return;
     const timeout = window.setTimeout(() => trip.markFirstPendingJoined(), 1600);
@@ -161,23 +162,8 @@ function SummaryBody() {
     }
   }, [state.justJoinedName]);
 
-  // Seed lines stay put for this visit. Later picks update the cards, not the earlier comments.
-  const [flightSeed] = useState(() => {
-    const options = flightsFor(state.destinationId);
-    const leading = findFlight(state.destinationId, state.lockedFlightId) ?? cheapest(options);
-    return leading ? seedFlightComment(state.members, leading) : null;
-  });
-  const [staySeed] = useState(() => {
-    const options = staysFor(state.destinationId);
-    const leading = findStay(state.destinationId, state.lockedStayId) ?? topRated(options);
-    return leading ? seedStayComment(state.members, leading, options) : null;
-  });
-  const flightComments = [flightSeed, live, ...posted.filter((item) => item.thread === "flight")].filter(
-    (item): item is Comment => Boolean(item),
-  );
-  const stayComments = [staySeed, ...posted.filter((item) => item.thread === "stay")].filter(
-    (item): item is Comment => Boolean(item),
-  );
+  const flightComments = posted.filter((item) => item.thread === "flight");
+  const stayComments = posted.filter((item) => item.thread === "stay");
 
   if (!destination) return null;
 
@@ -192,11 +178,11 @@ function SummaryBody() {
           : `${destination.label} is the current trip`);
   const stamp = activity?.at ?? openedAt;
 
-  const flightMarker: Marker = lockedFlight ? "done" : flights.length > 0 ? "active" : "pending";
-  const stayMarker: Marker = lockedStay ? "done" : lockedFlight ? "active" : "pending";
+  const flightMarker: Marker = allJoinedHaveFlight ? "done" : flights.length > 0 ? "active" : "pending";
+  const stayMarker: Marker = allJoinedHaveStay ? "done" : allJoinedHaveFlight ? "active" : "pending";
   const inviteMarker: Marker = !inviteReached ? "pending" : state.inviteShared ? "done" : "active";
-  const joined = state.members.filter((member) => member.joined);
-  const voters = joined.slice(0, 3);
+  const flightPickCount = new Set(joined.map((member) => member.flightId).filter(Boolean)).size;
+  const stayPickCount = new Set(joined.map((member) => member.stayId).filter(Boolean)).size;
 
   function note(next: string) {
     const at = Date.now();
@@ -223,26 +209,55 @@ function SummaryBody() {
     note(`${memberLabel(state.members[0], 0)} commented on ${thread === "flight" ? "flights" : "the stay"}`);
   }
 
-  function lockPickedFlight(id: string, airline: string) {
-    if (id === state.lockedFlightId) return;
-    trip.lockFlight(id);
-    note(`${memberLabel(state.members[0], 0)} picked ${airline}`);
+  function assignPickedFlight(member: Member, memberIndex: number, picked: FlightOption) {
+    if (member.flightId === picked.id) return;
+    if (member.id === state.members[0]?.id) {
+      trip.lockFlight(picked.id);
+    } else {
+      trip.assignFlight(member.id, picked.id);
+    }
+    note(`${memberLabel(member, memberIndex)} picked ${picked.airline}`);
   }
 
-  function lockPickedStay(id: string, stayName: string) {
-    if (id === state.lockedStayId) return;
-    trip.lockStay(id);
-    note(`${memberLabel(state.members[0], 0)} picked ${stayName}`);
+  function assignPickedStay(member: Member, memberIndex: number, picked: StayOption) {
+    if (member.stayId === picked.id) return;
+    if (member.id === state.members[0]?.id) {
+      trip.lockStay(picked.id);
+    } else {
+      trip.assignStay(member.id, picked.id);
+    }
+    note(`${memberLabel(member, memberIndex)} picked ${picked.name}`);
   }
 
-  function acceptSuggestion(suggestion: Suggestion) {
+  function assignSuggestion(member: Member, memberIndex: number, suggestion: Suggestion) {
     if (suggestion.kind === "flight") {
       const picked = findFlight(state.destinationId, suggestion.optionId);
-      lockPickedFlight(suggestion.optionId, picked?.airline ?? "that flight");
+      if (picked) assignPickedFlight(member, memberIndex, picked);
     } else {
       const picked = findStay(state.destinationId, suggestion.optionId);
-      lockPickedStay(suggestion.optionId, picked?.name ?? "that stay");
+      if (picked) assignPickedStay(member, memberIndex, picked);
     }
+  }
+
+  function postSuggestion(thread: Thread, option: FlightOption | StayOption) {
+    const at = Date.now();
+    const suggestion = thread === "flight" ? flightSuggestion(option as FlightOption) : staySuggestion(option as StayOption);
+    setPosted((current) => [
+      ...current,
+      {
+        id: `suggest-${at}`,
+        thread,
+        memberIndex: 0,
+        name: memberLabel(state.members[0], 0),
+        text: thread === "flight" ? "Found another flight that could work." : "Found another stay for the group to compare.",
+        at,
+        suggestion,
+      },
+    ]);
+    if (thread === "flight") setFlightTalkOpen(true);
+    if (thread === "stay") setStayTalkOpen(true);
+    setSuggesting(null);
+    note(`${memberLabel(state.members[0], 0)} suggested ${thread === "flight" ? suggestion.title : "a stay"}`);
   }
 
   async function copyLink() {
@@ -322,8 +337,10 @@ function SummaryBody() {
               status={
                 lockedFlight
                   ? "Locked in"
-                  : flights.length > 0
-                    ? `${flights.length} options · group deciding`
+                  : allJoinedHaveFlight
+                    ? `${flightPickCount} ${flightPickCount === 1 ? "flight" : "flights"}`
+                    : flights.length > 0
+                      ? `${flights.length} options · group deciding`
                     : "No fares yet"
               }
               current={flightMarker === "active"}
@@ -362,7 +379,7 @@ function SummaryBody() {
                             </span>
                             {front ? (
                               <span className="ml-auto shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[10.5px] font-extrabold text-success">
-                                {lockedFlight ? "Locked" : "Leading"}
+                                {lockedFlight ? "Locked" : flightPickCount > 1 ? "Most picked" : "Leading"}
                               </span>
                             ) : null}
                           </div>
@@ -371,7 +388,7 @@ function SummaryBody() {
                     </div>
                     <span className="flex items-center justify-between text-[12px] text-ink-faint">
                       <span>
-                        {flights.length} shortlisted, {joined.length} {joined.length === 1 ? "vote" : "votes"} cast
+                        {flights.length} shortlisted, {joined.filter((member) => member.flightId).length} of {joined.length} joined picked
                       </span>
                       <span className="inline-flex items-center gap-1">
                         {flightsOpen ? "Hide" : "Show all"}
@@ -383,7 +400,7 @@ function SummaryBody() {
                   {flightsOpen ? (
                     <ul className="px-5 pb-[18px]">
                       {[flight, ...[...others].sort((a, b) => a.price - b.price)].map((item) => {
-                        const picked = item.id === state.lockedFlightId;
+                        const picked = joined.some((member) => member.flightId === item.id);
                         const leading = item.id === flight.id;
                         return (
                           <li
@@ -411,25 +428,13 @@ function SummaryBody() {
                                 {item.stops !== "Nonstop" ? ` · ${item.stops}` : ""}
                               </span>
                             </span>
-                            {leading ? (
-                              <span className="flex shrink-0">
-                                {voters.map((member, index) => (
-                                  <Avatar key={member.id} name={memberLabel(member, index)} index={index} size="sm" overlap={index > 0} />
-                                ))}
-                              </span>
-                            ) : null}
-                            <span className="shrink-0 text-[14px] font-extrabold">{money(item.price)}</span>
-                            <button
-                              type="button"
-                              aria-pressed={picked}
-                              onClick={() => lockPickedFlight(item.id, item.airline)}
-                              className={cn(
-                                "h-11 shrink-0 rounded-lg px-3 text-[11.5px] font-bold",
-                                picked ? "bg-success text-white" : "border border-line-soft bg-surface text-ink",
-                              )}
-                            >
-                              {picked ? "Picked" : "Pick this"}
-                            </button>
+                            <span className="shrink-0 text-[14px] font-semibold tabular-nums">{money(item.price)}</span>
+                            <MemberChoiceStrip
+                              choices={joinedChoices}
+                              optionId={item.id}
+                              kind="flight"
+                              onChoose={(choice) => assignPickedFlight(choice.member, choice.index, item)}
+                            />
                           </li>
                         );
                       })}
@@ -439,18 +444,14 @@ function SummaryBody() {
                   <Discuss
                     count={flightComments.length}
                     open={flightTalkOpen}
-                    onToggle={() => {
-                      talkTouched.current = true;
-                      setFlightTalkOpen((open) => !open);
-                    }}
+                    onToggle={() => setFlightTalkOpen((open) => !open)}
                   >
                     <CommentList
                       comments={flightComments}
                       now={now}
                       dismissed={dismissed}
-                      lockedFlightId={state.lockedFlightId}
-                      lockedStayId={state.lockedStayId}
-                      onAccept={acceptSuggestion}
+                      choices={joinedChoices}
+                      onAssign={assignSuggestion}
                       onDismiss={(id) => setDismissed((current) => [...current, id])}
                     />
                     <Composer
@@ -458,6 +459,7 @@ function SummaryBody() {
                       placeholder="Comment, or paste a flight link to suggest it…"
                       onChange={(value) => setDrafts((current) => ({ ...current, flight: value }))}
                       onSubmit={() => post("flight")}
+                      onSuggest={() => setSuggesting("flight")}
                     />
                   </Discuss>
                 </section>
@@ -471,7 +473,13 @@ function SummaryBody() {
               icon={<HouseIcon className="h-[22px] w-[22px]" />}
               title="Hotel / Airbnb"
               status={
-                lockedStay ? "Locked in" : stay ? `1 leading · ${alternates.length} ${alternates.length === 1 ? "alternate" : "alternates"}` : "Waiting on a stay"
+                lockedStay
+                  ? "Locked in"
+                  : allJoinedHaveStay
+                    ? `${stayPickCount} ${stayPickCount === 1 ? "stay" : "stays"}`
+                    : stay
+                      ? `1 leading · ${alternates.length} ${alternates.length === 1 ? "alternate" : "alternates"}`
+                      : "Waiting on a stay"
               }
               current={stayMarker === "active"}
             >
@@ -488,44 +496,42 @@ function SummaryBody() {
                     <div className="mb-1.5 flex items-start justify-between gap-2.5">
                       <h3 className="text-[15px] font-bold">{stay.name}</h3>
                       <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-success">
-                        {lockedStay ? "Locked in" : "Leading pick"}
+                        {lockedStay ? "Locked in" : stayPickCount > 1 ? "Most picked" : "Leading pick"}
                       </span>
                     </div>
                     <p className="mb-3.5 text-[12.5px] text-muted">
                       {stay.neighborhood} · {state.members.length} guests · {formatRange(state.startDate, state.endDate)}
                     </p>
                     <div className="flex items-center justify-between pb-4">
-                      <p className="text-[15px] font-extrabold">
+                      <p className="text-[15px] font-semibold tabular-nums">
                         {money(stay.price)} <span className="text-[12px] font-medium text-ink-faint">/ night</span>
                       </p>
-                      <span className="flex">
-                        {voters.map((member, index) => (
-                          <Avatar key={member.id} name={memberLabel(member, index)} index={index} size="sm" overlap={index > 0} />
-                        ))}
-                      </span>
+                      <MemberChoiceStrip
+                        choices={joinedChoices}
+                        optionId={stay.id}
+                        kind="stay"
+                        onChoose={(choice) => assignPickedStay(choice.member, choice.index, stay)}
+                      />
                     </div>
-                    {state.lockedStayId !== stay.id ? (
-                      <button
-                        type="button"
-                        onClick={() => lockPickedStay(stay.id, stay.name)}
-                        className="mb-4 h-11 rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22]"
-                      >
-                        Lock this stay
-                      </button>
-                    ) : null}
                   </div>
                   {alternates.length > 0 ? (
-                    <div className="px-5 pb-4 text-[11.5px] text-ink-faint">
-                      Also considering{" "}
-                      {alternates.map((item, index) => (
-                        <span key={item.id}>
-                          {index > 0 ? (index === alternates.length - 1 ? " and " : ", ") : null}
-                          <button type="button" onClick={() => lockPickedStay(item.id, item.name)} className="font-bold text-muted underline">
-                            {item.name} ({money(item.price)}/night)
-                          </button>
-                        </span>
-                      ))}
-                      .
+                    <div className="px-5 pb-4">
+                      <p className="mb-2 text-[11.5px] text-ink-faint">Also considering</p>
+                      <div className="flex flex-col gap-2">
+                        {alternates.map((item) => (
+                          <div key={item.id} className="flex items-center gap-2 rounded-xl border border-line bg-bg-muted px-3 py-2">
+                            <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-muted">
+                              {item.name} ({money(item.price)}/night)
+                            </span>
+                            <MemberChoiceStrip
+                              choices={joinedChoices}
+                              optionId={item.id}
+                              kind="stay"
+                              onChoose={(choice) => assignPickedStay(choice.member, choice.index, item)}
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   <Discuss
@@ -537,9 +543,8 @@ function SummaryBody() {
                       comments={stayComments}
                       now={now}
                       dismissed={dismissed}
-                      lockedFlightId={state.lockedFlightId}
-                      lockedStayId={state.lockedStayId}
-                      onAccept={acceptSuggestion}
+                      choices={joinedChoices}
+                      onAssign={assignSuggestion}
                       onDismiss={(id) => setDismissed((current) => [...current, id])}
                     />
                     <Composer
@@ -547,6 +552,7 @@ function SummaryBody() {
                       placeholder="Comment, or paste a listing link to suggest it…"
                       onChange={(value) => setDrafts((current) => ({ ...current, stay: value }))}
                       onSubmit={() => post("stay")}
+                      onSuggest={() => setSuggesting("stay")}
                     />
                   </Discuss>
                 </section>
@@ -610,6 +616,14 @@ function SummaryBody() {
         </div>
       </div>
       </div>
+      {suggesting ? (
+        <SuggestionPanel
+          thread={suggesting}
+          options={suggesting === "flight" ? flights.filter((item) => item.id !== flight?.id) : stays.filter((item) => item.id !== stay?.id)}
+          onClose={() => setSuggesting(null)}
+          onSuggest={(option) => postSuggestion(suggesting, option)}
+        />
+      ) : null}
     </AppShell>
   );
 }
@@ -689,17 +703,15 @@ function CommentList({
   comments,
   now,
   dismissed,
-  lockedFlightId,
-  lockedStayId,
-  onAccept,
+  choices,
+  onAssign,
   onDismiss,
 }: {
   comments: Comment[];
   now: number;
   dismissed: string[];
-  lockedFlightId: string | null;
-  lockedStayId: string | null;
-  onAccept: (suggestion: Suggestion) => void;
+  choices: MemberChoice[];
+  onAssign: (member: Member, memberIndex: number, suggestion: Suggestion) => void;
   onDismiss: (id: string) => void;
 }) {
   if (comments.length === 0) {
@@ -710,18 +722,14 @@ function CommentList({
       {comments.map((comment) => {
         const suggestion = comment.suggestion;
         const hidden = suggestion ? dismissed.includes(suggestion.id) : false;
-        const picked = suggestion
-          ? suggestion.kind === "flight"
-            ? lockedFlightId === suggestion.optionId
-            : lockedStayId === suggestion.optionId
-          : false;
+        const picked = suggestion ? choices.some(({ member }) => choiceId(member, suggestion.kind) === suggestion.optionId) : false;
         return (
           <li key={comment.id} className="mb-3.5 flex gap-2.5">
             <Avatar name={comment.name} index={comment.memberIndex} />
             <div className="min-w-0 flex-1">
               <p className="mb-0.5 flex items-baseline gap-2">
                 <span className="text-[12.5px] font-bold">{comment.name}</span>
-                <span className="text-[11px] text-ink-faint">{comment.at ? ago(comment.at, now) : comment.timeLabel}</span>
+                <span className="text-[11px] text-ink-faint">{ago(comment.at, now)}</span>
               </p>
               <p className="text-[12.5px] leading-relaxed text-muted">{comment.text}</p>
               {suggestion && !hidden ? (
@@ -738,17 +746,15 @@ function CommentList({
                       <span className="block truncate text-[12.5px] font-bold">{suggestion.title}</span>
                       <span className="block truncate text-[11.5px] text-ink-faint">{suggestion.meta}</span>
                     </span>
-                    <span className="shrink-0 text-[13px] font-extrabold">{suggestion.priceLabel}</span>
+                    <span className="shrink-0 text-[13px] font-semibold tabular-nums">{suggestion.priceLabel}</span>
                   </div>
-                  <div className="flex gap-2 px-3 pb-3">
-                    <button
-                      type="button"
-                      onClick={() => onAccept(suggestion)}
-                      disabled={picked}
-                      className="h-11 rounded-lg bg-accent px-3 text-[11.5px] font-bold text-white disabled:opacity-70"
-                    >
-                      {picked ? "On the shortlist" : "Add to shortlist"}
-                    </button>
+                  <div className="flex items-center gap-2 px-3 pb-3">
+                    <MemberChoiceStrip
+                      choices={choices}
+                      optionId={suggestion.optionId}
+                      kind={suggestion.kind}
+                      onChoose={(choice) => onAssign(choice.member, choice.index, suggestion)}
+                    />
                     {picked ? null : (
                       <button
                         type="button"
@@ -774,11 +780,13 @@ function Composer({
   placeholder,
   onChange,
   onSubmit,
+  onSuggest,
 }: {
   value: string;
   placeholder: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onSuggest: () => void;
 }) {
   return (
     <form
@@ -802,11 +810,124 @@ function Composer({
         >
           <PlusIcon className="h-4 w-4" />
         </button>
+        <button
+          type="button"
+          onClick={onSuggest}
+          className="h-11 shrink-0 rounded-[10px] bg-ink px-3 text-[11.5px] font-bold text-white hover:bg-[#302a22]"
+        >
+          Suggest
+        </button>
       </div>
       <p className="mt-1.5 text-[11px] text-ink-faint">
         Attaching a link or photo turns your comment into a suggested option the group can vote on.
       </p>
     </form>
+  );
+}
+
+function MemberChoiceStrip({
+  choices,
+  optionId,
+  kind,
+  onChoose,
+}: {
+  choices: MemberChoice[];
+  optionId: string;
+  kind: Thread;
+  onChoose: (choice: MemberChoice) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1" aria-label={`Choose ${kind === "flight" ? "flight" : "stay"} by person`}>
+      {choices.map((choice) => {
+        const name = memberLabel(choice.member, choice.index);
+        const selected = choiceId(choice.member, kind) === optionId;
+        return (
+          <button
+            key={choice.member.id}
+            type="button"
+            aria-pressed={selected}
+            title={`${name}: ${selected ? "picked" : "pick this"}`}
+            onClick={() => onChoose(choice)}
+            className={cn(
+              "rounded-full p-0.5 transition",
+              selected ? "bg-success ring-2 ring-success/20" : "border border-dashed border-line-soft bg-surface opacity-70 hover:opacity-100",
+            )}
+          >
+            <Avatar name={name} index={choice.index} size="sm" />
+            <span className="sr-only">
+              {selected ? `${name} picked this ${kind}` : `Pick this ${kind} for ${name}`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SuggestionPanel({
+  thread,
+  options,
+  onClose,
+  onSuggest,
+}: {
+  thread: Thread;
+  options: Array<FlightOption | StayOption>;
+  onClose: () => void;
+  onSuggest: (option: FlightOption | StayOption) => void;
+}) {
+  const title = thread === "flight" ? "Suggest a new flight" : "Suggest a new stay";
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/20" role="dialog" aria-modal="true" aria-label={title}>
+      <button type="button" aria-label="Close suggestions" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <aside className="relative flex h-full w-[min(100%,380px)] flex-col overflow-hidden border-l border-line bg-surface shadow-2xl">
+        <div className="border-b border-line px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="text-[11px] font-bold tracking-wide text-ink-faint uppercase">Right-side suggestion</p>
+              <h2 className="text-[18px] font-extrabold tracking-tight">{title}</h2>
+            </div>
+            <button type="button" onClick={onClose} className="ml-auto h-9 rounded-lg border border-line-soft px-3 text-[12px] font-bold">
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="flex flex-col gap-4">
+            {options.map((option) => {
+              const isFlight = thread === "flight";
+              const flight = option as FlightOption;
+              const stay = option as StayOption;
+              return (
+                <article key={option.id} className="overflow-hidden rounded-[18px] border border-line bg-bg-muted">
+                  <div className="relative h-36">
+                    <Image src={option.image} alt="" fill sizes="380px" className="object-cover" />
+                  </div>
+                  <div className="p-4">
+                    <p className="text-[11px] font-bold tracking-wide text-accent uppercase">{isFlight ? "Flight option" : "Stay option"}</p>
+                    <h3 className="mt-1 text-[16px] font-extrabold">{isFlight ? flight.airline : stay.name}</h3>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+                      {isFlight
+                        ? `${flight.from} → ${flight.to} · ${flight.depart} – ${flight.arrive} · ${flight.duration}`
+                        : `${stay.neighborhood} · ${stay.rating.toFixed(2)} · ${stay.reviews} reviews`}
+                    </p>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <span className="text-[17px] font-semibold tabular-nums">{isFlight ? money(flight.price) : `${money(stay.price)}/nt`}</span>
+                      <button
+                        type="button"
+                        onClick={() => onSuggest(option)}
+                        className="h-11 rounded-lg bg-accent px-4 text-[12px] font-bold text-white hover:bg-accent-hover"
+                      >
+                        Suggest this
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -867,81 +988,55 @@ function topRated(stays: StayOption[]): StayOption | null {
   return [...stays].sort((a, b) => b.rating - a.rating)[0] ?? null;
 }
 
-function seedFlightComment(members: Member[], flight: FlightOption): Comment {
-  return {
-    id: "seed-flight",
-    memberIndex: 0,
-    name: memberLabel(members[0], 0),
-    text: `Leaning ${flight.airline} at ${money(flight.price)}${flight.stops === "Nonstop" ? ", nonstop" : ""}.`,
-    at: null,
-    timeLabel: "1h ago",
-  };
+function choiceId(member: Member, kind: Thread): string | null {
+  return kind === "flight" ? member.flightId ?? null : member.stayId ?? null;
 }
 
-function seedStayComment(members: Member[], stay: StayOption, stays: StayOption[]): Comment | null {
-  const authorIndex = Math.min(2, members.length - 1);
-  if (authorIndex < 1) return null;
-  const alternate = [...stays].filter((item) => item.id !== stay.id).sort((a, b) => a.price - b.price)[0];
-  const name = memberLabel(members[authorIndex], authorIndex);
-  if (!alternate) {
-    return {
-      id: "seed-stay",
-      memberIndex: authorIndex,
-      name,
-      text: `${stay.name} looks right for the group.`,
-      at: null,
-      timeLabel: "30m ago",
-    };
+function leadingOption<T extends { id: string }>(
+  options: T[],
+  members: Member[],
+  key: "flightId" | "stayId",
+  organizerPickId: string | null,
+  fallback: (options: T[]) => T | null,
+): T | null {
+  const counts = new Map<string, number>();
+  for (const member of members) {
+    const id = member[key];
+    if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
+  if (counts.size === 0) return organizerPickId ? options.find((option) => option.id === organizerPickId) ?? fallback(options) : fallback(options);
+  return [...options].sort((a, b) => {
+    const count = (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0);
+    if (count !== 0) return count;
+    if (organizerPickId) {
+      if (a.id === organizerPickId) return -1;
+      if (b.id === organizerPickId) return 1;
+    }
+    return 0;
+  })[0] ?? fallback(options);
+}
+
+function flightSuggestion(option: FlightOption): Suggestion {
   return {
-    id: "seed-stay",
-    memberIndex: authorIndex,
-    name,
-    text: `${alternate.name} is closer to the neighborhood we keep coming back to. Thoughts?`,
-    at: null,
-    timeLabel: "18m ago",
-    suggestion: {
-      id: `stay-${alternate.id}`,
-      kind: "stay",
-      optionId: alternate.id,
-      title: alternate.name,
-      meta: `${alternate.neighborhood} · ${alternate.rating.toFixed(2)} · ${alternate.reviews} reviews`,
-      priceLabel: `${money(alternate.price)}/nt`,
-      image: alternate.image,
-    },
+    id: `flight-${option.id}-${Date.now()}`,
+    kind: "flight",
+    optionId: option.id,
+    title: `${option.airline} · ${option.stops.toLowerCase()}`,
+    meta: `${option.from} → ${option.to} · ${option.depart} – ${option.arrive} · ${option.duration}`,
+    priceLabel: money(option.price),
+    image: option.image,
   };
 }
 
-/** Cheapest fare that is not already the leading card, voiced by the second member. */
-function buildLiveFlightComment(state: TripState): { comment: Comment; activity: string } | null {
-  const flights = flightsFor(state.destinationId);
-  const leading = findFlight(state.destinationId, state.lockedFlightId) ?? cheapest(flights);
-  if (!leading) return null;
-  const other = flights.filter((item) => item.id !== leading.id).sort((a, b) => a.price - b.price)[0];
-  if (!other) return null;
-  const name = memberLabel(state.members[1], 1);
-  const cheaper = other.price < leading.price;
-  const at = Date.now();
+function staySuggestion(option: StayOption): Suggestion {
   return {
-    activity: `${name} suggested a ${cheaper ? "cheaper " : ""}flight in the comments`,
-    comment: {
-      id: "live-flight",
-      memberIndex: 1,
-      name,
-      at,
-      text: cheaper
-        ? `Found one that's ${money(leading.price - other.price)} less${other.stops === "Nonstop" ? " and still nonstop" : ""}. Worth a look?`
-        : `What about ${other.airline}? ${other.stops}, ${other.duration}.`,
-      suggestion: {
-        id: `flight-${other.id}`,
-        kind: "flight",
-        optionId: other.id,
-        title: `${other.airline} · ${other.stops.toLowerCase()}`,
-        meta: `${other.from} → ${other.to} · ${other.duration}`,
-        priceLabel: money(other.price),
-        image: other.image,
-      },
-    },
+    id: `stay-${option.id}-${Date.now()}`,
+    kind: "stay",
+    optionId: option.id,
+    title: option.name,
+    meta: `${option.neighborhood} · ${option.rating.toFixed(2)} · ${option.reviews} reviews`,
+    priceLabel: `${money(option.price)}/nt`,
+    image: option.image,
   };
 }
 

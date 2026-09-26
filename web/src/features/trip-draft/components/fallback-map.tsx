@@ -19,7 +19,30 @@ export type MapMarker = {
   lng: number;
   lat: number;
   selected?: boolean;
+  variant?: "place" | "price";
 };
+
+export function PricePin({
+  marker,
+  onSelect,
+}: {
+  marker: MapMarker;
+  onSelect?: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(marker.id)}
+      className={
+        marker.selected
+          ? "pin-pop rounded-full bg-ink px-2.5 py-1 text-[12px] font-bold whitespace-nowrap text-white shadow-[var(--shadow)]"
+          : "rounded-full border border-line bg-white px-2.5 py-1 text-[12px] font-bold whitespace-nowrap text-ink shadow-[var(--shadow)]"
+      }
+    >
+      {marker.label}
+    </button>
+  );
+}
 
 export function FallbackMap({
   focus,
@@ -55,28 +78,36 @@ export function FallbackMap({
       </div>
       {markers.length > 0
         ? markers.map((marker, index) => (
-            <button
+            <div
               key={marker.id}
-              type="button"
-              onClick={() => onSelectMarker?.(marker.id)}
-              className={
-                marker.selected
-                  ? "absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-                  : "absolute flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-[11px] border border-line bg-white/95 py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-              }
+              className={marker.selected ? "absolute z-10 -translate-x-1/2 -translate-y-full" : "absolute -translate-x-1/2 -translate-y-full"}
               style={{ left: `${38 + index * 14}%`, top: `${36 + (index % 3) * 12}%` }}
             >
-              <span
-                className={
-                  marker.selected
-                    ? "flex size-5 items-center justify-center rounded-md bg-accent text-[10px] font-bold text-white"
-                    : "flex size-5 items-center justify-center rounded-md bg-ink text-[10px] font-bold text-white"
-                }
-              >
-                {index + 1}
-              </span>
-              <span className="text-[12px] font-bold text-ink">{marker.label}</span>
-            </button>
+              {marker.variant === "price" ? (
+                <PricePin marker={marker} onSelect={onSelectMarker} />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelectMarker?.(marker.id)}
+                  className={
+                    marker.selected
+                      ? "flex items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
+                      : "flex items-center gap-1.5 rounded-[11px] border border-line bg-white/95 py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
+                  }
+                >
+                  <span
+                    className={
+                      marker.selected
+                        ? "flex size-5 items-center justify-center rounded-md bg-accent text-[10px] font-bold text-white"
+                        : "flex size-5 items-center justify-center rounded-md bg-ink text-[10px] font-bold text-white"
+                    }
+                  >
+                    {index + 1}
+                  </span>
+                  <span className="text-[12px] font-bold text-ink">{marker.label}</span>
+                </button>
+              )}
+            </div>
           ))
         : null}
       {markers.length === 0 && pinned && focus ? (

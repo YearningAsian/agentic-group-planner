@@ -10,11 +10,19 @@ export function dollarsToCents(dollars: number): number {
 }
 
 export function money(dollars: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(dollars);
+  return formatMoney(dollars, "USD");
+}
+
+export function formatMoney(amount: number, currency: string, maximumFractionDigits = 0): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(maximumFractionDigits)} ${currency}`;
+  }
 }
 
 export function nightsBetween(start: string, end: string): number {

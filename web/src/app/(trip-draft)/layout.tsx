@@ -1,11 +1,17 @@
 import type { ReactNode } from "react";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
 import { TripProvider } from "@/features/trip-draft/trip-context";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-jakarta",
+  display: "swap",
+});
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
   display: "swap",
 });
 
@@ -23,10 +29,12 @@ const jakarta = Plus_Jakarta_Sans({
  * `/plan` → `plan/page.tsx` → `plan-picker.tsx`
  * `/progress` → `progress/page.tsx` → `progress-graph.tsx`
  * `/itinerary` → `itinerary/page.tsx` → `itinerary-view.tsx`
+ * `/profile` → `profile/page.tsx` → `profile-screen.tsx` (home address)
+ * `/stays/[accommodationId]` → `stays/[accommodationId]/page.tsx` → `stay-listing.tsx` (new tab from Browse stays)
  */
 export default function TripDraftLayout({ children }: { children: ReactNode }) {
   return (
-    <div className={`${jakarta.variable} trip-draft min-h-dvh antialiased`}>
+    <div className={`${jakarta.variable} ${fraunces.variable} trip-draft min-h-dvh antialiased`}>
       <TripProvider>{children}</TripProvider>
     </div>
   );

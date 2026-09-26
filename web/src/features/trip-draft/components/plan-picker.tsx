@@ -78,7 +78,7 @@ export function PlanPicker() {
             <p className="text-[18px] text-ink">Tell the agent where you&rsquo;re going first.</p>
             <Link
               href="/onboarding"
-              className="mt-6 inline-flex h-12 items-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white"
+              className="mt-6 inline-flex h-12 items-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
             >
               Start the questionnaire
             </Link>

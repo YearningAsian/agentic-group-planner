@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
@@ -7,6 +8,7 @@ import { ScreenHeader } from "@/features/trip-draft/components/chrome";
 import { destinationById, findFlight, findStay } from "@/features/trip-draft/fixtures";
 import { formatRange, initials, money, nightsBetween } from "@/features/trip-draft/format";
 import { useTrip } from "@/features/trip-draft/trip-context";
+import type { Member } from "@/features/trip-draft/trip-context";
 import { cn } from "@/lib/utils";
 
 const VIBE_STOPS: Record<string, { title: string; detail: string }> = {
@@ -40,16 +42,52 @@ const VIBE_STOPS: Record<string, { title: string; detail: string }> = {
   },
 };
 
+function memberLabel(member: Member | undefined, fallbackIndex: number): string {
+  return member?.name.trim() || `Person ${fallbackIndex + 1}`;
+}
+
+function PersonTabs({ members, selectedId, onSelect }: { members: Member[]; selectedId: string; onSelect: (id: string) => void }) {
+  if (members.length <= 1) return null;
+  return (
+    <div className="mb-4 flex gap-2 overflow-x-auto pb-1" aria-label="Choose traveler itinerary">
+      {members.map((member, index) => {
+        const selected = member.id === selectedId;
+        return (
+          <button
+            key={member.id}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(member.id)}
+            className={cn(
+              "h-10 shrink-0 rounded-full px-4 text-[13px] font-semibold",
+              selected ? "bg-ink text-white" : "bg-bg-muted text-ink",
+            )}
+          >
+            {memberLabel(member, index)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ItineraryView() {
   const { state } = useTrip();
   const destination = destinationById(state.destinationId);
-  const flight = findFlight(state.destinationId, state.lockedFlightId);
-  const stay = findStay(state.destinationId, state.lockedStayId);
   const nights = nightsBetween(state.startDate, state.endDate);
-  const you = state.members[0];
+  const joined = state.members.filter((member) => member.joined);
+  const [selectedMemberId, setSelectedMemberId] = useState(() => joined[0]?.id ?? state.members[0]?.id ?? "");
+  const selectedMember = joined.find((member) => member.id === selectedMemberId) ?? joined[0] ?? state.members[0];
+  const flight = findFlight(state.destinationId, selectedMember?.flightId ?? state.lockedFlightId);
+  const stay = findStay(state.destinationId, selectedMember?.stayId ?? state.lockedStayId);
+  const totalForPickedPeople = joined.reduce((total, member) => {
+    const memberFlight = findFlight(state.destinationId, member.flightId ?? null);
+    const memberStay = findStay(state.destinationId, member.stayId ?? null);
+    return memberFlight && memberStay ? total + memberFlight.price + memberStay.price * nights : total;
+  }, 0);
   const dietary = state.dietary.filter((item) => item !== "None");
 
-  if (!destination || !flight || !stay) {
+  if (!destination) {
     return (
       <AppShell>
         <main className="min-h-full bg-white">
@@ -58,10 +96,30 @@ export function ItineraryView() {
             <p className="text-[18px]">Lock in a flight and a stay, then the day plan shows up here.</p>
             <Link
               href={destination ? "/plan" : "/onboarding"}
-              className="mt-6 inline-flex h-12 items-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white"
+              className="mt-6 inline-flex h-12 items-center rounded-full bg-accent px-6 text-[15px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
             >
               {destination ? "Choose flights and stays" : "Start the questionnaire"}
             </Link>
+          </div>
+        </main>
+      </AppShell>
+    );
+  }
+
+  if (!flight || !stay) {
+    return (
+      <AppShell>
+        <main className="min-h-full bg-white pb-16">
+          <ScreenHeader current="/itinerary" title={`${memberLabel(selectedMember, 0)}'s plan`} subtitle={`${destination.label} · ${formatRange(state.startDate, state.endDate)}`} />
+          <div className="mx-auto max-w-3xl px-5 py-6">
+            <PersonTabs members={joined} selectedId={selectedMember?.id ?? ""} onSelect={setSelectedMemberId} />
+            <div className="mt-6 rounded-[24px] border border-line bg-bg-muted p-6">
+              <p className="text-[18px] font-semibold">This traveler needs both a flight and a stay.</p>
+              <p className="mt-2 text-[15px] text-muted">Pick options from the current trip summary, then their day plan shows up here.</p>
+              <Link href="/current" className="mt-6 inline-flex h-12 items-center rounded-full bg-ink px-6 text-[15px] font-semibold text-white">
+                Back to summary
+              </Link>
+            </div>
           </div>
         </main>
       </AppShell>
@@ -96,10 +154,11 @@ export function ItineraryView() {
       <main className="min-h-full bg-white pb-16">
         <ScreenHeader
           current="/itinerary"
-          title={`${you?.name.trim() || "Person 1"}'s plan`}
+          title={`${memberLabel(selectedMember, 0)}'s plan`}
           subtitle={`${destination.label} · ${formatRange(state.startDate, state.endDate)}`}
         />
         <div className="mx-auto max-w-3xl px-5 py-6">
+          <PersonTabs members={joined} selectedId={selectedMember?.id ?? ""} onSelect={setSelectedMemberId} />
           <div className="overflow-hidden rounded-[24px] shadow-[var(--shadow)]">
             <div className="relative aspect-[16/9]">
               <Image src={destination.photos[0]} alt="" fill priority sizes="(min-width: 768px) 720px, 100vw" className="object-cover" />
@@ -123,7 +182,7 @@ export function ItineraryView() {
                 ))}
               </div>
               <p className="mt-4 text-[16px] font-semibold">
-                {money(perPerson)} per person · {money(perPerson * state.members.length)} for {state.members.length}
+                {money(perPerson)} for {memberLabel(selectedMember, 0)} · {money(totalForPickedPeople)} assigned total
               </p>
             </div>
           </div>

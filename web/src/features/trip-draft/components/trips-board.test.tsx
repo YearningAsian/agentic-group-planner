@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TripsBoard } from "./trips-board";
 import type { TripState, TripRecord } from "@/features/trip-draft/trip-context";
@@ -35,6 +36,10 @@ let mockState: TripState = {
 
 let mockTrips: TripRecord[] = [];
 
+const { selectTrip } = vi.hoisted(() => ({
+  selectTrip: vi.fn(),
+}));
+
 vi.mock("@/features/trip-draft/trip-context", async () => {
   const actual = await vi.importActual<typeof import("@/features/trip-draft/trip-context")>(
     "@/features/trip-draft/trip-context",
@@ -48,14 +53,33 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
       hasTrips: mockTrips.length > 0,
       startNewTrip: vi.fn(),
       commitDraft: vi.fn(),
-      selectTrip: vi.fn(),
+      selectTrip,
       deleteTrip: vi.fn(),
     }),
   };
 });
 
+function seedLisbonTrip() {
+  mockState = {
+    ...mockState,
+    id: "trip-1",
+    destinationId: "lisbon",
+    startDate: "2026-10-01",
+    endDate: "2026-10-06",
+  };
+  mockTrips = [
+    {
+      ...mockState,
+      id: "trip-1",
+      createdAt: 1000,
+      updatedAt: 1000,
+    },
+  ];
+}
+
 describe("TripsBoard", () => {
   beforeEach(() => {
+    selectTrip.mockClear();
     mockState = {
       id: null,
       destinationId: null,
@@ -90,24 +114,27 @@ describe("TripsBoard", () => {
   });
 
   it("renders user-created trip cards when trips exist", () => {
-    mockState = {
-      ...mockState,
-      id: "trip-1",
-      destinationId: "lisbon",
-      startDate: "2026-10-01",
-      endDate: "2026-10-06",
-    };
-    mockTrips = [
-      {
-        ...mockState,
-        id: "trip-1",
-        createdAt: 1000,
-        updatedAt: 1000,
-      },
-    ];
+    seedLisbonTrip();
 
     render(<TripsBoard />);
     expect(screen.queryByText(/no trips yet/i)).not.toBeInTheDocument();
     expect(screen.getByText(/trip to lisbon/i)).toBeInTheDocument();
+  });
+
+  it("selects the trip before navigating to studio or summary", async () => {
+    seedLisbonTrip();
+    render(<TripsBoard />);
+
+    const studio = screen.getByRole("link", { name: /studio/i });
+    const summary = screen.getByRole("link", { name: /summary/i });
+    expect(studio).toHaveAttribute("href", "/studio");
+    expect(summary).toHaveAttribute("href", "/current");
+
+    await userEvent.click(studio);
+    expect(selectTrip).toHaveBeenCalledWith("trip-1");
+
+    selectTrip.mockClear();
+    await userEvent.click(summary);
+    expect(selectTrip).toHaveBeenCalledWith("trip-1");
   });
 });

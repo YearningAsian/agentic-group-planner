@@ -4,6 +4,7 @@
  * `/studio` split view inside `AppShell`: chat and stay cards on the left, `TripMap` on the right.
  * Opened from `EntryChoice` Chat and from `OnboardingFlow.finish()`.
  * A null `destinationId` stays empty; exact city chat messages call `confirmDestination` before stay cards appear.
+ * Browse stays (gated on that same `destinationId`) swaps the chat feed for a Duffel listing grid and widens the left pane.
  * City detect is `chatCityDestination` in `fixtures.ts`. Nightly-vs-budget ranking is `splitStays` here; `/plan` uses nights in `plan-picker.tsx`.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +15,8 @@ import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
 import type { MapMarker } from "@/features/trip-draft/components/fallback-map";
 import { chatCityDestination, destinationById, findStay, staysFor, type StayOption } from "@/features/trip-draft/fixtures";
-import { formatRange, money, nightsBetween, stayOverBudget, validRange } from "@/features/trip-draft/format";
+import { formatMoney, formatRange, money, nightsBetween, stayOverBudget, validRange } from "@/features/trip-draft/format";
+import type { StayCard } from "@/lib/providers/stays/types";
 import { useTrip } from "@/features/trip-draft/trip-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,6 +82,111 @@ function agentReply(text: string, place: string, stayName: string) {
   return `Noted. I'll keep planning ${place} around that, using the stays already on the map.`;
 }
 
+function guestScoreLabel(score: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(score);
+}
+
+function cardMeta(stay: StayCard): string {
+  return [
+    stay.area,
+    stay.reviewCount != null ? `${stay.reviewCount} reviews` : null,
+    stay.starRating != null ? `${stay.starRating}-star` : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+function StayBrowseGrid({
+  cards,
+  status,
+  datesReady,
+  selectedId,
+  lockedStayId,
+  listingHref,
+  onChoose,
+}: {
+  cards: StayCard[];
+  status: "idle" | "loading" | "ready" | "error";
+  datesReady: boolean;
+  selectedId: string;
+  lockedStayId: string | null;
+  listingHref: (id: string) => string;
+  onChoose: (stay: StayCard) => void;
+}) {
+  let message: string | null = null;
+  if (!datesReady) message = "Add trip dates to browse stays.";
+  else if (status === "loading" || status === "idle") message = "Looking up stays…";
+  else if (status === "error") message = "Stays are unavailable right now.";
+  else if (cards.length === 0) message = "No stays in this area for those dates.";
+
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      {message ? (
+        <p className="px-5 py-6 text-[14px] text-muted">{message}</p>
+      ) : (
+        <ul className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-2">
+          {cards.map((stay) => {
+            const selected = stay.id === selectedId;
+            const saved = lockedStayId === stay.id;
+            return (
+              <li key={stay.id}>
+                <article
+                  className={cn(
+                    "overflow-hidden rounded-[14px] border bg-white shadow-[var(--shadow)]",
+                    selected ? "border-accent" : "border-line",
+                  )}
+                >
+                  <a
+                    href={listingHref(stay.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`View ${stay.name}`}
+                    className="block w-full text-left"
+                  >
+                    <div className="relative aspect-[4/3] overflow-hidden bg-bg-muted">
+                      {stay.image ? <img src={stay.image} alt="" className="absolute inset-0 size-full object-cover" /> : null}
+                    </div>
+                    <div className="p-3.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <h2 className="text-[14.5px] font-bold">{stay.name}</h2>
+                        {stay.guestScore != null ? (
+                          <p className="shrink-0 text-[12.5px] font-semibold tabular-nums" aria-label={`Guest score ${guestScoreLabel(stay.guestScore)}`}>
+                            {guestScoreLabel(stay.guestScore)}
+                          </p>
+                        ) : null}
+                      </div>
+                      {cardMeta(stay) ? <p className="mt-1 text-[12.5px] text-muted">{cardMeta(stay)}</p> : null}
+                      {stay.nightlyAmount != null && stay.currency ? (
+                        <p className="mt-2 text-[14px] font-semibold tabular-nums">
+                          {formatMoney(stay.nightlyAmount, stay.currency)}{" "}
+                          <span className="text-[12px] font-medium text-muted">/ night</span>
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-[13px] text-muted">Price unavailable</p>
+                      )}
+                    </div>
+                  </a>
+                  <div className="border-t border-line px-3.5 py-3">
+                    <Button
+                      type="button"
+                      aria-label={`Choose ${stay.name}`}
+                      disabled={saved}
+                      onClick={() => onChoose(stay)}
+                      className="h-9 w-full rounded-[9px] bg-accent px-3 text-[12.5px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:translate-y-px disabled:opacity-70"
+                    >
+                      {saved ? "Room saved" : "Choose"}
+                    </Button>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </ScrollArea>
+  );
+}
+
 export function PlannerStudio() {
   const trip = useTrip();
   const { state } = trip;
@@ -95,9 +202,14 @@ export function PlannerStudio() {
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [voiceNoted, setVoiceNoted] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [stayCards, setStayCards] = useState<StayCard[]>([]);
+  const [stayStatus, setStayStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const datesLabel = validRange(state.startDate, state.endDate)
+  const adults = Math.max(1, state.members.filter((member) => member.joined).length);
+  const datesReady = validRange(state.startDate, state.endDate);
+  const datesLabel = datesReady
     ? formatRange(state.startDate, state.endDate)
     : "Dates flexible";
   const budgetLabel = budget != null ? `${money(budget)} / person` : "Budget open";
@@ -118,13 +230,14 @@ export function PlannerStudio() {
       const offset = PIN_OFFSETS[index % PIN_OFFSETS.length];
       return {
         id: stay.id,
-        label: stay.neighborhood,
+        label: browsing ? money(stay.price) : stay.neighborhood,
         lng: destination.lng + offset.lng,
         lat: destination.lat + offset.lat,
         selected: stay.id === selectedId,
+        variant: browsing ? "price" : "place",
       };
     });
-  }, [destination, selectedId, stays]);
+  }, [browsing, destination, selectedId, stays]);
 
   useEffect(() => {
     const viewport = feedRef.current?.querySelector("[data-slot=scroll-area-viewport]");
@@ -134,6 +247,38 @@ export function PlannerStudio() {
   useEffect(() => {
     setSelectedId(featured?.id ?? "");
   }, [featured?.id]);
+
+  useEffect(() => {
+    if (!destination) setBrowsing(false);
+  }, [destination]);
+
+  useEffect(() => {
+    if (!browsing || !destination || !datesReady) {
+      setStayCards([]);
+      setStayStatus("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setStayStatus("loading");
+    const params = new URLSearchParams({
+      destinationId: destination.id,
+      checkIn: state.startDate,
+      checkOut: state.endDate,
+      adults: String(adults),
+    });
+    fetch(`/api/stays/search?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("search failed");
+        const body = (await response.json()) as { stays?: StayCard[] };
+        setStayCards(body.stays ?? []);
+        setStayStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setStayStatus("error");
+      });
+    return () => controller.abort();
+  }, [adults, browsing, datesReady, destination, state.endDate, state.startDate]);
 
   function push(role: Line["role"], text: string) {
     setLines((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, text }]);
@@ -156,12 +301,16 @@ export function PlannerStudio() {
     setDraft("");
   }
 
+  function pickStay(stay: { id: string; name: string }) {
+    trip.lockStay(stay.id);
+    trip.commitDraft?.();
+    setSelectedId(stay.id);
+    push("agent", `${stay.name} is saved for the group. The highlighted pin is the one to share.`);
+  }
+
   function chooseStay() {
     if (!destination || !featured) return;
-    trip.lockStay(featured.id);
-    trip.commitDraft?.();
-    setSelectedId(featured.id);
-    push("agent", `${featured.name} is saved for the group. The highlighted pin is the one to share.`);
+    pickStay(featured);
   }
 
   function noteVoice() {
@@ -172,7 +321,12 @@ export function PlannerStudio() {
 
   return (
     <AppShell>
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(280px,1fr)_240px] lg:grid-cols-[minmax(380px,46%)_minmax(0,1fr)] lg:grid-rows-1">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-rows-[minmax(280px,1fr)_240px] lg:grid-rows-1",
+          browsing ? "lg:grid-cols-[minmax(420px,58%)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(380px,46%)_minmax(0,1fr)]",
+        )}
+      >
         <section className="flex min-h-0 flex-col border-line-soft bg-white lg:border-r">
           <div className="flex items-center gap-3 border-b border-line-soft px-5 py-3.5">
             <Button
@@ -190,13 +344,24 @@ export function PlannerStudio() {
                 <Image src={destination.photos[0]} alt="" fill sizes="36px" className="object-cover" />
               </span>
             ) : null}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="truncate text-[14.5px] font-bold">{title}</h1>
               <p className="truncate text-[12px] text-muted">
                 {destination ? `Trip to ${destination.label}, ${destination.country}` : "Pick a city to start"}
               </p>
             </div>
+            {destination ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBrowsing((open) => !open)}
+                className="h-8 shrink-0 rounded-[9px] px-3 text-[12.5px] font-semibold"
+              >
+                {browsing ? "Back to chat" : "Browse stays"}
+              </Button>
+            ) : null}
           </div>
+          {browsing ? null : (
           <div className="flex gap-2 overflow-x-auto border-b border-line-soft px-5 py-3">
             <Badge variant="secondary" className="h-7 gap-1.5 rounded-full bg-bg-muted px-2.5 font-semibold text-muted">
               <Calendar className="size-3" />
@@ -210,7 +375,27 @@ export function PlannerStudio() {
               {budgetLabel}
             </Badge>
           </div>
+          )}
 
+          {browsing ? (
+            <StayBrowseGrid
+              cards={stayCards}
+              status={stayStatus}
+              datesReady={datesReady}
+              selectedId={selectedId}
+              lockedStayId={state.lockedStayId}
+              listingHref={(id) => {
+                const params = new URLSearchParams({
+                  checkIn: state.startDate,
+                  checkOut: state.endDate,
+                  adults: String(adults),
+                });
+                return `/stays/${encodeURIComponent(id)}?${params}`;
+              }}
+              onChoose={pickStay}
+            />
+          ) : (
+          <>
           <ScrollArea ref={feedRef} className="min-h-0 flex-1">
             <div className="space-y-4 px-5 py-4">
               {featured && destination ? (
@@ -223,8 +408,8 @@ export function PlannerStudio() {
                   </div>
                   <article className="overflow-hidden rounded-[14px] border border-line shadow-[var(--shadow)]">
                     <div className="grid h-[118px] grid-cols-2 gap-0.5">
-                      {[featured.image, destination.photos[1]].map((src) => (
-                        <div key={src} className="relative">
+                      {[featured.image, destination.photos[1]].map((src, index) => (
+                        <div key={`${src}-${index}`} className="relative">
                           <Image src={src} alt="" fill sizes="240px" className="object-cover" />
                         </div>
                       ))}
@@ -240,14 +425,14 @@ export function PlannerStudio() {
                         reviews.
                       </p>
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-[15px] font-extrabold">
+                        <p className="text-[15px] font-semibold tabular-nums">
                           {money(featured.price)} <span className="text-[12.5px] font-medium text-muted">/ night</span>
                         </p>
                         <Button
                           type="button"
                           onClick={chooseStay}
                           disabled={state.lockedStayId === featured.id}
-                          className="h-10 rounded-[9px] bg-accent px-3.5 text-[12.5px] font-bold text-white hover:bg-[#e00b41]"
+                          className="h-10 rounded-[9px] bg-accent px-3.5 text-[12.5px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:translate-y-px"
                         >
                           {state.lockedStayId === featured.id ? "Room saved" : "Choose room"}
                         </Button>
@@ -356,7 +541,7 @@ export function PlannerStudio() {
               >
                 <Mic />
               </Button>
-              <Button type="submit" size="icon" className="size-9 rounded-[10px] bg-accent text-white hover:bg-[#e00b41]" aria-label="Send">
+              <Button type="submit" size="icon" className="size-9 rounded-[10px] bg-accent text-white transition duration-200 hover:bg-accent-hover active:translate-y-px" aria-label="Send">
                 <Send />
               </Button>
             </div>
@@ -364,6 +549,8 @@ export function PlannerStudio() {
               The agent can make mistakes — check availability before booking.
             </p>
           </form>
+          </>
+          )}
         </section>
         <div className="relative h-full min-h-0">
           <TripMap

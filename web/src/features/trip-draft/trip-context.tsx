@@ -5,7 +5,7 @@
  * Screen map: `app/(trip-draft)/layout.tsx`. Read and write only through `useTrip()`.
  */
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
-import { destinationById } from "@/features/trip-draft/fixtures";
+import { DESTINATIONS, destinationById } from "@/features/trip-draft/fixtures";
 import {
   loadDatabase,
   saveDatabase,
@@ -20,12 +20,28 @@ export type Member = {
   name: string;
   joined: boolean;
   placeholder: boolean;
+  flightId?: string | null;
+  stayId?: string | null;
+};
+
+export type ConfirmedPlace = {
+  label: string;
+  iataCode: string;
+  airportIatas: string[];
+  lat: number | null;
+  lng: number | null;
+  fixtureId?: string | null;
 };
 
 export type TripState = {
   id?: string | null;
   destinationId: string | null;
   destinationQuery: string;
+  destinationLabel?: string;
+  destinationIata?: string | null;
+  destinationAirportIatas?: string[];
+  destinationLat?: number | null;
+  destinationLng?: number | null;
   pinDropped: boolean;
   startDate: string;
   endDate: string;
@@ -48,9 +64,9 @@ export type { TripRecord, TripsDatabase };
 
 function initialMembers(): Member[] {
   return [
-    { id: "p1", name: "Person 1", joined: true, placeholder: false },
-    { id: "p2", name: "Person 2", joined: false, placeholder: true },
-    { id: "p3", name: "Person 3", joined: false, placeholder: true },
+    { id: "p1", name: "Person 1", joined: true, placeholder: false, flightId: null, stayId: null },
+    { id: "p2", name: "Person 2", joined: false, placeholder: true, flightId: null, stayId: null },
+    { id: "p3", name: "Person 3", joined: false, placeholder: true, flightId: null, stayId: null },
   ];
 }
 
@@ -59,6 +75,11 @@ function initialState(): TripState {
     id: null,
     destinationId: null,
     destinationQuery: "",
+    destinationLabel: "",
+    destinationIata: null,
+    destinationAirportIatas: [],
+    destinationLat: null,
+    destinationLng: null,
     pinDropped: false,
     startDate: "",
     endDate: "",
@@ -85,6 +106,57 @@ let snapshot: TripState = emptySnapshot;
 let didHydrate = false;
 const listeners = new Set<() => void>();
 
+function matchFixture(place: Pick<ConfirmedPlace, "label" | "iataCode" | "airportIatas">) {
+  return (
+    DESTINATIONS.find((destination) => destination.code === place.iataCode) ??
+    DESTINATIONS.find((destination) => place.airportIatas.includes(destination.code)) ??
+    DESTINATIONS.find((destination) => destination.label.toLowerCase() === place.label.toLowerCase()) ??
+    null
+  );
+}
+
+function applyPlace(current: TripState, place: ConfirmedPlace): TripState {
+  const fixture = place.fixtureId ? destinationById(place.fixtureId) : matchFixture(place);
+  const samePlace = current.destinationIata === place.iataCode && current.destinationId === (fixture?.id ?? null);
+  return {
+    ...current,
+    destinationId: fixture?.id ?? null,
+    destinationQuery: place.label,
+    destinationLabel: place.label,
+    destinationIata: place.iataCode,
+    destinationAirportIatas: place.airportIatas,
+    destinationLat: place.lat,
+    destinationLng: place.lng,
+    pinDropped: true,
+    lockedFlightId: samePlace ? current.lockedFlightId : null,
+    lockedStayId: samePlace ? current.lockedStayId : null,
+    members: samePlace ? current.members : clearMemberPicks(current.members),
+    compareFlightIds: samePlace ? current.compareFlightIds : [],
+    compareStayIds: samePlace ? current.compareStayIds : [],
+  };
+}
+
+function normalizeState<T extends TripState>(state: T): T {
+  const fixture = destinationById(state.destinationId);
+  return {
+    ...state,
+    destinationLabel: state.destinationLabel ?? fixture?.label ?? "",
+    destinationIata: state.destinationIata ?? fixture?.code ?? null,
+    destinationAirportIatas: state.destinationAirportIatas ?? (fixture?.code ? [fixture.code] : []),
+    destinationLat: state.destinationLat ?? fixture?.lat ?? null,
+    destinationLng: state.destinationLng ?? fixture?.lng ?? null,
+    members: state.members.map((member, index) => ({
+      ...member,
+      flightId: member.flightId ?? (index === 0 ? state.lockedFlightId : null),
+      stayId: member.stayId ?? (index === 0 ? state.lockedStayId : null),
+    })),
+  };
+}
+
+function clearMemberPicks(members: Member[]): Member[] {
+  return members.map((member) => ({ ...member, flightId: null, stayId: null }));
+}
+
 function hydrate() {
   if (didHydrate) return;
   didHydrate = true;
@@ -92,7 +164,9 @@ function hydrate() {
   if (dbSnapshot.trips.length > 0) {
     const active =
       dbSnapshot.trips.find((t) => t.id === dbSnapshot.activeTripId) ?? dbSnapshot.trips[0];
-    snapshot = active;
+    const normalizedTrips = dbSnapshot.trips.map(normalizeState);
+    dbSnapshot = { ...dbSnapshot, trips: normalizedTrips };
+    snapshot = normalizeState(active);
     dbSnapshot.activeTripId = active.id;
   } else {
     snapshot = initialState();
@@ -153,6 +227,7 @@ function subscribeHydrated() {
 type TripActions = {
   setDestinationQuery: (query: string) => void;
   confirmDestination: (id: string) => void;
+  confirmPlace: (place: ConfirmedPlace) => void;
   setDates: (start: string, end: string) => void;
   setBudget: (budget: number | null) => void;
   setDietary: (dietary: string[]) => void;
@@ -163,6 +238,8 @@ type TripActions = {
   addMember: (placeholder: boolean) => void;
   removeMember: (id: string) => void;
   resetParty: () => void;
+  assignFlight: (memberId: string, id: string) => void;
+  assignStay: (memberId: string, id: string) => void;
   lockFlight: (id: string) => void;
   lockStay: (id: string) => void;
   toggleCompareFlight: (id: string) => void;
@@ -200,36 +277,45 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     () => ({
       setDestinationQuery(query) {
         commit((current) => {
-          const destination = destinationById(current.destinationId);
+          const confirmedLabel = current.destinationLabel || destinationById(current.destinationId)?.label;
           const stillConfirmed = Boolean(
-            destination && query.trim().toLowerCase() === destination.label.toLowerCase(),
+            confirmedLabel && query.trim().toLowerCase() === confirmedLabel.toLowerCase(),
           );
           return {
             ...current,
             destinationQuery: query,
             destinationId: stillConfirmed ? current.destinationId : null,
+            destinationLabel: stillConfirmed ? current.destinationLabel : "",
+            destinationIata: stillConfirmed ? current.destinationIata : null,
+            destinationAirportIatas: stillConfirmed ? current.destinationAirportIatas : [],
+            destinationLat: stillConfirmed ? current.destinationLat : null,
+            destinationLng: stillConfirmed ? current.destinationLng : null,
             pinDropped: stillConfirmed ? current.pinDropped : false,
             lockedFlightId: stillConfirmed ? current.lockedFlightId : null,
             lockedStayId: stillConfirmed ? current.lockedStayId : null,
+            members: stillConfirmed ? current.members : clearMemberPicks(current.members),
           };
         });
       },
       confirmDestination(id) {
-        commit((current) => {
-          const destination = destinationById(id);
-          if (!destination) return current;
-          const samePlace = current.destinationId === id;
-          return {
-            ...current,
-            destinationId: id,
-            destinationQuery: destination.label,
-            pinDropped: true,
-            lockedFlightId: samePlace ? current.lockedFlightId : null,
-            lockedStayId: samePlace ? current.lockedStayId : null,
-            compareFlightIds: samePlace ? current.compareFlightIds : [],
-            compareStayIds: samePlace ? current.compareStayIds : [],
-          };
-        });
+        const destination = destinationById(id);
+        if (!destination) return;
+        commit((current) =>
+          applyPlace(current, {
+            fixtureId: destination.id,
+            label: destination.label,
+            iataCode: destination.code,
+            airportIatas: [destination.code],
+            lat: destination.lat,
+            lng: destination.lng,
+          }),
+        );
+        if (snapshot.id) {
+          commitDraft();
+        }
+      },
+      confirmPlace(place) {
+        commit((current) => applyPlace(current, place));
         if (snapshot.id) {
           commitDraft();
         }
@@ -283,6 +369,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
                 name: placeholder ? "" : `Person ${count}`,
                 joined: false,
                 placeholder,
+                flightId: null,
+                stayId: null,
               },
             ],
           };
@@ -297,10 +385,23 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       resetParty() {
         commit((current) => ({ ...current, members: initialMembers() }));
       },
+      assignFlight(memberId, id) {
+        commit((current) => ({
+          ...current,
+          members: current.members.map((member) => (member.id === memberId ? { ...member, flightId: id } : member)),
+        }));
+      },
+      assignStay(memberId, id) {
+        commit((current) => ({
+          ...current,
+          members: current.members.map((member) => (member.id === memberId ? { ...member, stayId: id } : member)),
+        }));
+      },
       lockFlight(id) {
         commit((current) => ({
           ...current,
           lockedFlightId: id,
+          members: current.members.map((member, index) => (index === 0 ? { ...member, flightId: id } : member)),
           comparingFlights: false,
           compareFlightIds: [],
         }));
@@ -309,6 +410,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         commit((current) => ({
           ...current,
           lockedStayId: id,
+          members: current.members.map((member, index) => (index === 0 ? { ...member, stayId: id } : member)),
           comparingStays: false,
           compareStayIds: [],
         }));

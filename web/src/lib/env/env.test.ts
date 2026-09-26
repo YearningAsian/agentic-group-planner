@@ -101,6 +101,11 @@ describe("server env", () => {
     expect(problems({ ...real, STRIPE_SECRET_KEY: "sk_test_abc" })).toEqual([]);
   });
 
+  it("rejects a live Duffel token (duffel_live_)", () => {
+    expect(problems({ ...buildProfile, DUFFEL_ACCESS_TOKEN: "duffel_live_abc" })).toEqual(["DUFFEL_ACCESS_TOKEN"]);
+    expect(problems({ ...buildProfile, DUFFEL_ACCESS_TOKEN: "duffel_test_abc" })).toEqual([]);
+  });
+
   it("requires VOICE_TO_NUMBER_OVERRIDE in E.164 when NEXT_PUBLIC_DEMO_MODE=true", () => {
     expect(problems({ ...buildProfile, VOICE_TO_NUMBER_OVERRIDE: undefined })).toEqual(["VOICE_TO_NUMBER_OVERRIDE"]);
     expect(problems({ ...buildProfile, VOICE_TO_NUMBER_OVERRIDE: "555-0100" })).toEqual(["VOICE_TO_NUMBER_OVERRIDE"]);

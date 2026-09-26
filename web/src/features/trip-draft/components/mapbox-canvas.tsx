@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Map, { Marker, NavigationControl, type MapRef } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { FallbackMap, type MapMarker } from "@/features/trip-draft/components/fallback-map";
+import { FallbackMap, PricePin, type MapMarker } from "@/features/trip-draft/components/fallback-map";
 import type { Destination } from "@/features/trip-draft/fixtures";
 
 export function MapboxCanvas({
@@ -24,11 +24,12 @@ export function MapboxCanvas({
   const focusRef = useRef(focus);
   const pinnedRef = useRef(pinned);
   const markerZoomRef = useRef(markers.length > 0);
+  const loadedRef = useRef(false);
   const [failed, setFailed] = useState(false);
 
   function fly() {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !loadedRef.current) return;
     const current = focusRef.current;
     if (!current) {
       map.flyTo({ center: [-30, 24], zoom: 1.25, duration: 900, essential: true });
@@ -68,30 +69,37 @@ export function MapboxCanvas({
       initialViewState={{ longitude: -30, latitude: 24, zoom: 1.25 }}
       mapStyle="mapbox://styles/mapbox/light-v11"
       style={{ width: "100%", height: "100%" }}
-      onLoad={fly}
+      onLoad={() => {
+        loadedRef.current = true;
+        fly();
+      }}
       onError={() => setFailed(true)}
       attributionControl
     >
       {markers.map((marker) => (
         <Marker key={marker.id} longitude={marker.lng} latitude={marker.lat} anchor="bottom">
-          <button
-            type="button"
-            onClick={() => onSelectMarker?.(marker.id)}
-            className={
-              marker.selected
-                ? "pin-pop flex items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-                : "flex items-center gap-1.5 rounded-[11px] border border-line bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
-            }
-          >
-            <span
+          {marker.variant === "price" ? (
+            <PricePin marker={marker} onSelect={onSelectMarker} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSelectMarker?.(marker.id)}
               className={
                 marker.selected
-                  ? "size-2.5 rounded-full bg-accent"
-                  : "size-2.5 rounded-full bg-ink"
+                  ? "pin-pop flex items-center gap-1.5 rounded-[11px] border border-accent bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
+                  : "flex items-center gap-1.5 rounded-[11px] border border-line bg-white py-1 pr-2.5 pl-1 shadow-[var(--shadow)]"
               }
-            />
-            <span className="text-[12px] font-bold whitespace-nowrap text-ink">{marker.label}</span>
-          </button>
+            >
+              <span
+                className={
+                  marker.selected
+                    ? "size-2.5 rounded-full bg-accent"
+                    : "size-2.5 rounded-full bg-ink"
+                }
+              />
+              <span className="text-[12px] font-bold whitespace-nowrap text-ink">{marker.label}</span>
+            </button>
+          )}
         </Marker>
       ))}
       {markers.length > 0 ? <NavigationControl position="bottom-right" showCompass={false} /> : null}

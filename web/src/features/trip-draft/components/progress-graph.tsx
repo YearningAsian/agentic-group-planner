@@ -25,10 +25,18 @@ export function ProgressGraph() {
   const [copied, setCopied] = useState(false);
 
   const destination = destinationById(state.destinationId);
-  const flight = findFlight(state.destinationId, state.lockedFlightId);
-  const stay = findStay(state.destinationId, state.lockedStayId);
   const nights = nightsBetween(state.startDate, state.endDate);
-  const inviteReached = Boolean(flight && stay);
+  const joined = state.members.filter((member) => member.joined);
+  const allHaveFlight = joined.length > 0 && joined.every((member) => Boolean(member.flightId));
+  const allHaveStay = joined.length > 0 && joined.every((member) => Boolean(member.stayId));
+  const inviteReached = allHaveFlight && allHaveStay;
+  const flightSummary = summarizeFlights(state.destinationId, joined);
+  const staySummary = summarizeStays(state.destinationId, joined);
+  const assignedTotal = joined.reduce((total, member) => {
+    const flight = findFlight(state.destinationId, member.flightId ?? null);
+    const stay = findStay(state.destinationId, member.stayId ?? null);
+    return flight && stay ? total + flight.price + stay.price * nights : total;
+  }, 0);
 
   useEffect(() => {
     if (!inviteReached || state.didSimulateJoin) return;
@@ -46,15 +54,15 @@ export function ProgressGraph() {
     {
       id: "flight",
       title: "Flight",
-      status: flight ? "done" : "current",
-      summary: flight ? `${flight.airline} · ${money(flight.price)}` : "Choose a flight to lock in",
+      status: allHaveFlight ? "done" : "current",
+      summary: allHaveFlight ? flightSummary : "Choose flights for everyone who has joined",
       editHref: "/plan#flights",
     },
     {
       id: "hotel",
       title: "Hotel",
-      status: !flight ? "pending" : stay ? "done" : "current",
-      summary: stay ? `${stay.name} · ${money(stay.price)} / night` : "Choose a stay to lock in",
+      status: !allHaveFlight ? "pending" : allHaveStay ? "done" : "current",
+      summary: allHaveStay ? staySummary : "Choose stays for everyone who has joined",
       editHref: "/plan#stays",
     },
     {
@@ -170,7 +178,7 @@ export function ProgressGraph() {
                       <button
                         type="button"
                         onClick={() => router.push("/plan#flights")}
-                        className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white"
+                        className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
                       >
                         Browse flights
                       </button>
@@ -179,7 +187,7 @@ export function ProgressGraph() {
                       <button
                         type="button"
                         onClick={() => router.push("/plan#stays")}
-                        className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white"
+                        className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
                       >
                         Browse stays
                       </button>
@@ -214,9 +222,9 @@ export function ProgressGraph() {
               <p className="text-[13px] font-semibold text-muted">This trip</p>
               <p className="mt-1 text-[18px] font-semibold">{destination?.label ?? "No destination yet"}</p>
               <p className="text-[14px] text-muted">{destination?.blurb}</p>
-              {flight && stay ? (
+              {assignedTotal > 0 ? (
                 <p className="mt-3 text-[14px] font-semibold">
-                  {money(flight.price + stay.price * nights)} per person
+                  {money(assignedTotal)} assigned total
                 </p>
               ) : null}
             </div>
@@ -225,6 +233,37 @@ export function ProgressGraph() {
       </main>
     </AppShell>
   );
+}
+
+function summarizeFlights(destinationId: string | null, members: Member[]): string {
+  const picked = members
+    .map((member) => ({ member, flight: findFlight(destinationId, member.flightId ?? null) }))
+    .filter((item): item is { member: Member; flight: NonNullable<ReturnType<typeof findFlight>> } => Boolean(item.flight));
+  const groups = groupByOption(picked, (item) => item.flight.id, (item) => `${item.flight.airline} · ${money(item.flight.price)}`);
+  return groups.length === 1 ? groups[0] : groups.join(" · ");
+}
+
+function summarizeStays(destinationId: string | null, members: Member[]): string {
+  const picked = members
+    .map((member) => ({ member, stay: findStay(destinationId, member.stayId ?? null) }))
+    .filter((item): item is { member: Member; stay: NonNullable<ReturnType<typeof findStay>> } => Boolean(item.stay));
+  const groups = groupByOption(picked, (item) => item.stay.id, (item) => `${item.stay.name} · ${money(item.stay.price)} / night`);
+  return groups.length === 1 ? groups[0] : groups.join(" · ");
+}
+
+function groupByOption<T extends { member: Member }>(items: T[], idOf: (item: T) => string, labelOf: (item: T) => string): string[] {
+  const groups = new Map<string, { label: string; names: string[] }>();
+  for (const item of items) {
+    const id = idOf(item);
+    const existing = groups.get(id);
+    const name = item.member.name.trim() || "Traveler";
+    if (existing) {
+      existing.names.push(name);
+    } else {
+      groups.set(id, { label: labelOf(item), names: [name] });
+    }
+  }
+  return [...groups.values()].map((group) => (groups.size === 1 ? group.label : `${group.label} (${group.names.join(", ")})`));
 }
 
 function StatusLabel({ status }: { status: NodeStatus }) {
@@ -263,7 +302,7 @@ function InviteSheet({
           className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-[14px]"
           onFocus={(event) => event.currentTarget.select()}
         />
-        <button type="button" onClick={onCopy} className="h-12 rounded-full bg-accent px-5 text-[14px] font-semibold text-white">
+        <button type="button" onClick={onCopy} className="h-12 rounded-full bg-accent px-5 text-[14px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]">
           {copied ? "Copied" : "Copy"}
         </button>
       </div>

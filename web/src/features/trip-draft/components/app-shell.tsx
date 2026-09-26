@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar collapsible="offcanvas" className="border-sidebar-border">
         <SidebarHeader className="px-4 pt-5 pb-2">
           <Link href="/" className="flex items-center gap-2.5 px-2">
-            <span className="flex size-[30px] items-center justify-center rounded-[9px] bg-linear-to-br from-accent to-[#ff7a93] text-[15px] font-extrabold text-white">
+            <span className="flex size-[30px] items-center justify-center rounded-md bg-ink text-[15px] font-semibold text-white">
               G
             </span>
             <span className="text-[15px] font-bold tracking-tight text-ink">Group Trip Agent</span>
@@ -105,15 +105,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="gap-3 p-4">
-          <div className="rounded-[14px] bg-linear-to-br from-[#1c1a17] to-[#302a22] p-3.5 text-white">
-            <p className="mb-2.5 text-[12.5px] leading-snug text-[#d9d2c4]">
+          <div className="rounded-[14px] border border-line bg-surface-sunken p-3.5">
+            <p className="mb-2.5 text-[12.5px] leading-snug text-muted">
               Have a destination in mind but not much else? Just tell the agent: text, voice, or a quick
               questionnaire.
             </p>
             <Button
               nativeButton={false}
               render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}
-              className="h-9 w-full rounded-lg bg-white text-[12.5px] font-bold text-ink hover:bg-white/90"
+              className="h-9 w-full rounded-lg bg-ink text-[12.5px] font-semibold text-white hover:bg-[#302a22] active:translate-y-px"
             >
               Start a new trip
             </Button>
@@ -136,6 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="end" className="w-44">
+                <DropdownMenuItem render={<Link href="/profile" />}>Profile</DropdownMenuItem>
                 <DropdownMenuItem render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}>
                   New trip
                 </DropdownMenuItem>
