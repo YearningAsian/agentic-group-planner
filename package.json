@@ -11,6 +11,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "seed:demo": "pnpm --filter web seed:demo",
+    "reset:demo": "pnpm --filter web reset:demo",
     "db:types": "supabase gen types typescript --local > packages/shared/src/db/database.types.ts",
     "api:types": "pnpm --filter @agp/shared exec openapi-typescript http://localhost:8000/openapi.json --default-non-nullable false -o src/optimizer/openapi.ts"
   },

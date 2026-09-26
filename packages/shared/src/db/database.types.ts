@@ -51,7 +51,6 @@ export type Database = {
           status: string
           step_count: number
           trigger: string
-          trigger_call_id: string | null
           trigger_message_id: string | null
           trip_id: string
           updated_at: string
@@ -73,7 +72,6 @@ export type Database = {
           status?: string
           step_count?: number
           trigger: string
-          trigger_call_id?: string | null
           trigger_message_id?: string | null
           trip_id: string
           updated_at?: string
@@ -95,7 +93,6 @@ export type Database = {
           status?: string
           step_count?: number
           trigger?: string
-          trigger_call_id?: string | null
           trigger_message_id?: string | null
           trip_id?: string
           updated_at?: string
@@ -107,13 +104,6 @@ export type Database = {
             columns: ["requester_member_id"]
             isOneToOne: false
             referencedRelation: "trip_members"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_runs_trigger_call_id_fkey"
-            columns: ["trigger_call_id"]
-            isOneToOne: true
-            referencedRelation: "calls"
             referencedColumns: ["id"]
           },
           {
@@ -134,7 +124,6 @@ export type Database = {
       }
       bookings: {
         Row: {
-          call_id: string | null
           confirmation_code: string | null
           confirmed_at: string | null
           created_at: string
@@ -155,7 +144,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          call_id?: string | null
           confirmation_code?: string | null
           confirmed_at?: string | null
           created_at?: string
@@ -176,7 +164,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          call_id?: string | null
           confirmation_code?: string | null
           confirmed_at?: string | null
           created_at?: string
@@ -197,13 +184,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "bookings_call_id_fkey"
-            columns: ["call_id"]
-            isOneToOne: false
-            referencedRelation: "calls"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "bookings_item_id_fkey"
             columns: ["item_id"]
@@ -227,94 +207,6 @@ export type Database = {
           },
           {
             foreignKeyName: "bookings_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "trips"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      calls: {
-        Row: {
-          conversation_id: string | null
-          created_at: string
-          ended_at: string | null
-          failure_reason: string | null
-          id: string
-          idempotency_key: string
-          item_id: string
-          outcome: Json | null
-          place_id: string
-          provider: string
-          provider_call_sid: string | null
-          request: Json
-          seed_batch: string | null
-          started_at: string | null
-          status: string
-          summary: string | null
-          to_number: string
-          trip_id: string
-          updated_at: string
-        }
-        Insert: {
-          conversation_id?: string | null
-          created_at?: string
-          ended_at?: string | null
-          failure_reason?: string | null
-          id?: string
-          idempotency_key: string
-          item_id: string
-          outcome?: Json | null
-          place_id: string
-          provider: string
-          provider_call_sid?: string | null
-          request: Json
-          seed_batch?: string | null
-          started_at?: string | null
-          status?: string
-          summary?: string | null
-          to_number: string
-          trip_id: string
-          updated_at?: string
-        }
-        Update: {
-          conversation_id?: string | null
-          created_at?: string
-          ended_at?: string | null
-          failure_reason?: string | null
-          id?: string
-          idempotency_key?: string
-          item_id?: string
-          outcome?: Json | null
-          place_id?: string
-          provider?: string
-          provider_call_sid?: string | null
-          request?: Json
-          seed_batch?: string | null
-          started_at?: string | null
-          status?: string
-          summary?: string | null
-          to_number?: string
-          trip_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "calls_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "itinerary_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "calls_place_id_fkey"
-            columns: ["place_id"]
-            isOneToOne: false
-            referencedRelation: "places"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "calls_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
@@ -453,6 +345,7 @@ export type Database = {
           pinned: boolean
           position: number
           seed_batch: string | null
+          shifted_min: number
           slot_key: string
           starts_at: string
           status: string
@@ -475,6 +368,7 @@ export type Database = {
           pinned?: boolean
           position: number
           seed_batch?: string | null
+          shifted_min?: number
           slot_key: string
           starts_at: string
           status?: string
@@ -497,6 +391,7 @@ export type Database = {
           pinned?: boolean
           position?: number
           seed_batch?: string | null
+          shifted_min?: number
           slot_key?: string
           starts_at?: string
           status?: string
@@ -538,6 +433,9 @@ export type Database = {
       }
       mandates: {
         Row: {
+          booking_confirmation_code: string | null
+          booking_provider_ref: string | null
+          booking_quote_id: string | null
           cancel_reason: string | null
           cap_cents: number
           created_at: string
@@ -547,6 +445,7 @@ export type Database = {
           id: string
           idempotency_key: string
           item_id: string
+          lease_expires_at: string | null
           merchant: string
           option_id: string
           proposed_by_run_id: string | null
@@ -560,6 +459,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          booking_confirmation_code?: string | null
+          booking_provider_ref?: string | null
+          booking_quote_id?: string | null
           cancel_reason?: string | null
           cap_cents: number
           created_at?: string
@@ -569,6 +471,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           item_id: string
+          lease_expires_at?: string | null
           merchant: string
           option_id: string
           proposed_by_run_id?: string | null
@@ -582,6 +485,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          booking_confirmation_code?: string | null
+          booking_provider_ref?: string | null
+          booking_quote_id?: string | null
           cancel_reason?: string | null
           cap_cents?: number
           created_at?: string
@@ -591,6 +497,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           item_id?: string
+          lease_expires_at?: string | null
           merchant?: string
           option_id?: string
           proposed_by_run_id?: string | null
@@ -809,6 +716,7 @@ export type Database = {
           id: string
           idempotency_key: string
           kind: string
+          lease_expires_at: string | null
           mandate_id: string
           payer_member_id: string | null
           pays_share: boolean | null
@@ -831,6 +739,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           kind: string
+          lease_expires_at?: string | null
           mandate_id: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -853,6 +762,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           kind?: string
+          lease_expires_at?: string | null
           mandate_id?: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -892,6 +802,44 @@ export type Database = {
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      person_preferences: {
+        Row: {
+          created_at: string
+          dietary: string[]
+          interests: string[]
+          notes: Json
+          profile_id: string
+          seed_batch: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dietary?: string[]
+          interests?: string[]
+          notes?: Json
+          profile_id: string
+          seed_batch?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dietary?: string[]
+          interests?: string[]
+          notes?: Json
+          profile_id?: string
+          seed_batch?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_preferences_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1208,6 +1156,7 @@ export type Database = {
       trip_members: {
         Row: {
           claimed_at: string | null
+          claimed_token_hash: string | null
           created_at: string
           display_name: string
           id: string
@@ -1223,6 +1172,7 @@ export type Database = {
         }
         Insert: {
           claimed_at?: string | null
+          claimed_token_hash?: string | null
           created_at?: string
           display_name: string
           id?: string
@@ -1238,6 +1188,7 @@ export type Database = {
         }
         Update: {
           claimed_at?: string | null
+          claimed_token_hash?: string | null
           created_at?: string
           display_name?: string
           id?: string
@@ -1327,68 +1278,6 @@ export type Database = {
           },
         ]
       }
-      votes: {
-        Row: {
-          created_at: string
-          id: string
-          item_id: string
-          member_id: string
-          option_id: string
-          seed_batch: string | null
-          trip_id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          item_id: string
-          member_id: string
-          option_id: string
-          seed_batch?: string | null
-          trip_id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          item_id?: string
-          member_id?: string
-          option_id?: string
-          seed_batch?: string | null
-          trip_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "votes_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "itinerary_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "votes_member_id_fkey"
-            columns: ["member_id"]
-            isOneToOne: false
-            referencedRelation: "trip_members"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "votes_option_id_item_id_fkey"
-            columns: ["option_id", "item_id"]
-            isOneToOne: false
-            referencedRelation: "item_options"
-            referencedColumns: ["id", "item_id"]
-          },
-          {
-            foreignKeyName: "votes_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "trips"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       webhook_events: {
         Row: {
           attempts: number
@@ -1439,6 +1328,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_item_change: { Args: { payload: Json }; Returns: Json }
       apply_plan: { Args: { payload: Json }; Returns: Json }
       audit_definer_functions: {
         Args: never
@@ -1448,6 +1338,11 @@ export type Database = {
           search_path_pinned: boolean
         }[]
       }
+      claim_invite: { Args: { p_token: string }; Returns: Json }
+      complete_mandate: { Args: { payload: Json }; Returns: Json }
+      cover_shortfall: { Args: { payload: Json }; Returns: Json }
+      create_mandate: { Args: { payload: Json }; Returns: Json }
+      finish_agent_run: { Args: { payload: Json }; Returns: Json }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }
       is_trip_organizer: { Args: { p_trip_id: string }; Returns: boolean }
     }

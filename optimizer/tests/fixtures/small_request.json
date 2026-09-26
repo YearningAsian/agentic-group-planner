@@ -1,0 +1,131 @@
+{
+  "request_id": "call_small",
+  "mode": "initial",
+  "members": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "budget_cents": 8000,
+      "dietary": [],
+      "interests": ["art", "history"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "budget_cents": 8000,
+      "dietary": ["vegetarian"],
+      "interests": ["animals", "outdoors"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "budget_cents": null,
+      "dietary": [],
+      "interests": ["animals"]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "budget_cents": 5000,
+      "dietary": [],
+      "interests": ["art"]
+    }
+  ],
+  "slots": [
+    {
+      "key": "morning",
+      "category": "activity",
+      "starts_at": "2026-10-03T10:00:00-04:00",
+      "ends_at": "2026-10-03T12:00:00-04:00",
+      "together": false,
+      "pinned": null,
+      "candidates": [
+        {
+          "place_id": "00000000-0000-4000-8000-000000000101",
+          "price_cents": 2000,
+          "tags": ["art", "history"],
+          "dietary_tags": [],
+          "rating": 4.0,
+          "open_from": "2026-10-03T09:00:00-04:00",
+          "open_until": "2026-10-03T17:00:00-04:00",
+          "duration_min": 120
+        },
+        {
+          "place_id": "00000000-0000-4000-8000-000000000102",
+          "price_cents": 4000,
+          "tags": ["animals", "outdoors"],
+          "dietary_tags": [],
+          "rating": 5.0,
+          "open_from": "2026-10-03T09:00:00-04:00",
+          "open_until": "2026-10-03T18:00:00-04:00",
+          "duration_min": 120
+        },
+        {
+          "place_id": "00000000-0000-4000-8000-000000000103",
+          "price_cents": 0,
+          "tags": ["outdoors"],
+          "dietary_tags": [],
+          "rating": 3.0,
+          "open_from": null,
+          "open_until": null,
+          "duration_min": 90
+        }
+      ]
+    },
+    {
+      "key": "lunch",
+      "category": "food",
+      "starts_at": "2026-10-03T12:15:00-04:00",
+      "ends_at": "2026-10-03T13:15:00-04:00",
+      "together": true,
+      "pinned": null,
+      "candidates": [
+        {
+          "place_id": "00000000-0000-4000-8000-000000000104",
+          "price_cents": 1500,
+          "tags": ["cafe"],
+          "dietary_tags": ["vegetarian", "vegan"],
+          "rating": 4.0,
+          "open_from": "2026-10-03T11:00:00-04:00",
+          "open_until": "2026-10-03T14:00:00-04:00",
+          "duration_min": 60
+        },
+        {
+          "place_id": "00000000-0000-4000-8000-000000000105",
+          "price_cents": 3000,
+          "tags": ["bbq"],
+          "dietary_tags": [],
+          "rating": 5.0,
+          "open_from": "2026-10-03T11:30:00-04:00",
+          "open_until": "2026-10-03T22:00:00-04:00",
+          "duration_min": 60
+        },
+        {
+          "place_id": "00000000-0000-4000-8000-000000000106",
+          "price_cents": 3000,
+          "tags": ["bistro"],
+          "dietary_tags": ["vegetarian"],
+          "rating": 4.5,
+          "open_from": null,
+          "open_until": null,
+          "duration_min": 60
+        }
+      ]
+    }
+  ],
+  "travel": [
+    {"from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000104", "minutes": 9},
+    {"from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000105", "minutes": 18},
+    {"from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000106", "minutes": 9},
+    {"from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000104", "minutes": 18},
+    {"from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000105", "minutes": 9},
+    {"from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000106", "minutes": 36},
+    {"from_place_id": "00000000-0000-4000-8000-000000000103", "to_place_id": "00000000-0000-4000-8000-000000000104", "minutes": 9},
+    {"from_place_id": "00000000-0000-4000-8000-000000000103", "to_place_id": "00000000-0000-4000-8000-000000000105", "minutes": 27},
+    {"from_place_id": "00000000-0000-4000-8000-000000000103", "to_place_id": "00000000-0000-4000-8000-000000000106", "minutes": 18}
+  ],
+  "params": {
+    "max_plans": 3,
+    "min_group_size": 2,
+    "max_groups_per_slot": 2,
+    "weights": {"preference": 1.0, "cost": 0.6, "travel": 0.4, "fairness": 0.8, "split_penalty": 0.1},
+    "time_limit_ms": 2000,
+    "engine": "auto"
+  }
+}

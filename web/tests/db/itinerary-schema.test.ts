@@ -6,7 +6,6 @@ const admin = adminClient();
 let member: TestUser;
 let outsider: TestUser;
 let tripId: string;
-let memberIds: string[];
 let placeIds: string[];
 
 function item(overrides: Record<string, unknown> = {}) {
@@ -29,22 +28,22 @@ async function insertItem(overrides: Record<string, unknown> = {}): Promise<stri
   return data.id as string;
 }
 
+function option(itemId: string, placeId: string, rank: number) {
+  return {
+    trip_id: tripId,
+    item_id: itemId,
+    place_id: placeId,
+    rank,
+    price_cents: 4200,
+    score: 0.8,
+    score_breakdown: { preference: 0.9, cost: 0.7, travel: 0.8, fairness: 0.7, per_member: {} },
+    source: "mock",
+    seed_batch: batch,
+  };
+}
+
 async function insertOption(itemId: string, placeId: string, rank: number): Promise<string> {
-  const { data, error } = await admin
-    .from("item_options")
-    .insert({
-      trip_id: tripId,
-      item_id: itemId,
-      place_id: placeId,
-      rank,
-      price_cents: 4200,
-      score: 0.8,
-      score_breakdown: { preference: 0.9, cost: 0.7, travel: 0.8, fairness: 0.7, per_member: {} },
-      source: "mock",
-      seed_batch: batch,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await admin.from("item_options").insert(option(itemId, placeId, rank)).select("id").single();
   if (error) throw error;
   return data.id as string;
 }
@@ -52,7 +51,7 @@ async function insertOption(itemId: string, placeId: string, rank: number): Prom
 beforeAll(async () => {
   member = await createUser({ batch, displayName: "Person 1" });
   outsider = await createUser({ batch, displayName: "Outsider" });
-  ({ tripId, memberIds } = await createTrip(batch, { members: [{ displayName: "Person 1", profileId: member.userId }] }));
+  ({ tripId } = await createTrip(batch, { members: [{ displayName: "Person 1", profileId: member.userId }] }));
   placeIds = [(await createPlace(batch)).placeId, (await createPlace(batch)).placeId];
 });
 
@@ -81,17 +80,13 @@ describe("places and itinerary migration", () => {
     expect(full.error).toBeNull();
   });
 
-  it("a vote can't point at another item's option (composite foreign key)", async () => {
-    const first = await insertItem({ slot_key: "lunch" });
-    const second = await insertItem({ slot_key: "afternoon" });
-    const firstOption = await insertOption(first, placeIds[0]!, 1);
-    await insertOption(second, placeIds[1]!, 1);
-
-    const vote = { trip_id: tripId, member_id: memberIds[0], seed_batch: batch };
-    const wrong = await admin.from("votes").insert({ ...vote, item_id: second, option_id: firstOption });
-    expect(wrong.error?.code).toBe("23503");
-    const right = await admin.from("votes").insert({ ...vote, item_id: first, option_id: firstOption });
-    expect(right.error).toBeNull();
+  it("an item has at most one option per rank and per place", async () => {
+    const lunch = await insertItem({ slot_key: "lunch" });
+    await insertOption(lunch, placeIds[0]!, 1);
+    const sameRank = await admin.from("item_options").insert(option(lunch, placeIds[1]!, 1));
+    expect(sameRank.error?.code).toBe("23505");
+    const samePlace = await admin.from("item_options").insert(option(lunch, placeIds[0]!, 2));
+    expect(samePlace.error?.code).toBe("23505");
   });
 
   it("members select items; non-members select none", async () => {

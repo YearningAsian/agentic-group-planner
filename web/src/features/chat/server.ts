@@ -1,6 +1,4 @@
 import "server-only";
-import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
-
-export const sendMessage = notBuilt("sendMessage");
+// Server entry point for the chat feature.
+export { mentionsAgent, type SendMessageInput, type SendMessageResult, sendMessage } from "./server/send-message";

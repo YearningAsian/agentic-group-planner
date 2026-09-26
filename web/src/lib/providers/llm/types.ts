@@ -31,8 +31,11 @@ export interface RunAgentResult {
 
 export interface LlmProvider {
   readonly name: LlmProviderName;
-  /** The AI SDK tool loop: 25 s per step, 90 s per run. */
+  /**
+   * The AI SDK tool loop: 25 s and one retry per model call, 90 s per run. A tool that throws ends the
+   * run, and runAgent rejects with that error; expected failures are returned as a ToolResult instead.
+   */
   runAgent(input: RunAgentInput): Promise<RunAgentResult>;
-  generateObject<T extends z.ZodType>(input: { schema: T; prompt: string; images?: string[] }): Promise<z.output<T>>;
-  describeImage(input: { url: string; context: string }): Promise<{ caption: string; aesthetic_score: number }>;
+  /** One structured answer in JSON-schema mode (`response_format`), never a forced tool call. */
+  generateObject<T extends z.ZodType>(input: { schema: T; prompt: string }): Promise<z.output<T>>;
 }

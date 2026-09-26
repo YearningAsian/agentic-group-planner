@@ -57,7 +57,7 @@ export const PlanChange = z.object({
 export type PlanChange = z.infer<typeof PlanChange>;
 
 /**
- * The `plan_day` card: a snapshot from proposal time. Live vote tallies come from the itinerary
+ * The `plan_day` card: a snapshot from proposal time. Live statuses and comments come from the itinerary
  * query, not from here.
  */
 export const PlanCard = z

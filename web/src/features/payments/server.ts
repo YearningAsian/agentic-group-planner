@@ -1,12 +1,18 @@
 import "server-only";
 import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
+// Server entry point.
+export { mandateSummary } from "./lib/mandate-summary";
+export { type ApproveHoldResult, approveHold, approverFor, type PaymentsDeps } from "./server/approve-hold";
+export { cancelByOrganizer } from "./server/cancel-by-organizer";
+export { coverShortfall } from "./server/cover-shortfall";
+export { createMandate, type CreateMandateInput, type CreateMandateResult } from "./server/create-mandate";
+export { declineHold } from "./server/decline-hold";
+export { expireMandates } from "./server/expire-mandates";
+export { type FinalizeDeps, finalizeMandate } from "./server/finalize-mandate";
+export { handleStripeEvent, type StripeEventOutcome } from "./server/handle-stripe-event";
+export { onPlaceholderClaimed } from "./server/on-placeholder-claimed";
+export { settleFrontedShare } from "./server/settle-fronted-share";
 
-export const createMandate = notBuilt("createMandate");
-export const approveHold = notBuilt("approveHold");
-export const declineHold = notBuilt("declineHold");
-export const coverShortfall = notBuilt("coverShortfall");
-export const finalizeMandate = notBuilt("finalizeMandate");
+// Stubs until the feature's owner builds them.
 export const handlePriceChange = notBuilt("handlePriceChange");
-export const onPlaceholderClaimed = notBuilt("onPlaceholderClaimed");

@@ -4,7 +4,7 @@
 
 **Goal:** Build the five core user flows in [design §5](design.md#5-core-user-flows): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. Build the development and test tooling around them.
 
-**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 5 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
+**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 6 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
 
 **Tech stack:** pinned in [`stack.md`](stack.md), and re-verified before installing.
 
@@ -118,7 +118,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - [ ] That run went through a real model (`LLM_PROVIDER=meta`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
 - [ ] The same prompt with `LLM_PROVIDER=mock` produces the same card, and `agent_runs.replayed = true`.
 - [ ] `GET https://<vercel-url>/api/health` returns `{ web: ok, db: ok, optimizer: ok }`.
-- [ ] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
+- [x] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
 
 **If it fails:** nobody starts Milestone 2. Everyone swarms the broken step of the slice. CI (CO-106, Should) is worth landing before Milestone 2, because four people share `main`.
 
@@ -161,7 +161,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `trip_members rejects status joined with a null profile_id`
     - `a trip can't have two organizers`
   - [ ] The migration is pushed first, before files 2–4, and `pnpm db:types` is committed with it.
-- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): foundation tables, membership helpers, and db test harness`
 
 #### VO-103 · Env loader and env examples · Must
@@ -178,7 +178,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `rejects a live Stripe key (sk_live_)`
     - `accepts the build profile: every provider mock and no provider keys`
   - [ ] Check: `web/.env.example` contains no phone number.
-- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
+- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0. Re-verified 2026-09-26 after the journey pivot: the voice, segmentation, image, grounding, and vision-model variables are gone, and dev mode needs only `DEMO_ADMIN_TOKEN`. `pnpm --filter web test src/lib/env` → 9 passed (RED first: every case failed while the loader still required `VOICE_PROVIDER`).
 - **Commit:** `feat(env): validated server and client env with examples`
 
 #### VO-104 · Supabase clients and session proxy · Must
@@ -198,11 +198,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** VO-102, CO-101 (pushed)
 - **Produces:** `seed({ batch, stage? })` running design §10.4 steps 1, 3, 4, and 6. Step 4 sets dinner's area to Midtown (`area_label`, `area_lat`, `area_lng`). Step 3 also loads `fixtures/routes.json` when it exists (FE-305 writes it). Step 2 comes in CO-302, and step 5 in VO-201. `uuidFor(batch, name)` and `inviteTokenFor(batch)` come from `ids.ts`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
     - `uuidFor is stable for the same batch and name, and differs across batches`
     - `inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_SECRET`
   - [ ] Check: running `pnpm seed:demo --batch dev-vo` twice prints identical row counts. The members are `Person 1` through `Person 4`, and Person 4 is a `placeholder` with an invite token. The script prints Person 4's invite link and the trip URL.
-- **Status:** in progress (2026-09-23). `pnpm --filter web test scripts/demo/lib` → ids tests 4 passed (RED first: "Cannot find module ./ids"). Remaining: fixtures/users.ts, fixtures/saturday-trip.json, lib/args.ts, seed.ts, and the seed-twice row-count check.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test scripts/demo` → 9 passed (ids 4 from 2026-09-23; args and time RED first: missing modules); `pnpm --filter web test:db tests/db/seed.test.ts` → 5 passed (a mutation that dropped the members' insert-if-missing guard failed the re-run test). Check: `pnpm seed:demo --batch dev-vo` twice printed identical counts (profiles 3, trips 1, trip_members 4, member_constraints 4, itinerary_items 4, places 12), and printed the trip URL and Person 4's invite link.
 - **Commit:** `feat(demo): idempotent seed with batches and a stable invite token`
 
 #### VO-106 · Sign-in: magic link, plus the dev-mode picker · Must
@@ -219,6 +219,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `the picker renders only in dev mode, listing Person 1, Person 2, and Person 3 as buttons at least 44 px tall`
     - `demoSignIn rejects when NEXT_PUBLIC_DEMO_MODE is not true`
   - [ ] Check: one browser signs in through a magic link (Mailpit locally, the inbox on a hosted project), another as Person 2 through the picker, and both stay signed in after a reload. This also closes VO-104's check.
+- **Status:** backend done; UI is FE scope (2026-09-26). Proof: `pnpm --filter web test src/app/auth src/features/demo` → 6 passed (RED first: no confirm route or `demo-sign-in` module); a mutant without the same-origin check failed the open-redirect test. `demoSignIn` lives in `features/demo/server/demo-sign-in.ts` (its test beside it, not under `components`) and accepts only `DEMO_EMAIL_DOMAIN` addresses, because `generateLink` creates a user for an unknown email. Until `/login` exists, a failed link lands on `/?error=link` (`FAILED_LINK` in the route), so `src/app/routes.test.ts` has no dead link; the login page switches it to `/login?error=link`. Open: the login page, magic-link form, picker, and the reload check (browser).
 - **Commit:** `feat(auth): magic-link sign-in and a dev-mode picker for seeded users`
 
 #### VO-107 · Deploy the web app, plus the health route · Must
@@ -227,10 +228,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** VO-103, AI-101
 - **Produces:** `GET /api/health` returning `{ web, db, optimizer }`. Also the Vercel project (web), with every web env var set (checklist B9). The optimizer stays on localhost for all testing; its Vultr deploy is VO-S02 (Should, last). The Dockerfile is built but not pushed here. It's Must because the Stripe webhooks and the Milestone 3 switches need a public web URL.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/app/api/health/route.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/app/api/health/route.test.ts` passes:
     - `returns 200 with optimizer "error" when FastAPI is unreachable`
     - `returns all "ok" when the db and optimizer respond`
   - [ ] Check: `docker build ./optimizer` succeeds, and `curl http://localhost:3000/api/health` (optimizer on `localhost:8000`) returns all `ok`.
+- **Status:** backend done; deploy blocked (2026-09-26). Proof: `pnpm --filter web test src/app/api/health/route.test.ts` → 3 passed (RED first: no route module). Check: `docker build` of the optimizer succeeded from a copy of the Dockerfile that only trusts this sandbox's egress-proxy CA (the committed Dockerfile is unchanged; the sandbox's build container can't verify PyPI without it); with that container on :8000 and `next dev`, `curl /api/health` → `{"web":"ok","db":"ok","optimizer":"ok"}`, and with it stopped → `optimizer:"error"`, still 200. **Blocked:** the Vercel project needs an account (checklist B9).
 - **Commit:** `chore(deploy): vercel web with a health route`
 
 #### VO-108 · Database test target · Should
@@ -305,11 +307,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** FE-102, VO-104, CO-102, AI-103
 - **Produces:** `sendMessage({ tripId, clientId, body, itemId? })`, which returns `{ messageId, agentRunId }`. A message whose body contains `@agent` (case-insensitive, as a whole word) inserts one queued `agent_runs` row through the admin client, and the route starts it with `after(() => startAgentRun(agentRunId))`. `maxDuration = 300`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
     - `the same client_id twice returns the same message_id and one row`
     - `a body with @agent creates exactly one queued agent_run linked by trigger_message_id`
     - `a non-member gets not_permitted`
-  - [ ] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+  - [x] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/send-message.test.ts` → 6 passed (RED first: `sendMessage` was a stub, and the insert policy accepted another trip's item); `pnpm --filter web test src/app/api/messages src/features/chat` → 7 passed (RED first: no route). Migration `20260926071157_messages_same_trip_links.sql` makes the members' insert policy require `item_id` and `reply_to_message_id` on the message's own trip.
 - **Commit:** `feat(chat): idempotent send-message route that starts agent runs`
 
 #### FE-106 · Trip route and chat view · Must
@@ -383,7 +386,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `plan_day rejects options_per_slot outside 2–3`
     - `the plan card requires applied_plan_rank = 1`
     - `CardPayload picks the schema by card_type`
-- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules. Re-verified 2026-09-26 after the journey pivot: 5 tool inputs, 9 card schemas, and the design §3.1 enums (no call, photo, or match enums). `pnpm --filter @agp/shared test` → 8 files, 32 passed (RED first: the enum test on 27 enums, and a new api-barrel test on the votes, voice-tools, recaps, and photos modules).
 - **Commit:** `feat(shared): enums, handles, tool result, events, and contract barrels`
 
 #### AI-103 · Web skeleton: entry points, tool folders, provider folders · Must
@@ -396,9 +399,9 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `startAgentRun(runId)`, exported from `lib/agent/index.ts` as a stub.
   - Stub `card.tsx` files that render a plain `<article>` naming the card type. The M1 slice passes with the stub plan card.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
+  - [x] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0. Re-verified 2026-09-26 after the journey pivot: the registry lists 5 tools, `cards.tsx` maps 9 card types, the gallery, recap, and voice features and the grounding, image, segmentation, and voice providers are gone, and `features/profile` exists. `pnpm --filter web test src/lib/tools` → 4 passed (RED first: 7 tools and 11 card types).
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
 
 #### AI-104 · LLM provider and recording keys · Must
@@ -407,15 +410,16 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-103, VO-103
 - **Produces:**
   - `getLlmProvider()`, picking `meta`, `google`, or `mock` from `LLM_PROVIDER`. `meta` is `@ai-sdk/openai-compatible` at `META_MODEL_API_BASE_URL` with `supportsStructuredOutputs: true` (ADR 0017).
-  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most, 25 s per step, 90 s per run.
+  - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most (a run still calling tools at the cap fails), 25 s and one retry per model call, 90 s per run.
   - `recordingKey(prompt | { trigger, slotKey })` and `recordingFileName(key)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
     - `normalizes the plan prompt to "plan saturday 80 each person 2s vegetarian person 4 joins later"`
     - `mock runAgent returns the recorded steps in order and replayed = true`
     - `mock runAgent without a recording throws a named error`
     - `the meta provider never sends a tool_choice other than auto` (Meta returns 400 otherwise)
     - `meta generateObject sends response_format json_schema, not a forced tool call`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm` → 17 passed (RED first: "Cannot find module ./mock", "./real", "./recording-key"). The two meta tests live in `real.test.ts`, and provider selection in `index.test.ts`. Each model request goes through `withPolicy` (25 s, one retry) by `wrapLanguageModel` middleware, so tools are never retried and never count against the 25 s; the run has a 90 s total. A tool that throws ends the run on every provider (`runAgent` rejects). After review: 21 tests in `src/lib/providers/llm` and `src/lib/agent`. The mock's `generateObject` throws `NotBuiltError` until a caller needs fixtures. Typecheck and lint exit 0. 2026-09-26: `describeImage` and the vision model left with the photo flow (journey pivot); 20 tests remain in those two folders.
 - **Commit:** `feat(agent): llm provider with meta, google, and replay mock`
 
 #### AI-105 · Agent context and handles · Must
@@ -424,11 +428,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-102, CO-102 (types generated)
 - **Produces:** `buildContext(tripId, requesterMemberId) → { system, messages, handles }`, and `resolveHandle(handles, 'I2') → uuid`. An unknown handle throws a `ToolError` with code `unknown_handle`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent` passes:
     - `assigns M# by sort_order, I# by starts_at, and O# by rank, identically on repeated calls`
     - `renders members as "M1 Person 1 (organizer)" with budgets, and "M4 Person 4 (placeholder)"`
     - `includes the last 30 messages with sender names, and the requester's handle`
     - `resolveHandle on an unknown handle throws unknown_handle`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test src/lib/agent` → 14 passed in `handles.test.ts` and `context.test.ts` (RED first: "Cannot find module ./handles" and "./context"); `pnpm --filter web test:db tests/db/agent-context.test.ts` → 2 passed (`loadTripSnapshot` against the local stack). The rendering is pure (`renderContext` over a `TripSnapshot`); `buildContext(tripId, requesterMemberId, admin?)` loads and renders.
 - **Commit:** `feat(agent): trip context with stable handles`
 
 #### AI-106 · Agent runner · Must
@@ -440,12 +445,13 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `runTool(ctx, toolName, input)`: returns a stored `succeeded` output without re-running the handler.
   - `agent.status` broadcasts. Any failure writes an `error` card and marks the run `failed`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
+  - [x] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
     - `a queued run is claimed once; a second claim for the same trip returns null while it's running`
     - `a succeeded tool_calls row is returned without calling the handler again`
     - `a handler that throws writes one error card and marks the run failed`
     - `a successful run ends succeeded with exactly one agent text message`
     - `a final text that makes the agent the payer (pairsAgentWithPaid, speaker agent) is replaced with "I proposed it. Each of you approves your own share."` (HumanInLoopLabel)
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/runner.test.ts` → 11 passed on the local stack (RED first: "Cannot find package @/lib/agent/runner"): the five listed, plus broadcasts in order, an unknown handle returned to the model, the recorded plan prompt replayed through the mock LLM, a missing recording ending in an error card, and `finish_agent_run` rejecting a non-member, finishing once, and refusing clients. The end of a run goes through a new write function, `finish_agent_run` (migration `20260926070135`; design §3.4). `runTool(ctx, tool, input)` takes the tool definition rather than its name.
 - **Commit:** `feat(agent): runner with leases, idempotent tool calls, and status broadcasts`
 
 #### AI-107 · Optimizer client and the `plan_day` slice · Must
@@ -457,11 +463,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - A first `buildPlanRequest` (slots from items, candidates from `places` by category, no travel), which AI-208 replaces.
   - The `plan_day` handler, calling `applyPlan`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/client.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/client.test.ts` passes:
     - `sends the bearer token and parses the PlanResponse`
     - `a 5xx is retried once, then surfaces AppError provider_unavailable`
-  - [ ] `pnpm --filter web test:db -- tests/db/plan-day-slice.test.ts` passes: `plan_day moves the seeded items tbd → proposing → voting and writes one plan card`.
+  - [x] `pnpm --filter web test:db -- tests/db/plan-day-slice.test.ts` passes: `plan_day moves the seeded items tbd → proposing → voting and writes one plan card`.
   - [ ] Check: the Milestone 1 criteria above pass.
+- **Status:** done (2026-09-26), except the M1 criteria that need a real model key. Proof: `pnpm --filter web test src/lib/optimizer/client.test.ts` → 5 passed (RED first: "Cannot find module ./client"); `pnpm --filter web test:db tests/db/plan-day-slice.test.ts` → 1 passed (RED first: `createPlanDayTool` missing). A contract check sent a `buildPlanRequest` request to the real FastAPI stub on localhost, and the client parsed its answer. On a seeded trip, the recorded plan prompt ran through the mock LLM, the real `plan_day`, and the FastAPI stub: run `succeeded` with `replayed = true`, one `plan_day` call `succeeded`, one plan card and one agent text, morning/lunch/afternoon `voting`, dinner `tbd`. Per-person prices come from `places.raw.price_cents` (design §11.7).
 - **Commit:** `feat(agent): plan_day end to end through the optimizer stub`
 
 ### M1 · CO
@@ -475,11 +482,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - [ ] `pnpm --filter web test:db -- tests/db/itinerary-schema.test.ts` passes:
     - `an item can't go from tbd to voting without passing through proposing`
     - `area_label, area_lat, and area_lng are all set or all null`
-    - `a vote can't point at another item's option (composite foreign key)`
+    - `an item has at most one option per rank and per place`
     - `members select items; non-members select none`
     - `ends_at must be after starts_at`
   - [ ] Pushed right after file 1. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): places, routes, and itinerary tables`
 
 #### CO-102 · Migration 3 (agent and chat) · Must
@@ -494,7 +501,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `messages.client_id is unique`
     - `card_type is required exactly when kind = card`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): agent runs, messages, and tool calls`
 
 #### CO-103 · Migration 4 (commerce, calls, and webhooks) · Must
@@ -509,7 +516,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `an authenticated user can't read webhook_events`
     - `a share has at most one own row and one fronted row`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): mandates, holds, bookings, and webhook events`
 
 #### CO-104 · `apply_plan`, first version, and the function audit · Must
@@ -580,14 +587,15 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `.github/workflows/ci.yml`, `web/eslint.config.mjs`, `web/tests/lint/boundaries.test.ts`
 - **Depends on:** FE-102, AI-101, AI-102
-- **Produces:** the three CI jobs from checklist B11, and the `no-restricted-imports` rules from design §1. The VO engineer owns both files from Milestone 2 on.
+- **Produces:** the four CI jobs (web and shared, optimizer, database and mock payments, contracts drift), and the `no-restricted-imports` rules from design §1. The VO engineer owns both files from Milestone 2 on.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- tests/lint/boundaries.test.ts` passes (ESLint Node API):
+  - [x] `pnpm --filter web test -- tests/lint/boundaries.test.ts` passes (ESLint Node API):
     - `app/ deep-importing features/payments/server/approve-hold is an error`
     - `app/ importing features/payments/server is allowed`
     - `lib/optimizer importing any feature is an error`
     - `a client component importing lib/providers is an error`
-  - [ ] Check: a push to `main` runs all three jobs green.
+  - [ ] Check: a PR into `testing`, and the push after it merges, run all four jobs green. The pipeline runs only for `testing` (pull requests into it, pushes to it, and `workflow_dispatch`), and branch protection on `testing` requires the four checks.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test tests/lint/boundaries.test.ts` → 6 passed (RED first: all four listed cases); the three jobs ran green on GitHub on PR #3 (web and shared, optimizer, contracts drift). A local ESLint rule stops a "use client" module from importing server-only code.
 - **Commit:** `ci: lint, typecheck, tests, pytest, and contracts drift`
 
 #### CO-107 · Fee breakdown function · Must
@@ -746,12 +754,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-101, CO-105
 - **Produces:** `getRoutingProvider()`, and `ensureRoutes(pairs) → Map<'from:to', { mode, durationS, distanceM, geometry }>`. AI-209 uses it.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/routing` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/routing` passes:
     - `mock walking uses 4.8 km/h and driving 25 km/h, with a straight line`
     - `real maps an ORS directions response to a GeoJSON LineString, a duration, and a distance`
-  - [ ] `pnpm --filter web test:db -- tests/db/ensure-routes.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/ensure-routes.test.ts` passes:
     - `pairs under 1.5 km use walking`
     - `only missing pairs are fetched and upserted`
+- **Status:** backend done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/providers/routing` → 6 passed and `pnpm --filter web test:db tests/db/ensure-routes.test.ts` → 3 passed (RED first: missing `./distance`, `./real`, and the mock). The ORS directions fixture is hand-built in the ORS v2 GeoJSON format, because `ORS_API_KEY` is empty; the real switch is FE-301. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(map): routing provider and cached ensureRoutes`
 
 #### FE-210 · Map view with numbered stops · Must
@@ -908,9 +917,10 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-107
 - **Produces:** `mockPlan(request) → PlanResponse` with `engine = "mock"`. It's a test double that tests inject into the optimizer client; the product never switches to it at runtime. It returns the fixture plan for the seeded trip's shape; for anything else, everyone goes together to each slot's first candidate. The database tests of `plan_day` and re-planning use it.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/mock.test.ts` passes:
     - `returns the fixture plan for the seeded trip, with engine mock`
     - `returns everyone together at the first candidate for any other request`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/optimizer/mock.test.ts` → 2 passed (RED first: no `./mock`). `mock-plan.json` uses the seeded demo batch's member IDs and `uuidFor('demo','place:<key>')`; its scores are illustrative. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `test(optimizer): optimizer test double with the seeded fixture plan`
 
 #### AI-202 · Scoring interface and planner fixtures · Must
@@ -941,11 +951,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 
   `plan_score` is implemented here, because it is the objective. `build_score_table` is only declared here, and AI-203 implements it.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_score_table.py` passes:
+  - [x] `cd optimizer && pytest tests/test_score_table.py` passes:
     - `test_small_table_round_trips_from_json`
     - `test_plan_score_matches_the_hand_computed_values_in_small_expected`
     - `test_plan_score_adds_fairness_and_subtracts_the_split_penalty`
   - [ ] Check: `small_expected.json` lists the top 3 plans for `small_table.json`, worked out by hand in a comment block at the top of the test.
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_score_table.py` → 5 passed (RED first: "No module named app.score_table"). A brute-force script confirms the hand-computed top 3 (0.86925, 0.818375, 0.8165).
 - **Commit:** `feat(optimizer): score table interface, objective, and planner fixtures`
 
 #### AI-203 · Rules and scoring: build the score table · Must
@@ -954,7 +965,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `build_score_table(request) → ScoreTable`, using the hard-constraint predicates `dietary_ok`, `budget_ok`, `open_ok`, and `arrival_ok`, and the design §2.2 terms `preference`, `cost`, and `travel`.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
+  - [x] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
     - `test_dietary_needs_tags_on_food_slots_only`
     - `test_null_budget_means_unlimited`
     - `test_open_through_start_plus_duration`
@@ -964,6 +975,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `test_travel_caps_at_45_minutes`
     - `test_build_score_table_on_small_request_equals_small_table` (within 1e-6)
     - `test_infeasible_reason_names_the_member`: a vegetarian with no vegetarian lunch option
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` → 11 passed (RED first: missing modules). `Slot` gained an optional `category` (design §11.7), so dietary rules know the food slots.
 - **Commit:** `feat(optimizer): rules and scoring build the score table`
 
 #### AI-204 · Enumeration engine · Must
@@ -972,7 +984,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `enumerate_plans(table, params) → EngineResult` with `engine = "enumeration"`. It reads only the `ScoreTable`, and passes the table's infeasible reasons through. They name members as `{member:<uuid>}` tokens, which `plan_day` replaces with display names.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_enumerate.py` passes:
+  - [x] `cd optimizer && pytest tests/test_enumerate.py` passes:
     - `test_top3_sorted_by_plan_score`
     - `test_together_slot_has_one_group`
     - `test_groups_have_at_least_two_members_and_at_most_two_groups`
@@ -980,6 +992,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `test_top_plan_on_small_table_equals_small_expected`
     - `test_too_large_beyond_limits`: 7 members, 4 unpinned slots, or 7 candidates → `too_large`
     - `test_no_plan_returns_infeasible_with_the_table_reasons`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_enumerate.py` → 19 passed (RED first: missing module). An exact branch-and-bound search; it matched brute force on 158 random tables.
 - **Commit:** `feat(optimizer): exhaustive enumeration engine`
 
 #### AI-205 · CP-SAT engine · Must
@@ -988,11 +1001,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `solve_plans(table, params) → EngineResult` with `engine = "cp_sat"`, the top 3 through no-good cuts, and a time limit of `time_limit_ms ÷ max_plans` per solve. It reads only the `ScoreTable`.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_cpsat.py` passes:
+  - [x] `cd optimizer && pytest tests/test_cpsat.py` passes:
     - `test_top_plan_on_small_table_equals_small_expected`
     - `test_three_distinct_plans_via_nogood_cuts`
     - `test_fairness_term_raises_the_lowest_member`
     - `test_respects_the_time_limit`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_cpsat.py` → 6 passed (RED first: missing module). It agreed with enumeration on 120 random tables.
 - **Commit:** `feat(optimizer): cp-sat engine with top-3 plans`
 
 #### AI-206 · Engine selection, parity, and fallback · Must
@@ -1001,11 +1015,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-203, AI-204, AI-205
 - **Produces:** `/v1/plan`: it builds the `ScoreTable`, runs CP-SAT, falls back to enumeration per design §2.2, and turns the engine result into a PlanResponse.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` passes:
+  - [x] `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` passes:
     - `test_parity_top_plan_on_three_fixtures`
     - `test_engine_enumeration_param_forces_the_fallback`
     - `test_ortools_import_failure_falls_back` (monkeypatched)
     - `test_unknown_solver_status_falls_back`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` → 7 passed; whole optimizer 57 passed, ruff clean. The recorded plan prompt on a seeded trip ran through the real engines (cp_sat, 30 ms) and the run succeeded.
 - **Commit:** `feat(optimizer): engine selection with enumeration fallback`
 
 #### AI-207 · Plan request builder · Must
@@ -1017,23 +1032,25 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - `findPlaces({ category, tags, limit })`: cache only; the provider fallback comes with AI-S04.
   - The two request fixtures, which pytest reads.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/build-plan-request.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/build-plan-request.test.ts` passes:
     - `default slots are the earliest 3 open items, so dinner is left out`
     - `a booked neighbor becomes a pinned slot with its place as the only candidate`
     - `a pinned item confirmed Δ later moves the unbooked slot right before it by Δ, and nothing else` (a synthetic trip, Δ = +30 min)
     - `candidates come from the places cache by category, at most 6 per slot`
     - `the committed request fixtures equal buildPlanRequest on saturday-trip.json`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/optimizer/build-plan-request.test.ts` → 5 passed (RED first: the AI-107 builder rejected the new input, and `timeShifts` didn't exist); a db test covers `travelMinutes` from the route cache or a straight-line estimate. Both committed request fixtures solve `optimal` on the local CP-SAT engine. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(optimizer): plan request builder with pinned context and time shift`
 
-#### AI-208 · Seeded-trip plan test and fixture tuning · Should
+#### AI-208 · Seeded-trip plan test: invariants, not a pinned plan · Should
 
-- **Files:** `optimizer/tests/test_seeded.py`, `web/scripts/demo/fixtures/saturday-trip.json`, `web/scripts/demo/fixtures/mock-plan.json`
+- **Files:** `optimizer/tests/test_seeded.py`
 - **Depends on:** AI-206, AI-207
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_seeded.py` passes:
-    - `test_seeded_trip_plan`: in the rank-1 plan, the morning is everyone at the aquarium, lunch is everyone at a vegetarian-friendly place, and the afternoon splits Person 1 and Person 4 at the High Museum from Person 2 and Person 3 at Piedmont Park. The engine is `cp_sat`, and `solve_ms` < 2000.
-    - `test_mock_plan_matches_engine`: `mock-plan.json`'s assignments equal the engine's rank-1 plan.
-- **Commit:** `test(optimizer): pin the seeded trip plan`
+  - [x] `cd optimizer && pytest tests/test_seeded.py` passes:
+    - `test_seeded_trip_options`: on the seeded trip, the engine is `cp_sat`, `solve_ms` < 2000, it returns 2–3 distinct ranked options, and every option is feasible: everyone is seated in every slot, a together slot has one group, each member's food slots meet their dietary rules, nobody visits a place twice, and every option fits each member's budget.
+    - `test_mock_plan_is_feasible`: `mock-plan.json`'s recorded plan (the demo's split afternoon) breaks none of those rules.
+- **Status:** done, re-scoped (2026-09-26). The old target pinned one exact plan (an afternoon split between the High Museum and Piedmont Park), and reaching it meant tuning weights for one fixture (design §11.7, item 6). Decision: the engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). The engine's options are now all together (the museum and the park in either order, or the park then the zoo), so the recorded mock plan is no longer its rank 1; it stays as a feasible option Muse may choose, which keeps the split-sibling flow covered. Proof: `pytest tests/test_seeded.py` → 3 passed; a hand-broken plan (dietary miss, repeated place, over budget, missing member, split together-slot) fails the checker each time; whole optimizer 74 passed, ruff clean. Also done: no member visits a place twice (`pytest tests/test_repeats.py` → 14 passed). The old test on branch `test/seeded-optimizer` is superseded. Local solve times ranged from 193 ms warm to 3.4 s cold on a low-memory machine; CI decides whether the 2 s bound holds.
+- **Commit:** `test(optimizer): check the seeded trip's options`
 
 #### AI-209 · `plan_day`, full version · Must
 
@@ -1041,14 +1058,15 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-201, AI-207, CO-104, FE-209
 - **Produces:** the full design §2.1 handler. It saves `constraint_updates`, fills routes through `ensureRoutes`, writes server-side reasoning, and creates split siblings through `apply_plan`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/plan-day/reasoning.test.ts` passes: `names the best interest match, the price, and the travel minutes`.
-  - [ ] `pnpm --filter web test:db -- tests/db/plan-day.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/plan-day/reasoning.test.ts` passes: `names the best interest match, the price, and the travel minutes`.
+  - [x] `pnpm --filter web test:db -- tests/db/plan-day.test.ts` passes:
     - `constraint_updates for "all" with budget_cents 8000 sets every member's budget`
     - `a split slot gets a sibling item with the same slot_key and each group's attendees`
     - `an unknown item handle returns unknown_handle and changes nothing`
     - `infeasible reasons show display names, not IDs`
     - `the ToolResult summary is at most 600 characters and mentions the split`
     - `apply_plan still rejects a non-member actor after the split changes`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/tools/plan-day/reasoning.test.ts` → 1 passed and `pnpm --filter web test:db tests/db/plan-day.test.ts` → 7 passed (RED first: no split sibling, `constraint_updates` written before a bad handle failed, no card on infeasible). Migration `20260926080526_apply_plan_splits.sql` replaces `apply_plan` to create split siblings and checks every slot before any write. The batch 2 review items are fixed: a response naming a non-candidate place is rejected with nothing written (no $0 fallback), and summaries show exact prices. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): plan_day with constraints, splits, and reasoning`
 
 #### AI-210 · Re-planning from comments · Must
@@ -1057,15 +1075,17 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-206, AI-207, AI-209
 - **Produces:** `supersedeItem(itemId) → { newItemId }`, and `apply_plan` in replan mode. The context includes the item's comments for revision runs.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_seeded_replan.py` passes (§11.3, item 3). It reads `requests/saturday-replan.json`, which AI-207's builder generates from the seed fixture with dinner booked at 19:45:
+  - [x] `cd optimizer && pytest tests/test_seeded_replan.py` passes (§11.3, item 3). It reads `requests/saturday-replan.json`, which AI-207's builder generates from the seed fixture with dinner booked at 19:45:
     - `test_seeded_replan_shifts_the_afternoon`: the request's afternoon slot runs 15:00–18:00, and nothing earlier moves. The builder computed this; the test only asserts it.
     - `test_seeded_replan_respects_opening_hours`: every place in the rank-1 plan is open from its shifted start through start plus duration.
-  - [ ] `pnpm --filter web test:db -- tests/db/replan.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/replan.test.ts` and `tests/db/agent-context.test.ts` pass:
     - `a replan applies the builder's shifted times to the afternoon items, records time_shift changes, and keeps their status`
     - `an option change on a decided item supersedes it, and the replacement goes tbd → proposing → voting and points back through supersedes_item_id`
+    - `a decided slot whose chosen place comes back as the top option is kept, with its choice and options` (Should)
     - `booked items never change`
     - `a revision run's context includes the item's comments and has a requester`
     - `apply_plan in replan mode rejects a non-member actor`
+- **Status:** in review (2026-09-26). Merged in PR #7 with every CI job green: migration `apply_plan_replan`, `applyPlan` replan mode (time shifts keep status; a voting or decided slot whose option changes is superseded; booked items and purchases in progress are refused), `plan_day` `mode: "replan"`, and `test_seeded_replan.py` (2 passed). Then the last two cases: a revision run's context quotes its item's whole comment thread (`loadTripSnapshot` / `buildContext` take the trigger's `item_id`, and the runner passes it), and `apply_plan in replan mode rejects a non-member actor` in `replan.test.ts`. Unit proof: `pnpm --filter web test src/lib/agent/context.test.ts` → 7 passed (RED first: the thread section was missing). Database proof: `agent-context.test.ts` adds `a revision run's context includes the item's comments and has a requester` and `a run started by a comment on an item gets that item's thread` (CI, PR #12). A replan now keeps a voting or decided slot whose groups and top options come back the same (`unchangedSlots` in `replan-keep.ts`, design §4 "never move backward"): no superseding item, and the card shows the stored options with the chosen one first. Unit proof: `pnpm --filter web exec vitest run src/features/itinerary/server/replan-keep.test.ts` → 6 passed (RED first: no module).
 - **Commit:** `feat(agent): re-plan with superseding items and time shifts`
 
 #### AI-211 · Plan card · Must
@@ -1086,10 +1106,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/lib/agent/{queue.ts,runner.ts}`, `web/tests/db/run-queue.test.ts`
 - **Depends on:** AI-106
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
     - `a run started while another is running stays queued, then runs when the first finishes`
     - `a running run with an expired lease is marked failed by the next claimant`
     - `a queued run older than 5 minutes is failed, not started`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/run-queue.test.ts` → 4 passed (RED first: the queued run never started, the expired lease was never failed, and the stale run was started): the three listed plus "a live lease is left alone". Before claiming, the runner sweeps the trip (an expired lease or a queued run older than 5 minutes is failed with a timeout error card), and a finished run starts the oldest queued one in the same `after()`.
 - **Commit:** `feat(agent): one running run per trip with a queue`
 
 #### AI-213 · Agent run recorder · Should
@@ -1098,10 +1119,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-104, AI-106
 - **Produces:** `AGENT_RECORD=1` support: a real run writes its recording for tests and offline development (design §7.5). Recordings are never a runtime fallback.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/recorder.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/recorder.test.ts` passes:
     - `AGENT_RECORD=1 writes { key, steps, finalText } to the recording file`
     - `without AGENT_RECORD, nothing is written`
     - `a slow or failing model step ends in an error card; it never switches to a recording`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/recorder.test.ts` → 4 passed (RED first: no recorder module), including `never records a replay or a run without a key`. The runner wraps the provider with `withRecording(getLlmProvider(), { enabled: AGENT_RECORD })`; a missing recording in replay is a `RecordingNotFoundError` error card, never a fallback.
 - **Commit:** `feat(agent): record real runs for tests`
 
 #### AI-214 · `planned` stage, follow-up recording, and e2e 01-plan · Should
@@ -1120,13 +1142,14 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-106, AI-210
 - **Produces:** the design §2.1 handler, which is how comment threads turn into plan changes. The organizer locks options; the agent applies the group's explicit confirmations.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
     - `swap_option by a non-organizer returns not_permitted with "discuss it in the comments"`
     - `swap_option by the organizer locks the item to decided`
     - `mark_tbd on a decided item supersedes it`
     - `add_slot with an area creates a TBD block with a provisional stop`
     - `every action on a booked item returns not_permitted`
     - `apply_item_change rejects a non-member actor with not_permitted`
+- **Status:** `request_alternatives` in review (2026-09-26): it runs `plan_day`'s replan (`runPlanDay`) for the one item without the places it already offered (`offerablePlaces`), superseding it and posting a replan plan card (design §11.7 item 9). Proof: `pnpm --filter web test src/lib/tools/plan-day/alternatives.test.ts` → 3 passed (RED first: missing module); `tests/db/request-alternatives.test.ts` (CI): `re-plans one voting item with places it hasn't offered, and supersedes it` and `the other slots keep their items and options`. Earlier: done except `request_alternatives` Proof: `pnpm --filter web test:db tests/db/update-item.test.ts` → 6 passed (RED first: the stub returned not-built, and `apply_item_change` didn't exist); a mutant without the organizer check failed the non-organizer test. Migration `20260926081300_apply_item_change.sql` also keeps a purchase in progress from changing an item's option or attendees. `request_alternatives` returns a correctable error pointing at `plan_day` replan until AI-210's single-item path lands. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): update_item tool`
 
 ### M2 · CO
@@ -1136,12 +1159,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `packages/shared/src/tools/propose-purchase.ts`, `packages/shared/src/cards/{approval.ts,booking-confirmed.ts,price-change.ts}`, `packages/shared/src/api/mandates.ts`, tests next to each
 - **Depends on:** AI-102
 - **Done when:**
-  - [ ] `pnpm --filter @agp/shared test` passes:
+  - [x] `pnpm --filter @agp/shared test` passes:
     - `propose_purchase has no amount field and strips unknown keys`
     - `cap_percent must be 100–125`
     - `an approval share's cap_cents is at least its share_cents`
     - `each approval hold carries share, processor fee, platform fee, total, and cap cents, and the platform fee is present even at 0`
     - `booking_confirmed allows a null total for pay at venue`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter @agp/shared test` → 13 files, 41 passed (RED first: the stubs accepted anything; `ApprovalShare`, `ApprovalHold`, and the mandate route schemas were undefined).
 - **Commit:** `feat(shared): commerce tool, card, and route schemas`
 
 #### CO-202 · Money helpers · Must
@@ -1150,11 +1174,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** FE-102, CO-107
 - **Produces:** `splitEvenly(totalCents, count, organizerIndex)`, `capFor(shareCents, percent)` (a thin wrapper over `shareCapCents` from `@agp/shared`, so caps include fees), and `formatUsd(cents)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/money` passes:
+  - [x] `pnpm --filter web test -- src/lib/money` passes:
     - `splitEvenly(16800, 4) gives 4200 each`
     - `splitEvenly(10001, 3, 0) gives the organizer the extra cent`
     - `capFor(4200, 110) is 4800`
     - `formatUsd(9400) is "$94" and formatUsd(4250) is "$42.50"`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/money` → 5 passed (RED first: "Cannot find module ./index").
 - **Commit:** `feat(money): even split, caps, and formatting`
 
 #### CO-203 · Payments provider mock · Must
@@ -1163,12 +1188,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-103, CO-105
 - **Produces:** `getPaymentsProvider()`, per the design §2.3 interface.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/payments/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/payments/mock.test.ts` passes:
     - `authorize returns authorized with a pi_mock_ id`
     - `pm_mock_declined returns declined with a decline code`
     - `capturing more than the authorized amount throws`
     - `the same idempotency key returns the same result`
     - `refund returns one refund id per key`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/providers/payments/mock.test.ts` → 7 passed (RED first: "Cannot find module ./mock"). IDs derive from the idempotency key, so every process agrees; `signMockWebhook` signs bodies in Stripe's format for CO-209.
 - **Commit:** `feat(payments): deterministic payments mock`
 
 #### CO-204 · Booking provider · Must
@@ -1177,10 +1203,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-103, CO-105
 - **Produces:** `getBookingProvider("tickets")`: the mock merchant.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/booking` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/booking` passes:
     - `a quote is price_cents × party size and expires in 15 minutes`
     - `book with the same idempotency key returns the same providerRef`
     - `simulatePriceChange changes only the next quote`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/providers/booking` → 5 passed (RED first: "Cannot find module ./mock-merchant").
 - **Commit:** `feat(booking): mock merchant`
 
 #### CO-207 · `create_mandate` · Must
@@ -1189,7 +1216,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-103, CO-202, CO-204
 - **Produces:** `createMandate({ ctx, itemId, optionId, capPercent?, note? }) → { mandateId, cardMessageId, shares }`. The actor is the run's requester.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/create-mandate.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/create-mandate.test.ts` passes:
     - `four attendees with Person 4 as a placeholder give own rows pending for Persons 1–3, Person 4's own row awaiting_member, and a fronted row for Person 4's share whose payer is Person 1`
     - `quote 16800, shares 4200, share caps 4800, total cap 19200, and Person 1's hold cap 9600`
     - `the card's holds come from holdFees: 4357 for each member's hold, 8682 for Person 1's with Person 4's share`
@@ -1197,6 +1224,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `the same idempotency key returns the same mandate`
     - `a second live mandate for the item is rejected`
     - `the approval card payload validates against the shared schema`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test:db tests/db/create-mandate.test.ts` → 10 passed (RED first: `NotBuiltError: createMandate`, then `PGRST202`). Migration `20260926072459_create_mandate.sql`; the seeded numbers hold: quote 16800, shares 4200, caps 4800, Person 1's hold 8682 (fee 282, cap 9600), each member's hold 4357 (fee 157). The card has one hold per possible payer, including each placeholder's own.
 - **Commit:** `feat(payments): create_mandate with own and fronted share rows`
 
 #### CO-208 · `propose_purchase` tool · Must
@@ -1204,11 +1232,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/lib/tools/propose-purchase/{tool.ts,tool.test.ts}`
 - **Depends on:** CO-207, AI-106
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/propose-purchase/tool.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/propose-purchase/tool.test.ts` passes:
     - `an item that isn't decided returns invalid_input telling the group to confirm it in comments first`
     - `an unknown handle returns unknown_handle`
     - `the idempotency key is mandate:{run_id}:{tool_call_id}`
     - `the summary gives each share and cap in dollars`
+- **Status:** done (2026-09-26, commerce worker). Proof: `pnpm --filter web test src/lib/tools/propose-purchase/tool.test.ts` → 4 passed (RED first: no `createProposePurchaseTool`). Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): propose_purchase tool`
 
 #### CO-209 · Approve a hold · Must
@@ -1220,17 +1249,18 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - `POST /api/webhooks/stripe` and `handleStripeEvent(event)`. It checks the signature against the raw body, records the event first (VO-203), then makes conditional share-row updates only (design §7.2). This task handles `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, and `payment_intent.canceled`.
   - `tests/payments/kit.ts`: one interface for every payments concurrency suite, over the mock provider now and Stripe test mode in CO-305. It creates payers, lists a PaymentIntent's events, and signs an event for delivery.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/approve-hold.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/approve-hold.test.ts` passes:
     - `a member's approval authorizes one PaymentIntent for their cap, with key pi-auth:{mandate_id}:{payer_member_id}`
     - `the organizer's approval authorizes one PaymentIntent up to 9600 and moves both their own and fronted rows to authorized`
     - `two concurrent approvals call authorize once` (review focus 1)
     - `a declined card moves the hold to declined and the mandate to partially_declined`
-  - [ ] `pnpm --filter web test -- src/app/api/mandates` passes: `403 for a non-member`.
-  - [ ] `pnpm --filter web test:db -- tests/payments/approve-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
+  - [x] `pnpm --filter web test -- src/app/api/mandates` passes: `403 for a non-member`.
+  - [x] `pnpm --filter web test:db -- tests/payments/approve-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
     - `parallel approvals by the same member create one PaymentIntent and authorize it once`
     - `a duplicate amount_capturable_updated is recorded once and changes nothing`
     - `amount_capturable_updated handled before the synchronous response leaves the payer's rows authorized once`
     - `a webhook with a bad signature returns 400 and records nothing`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `pnpm --filter web test src/app/api/mandates` → 3 passed; `pnpm --filter web test:db tests/db/approve-hold.test.ts tests/payments/approve-concurrency.test.ts` → 9 passed (RED first: no approve or webhook route, `approveHold` a stub). Migration `20260926074648_payment_holds_lease.sql` leases a share row during the provider call, so concurrent approvals authorize once. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed. Follow-up 2026-09-26, `fix(payments): release late holds only when no row pays a share`: a PaymentIntent that authorizes after the finalizer released the member's rows is now released and its ID recorded, and one whose own row already captured is never released for an excluded fronted row. `pnpm --filter web test src/features/payments/server/approve-hold.test.ts` → 2 passed (RED first: both failed without the fix).
 - **Commit:** `feat(payments): approve holds, with the stripe webhook route`
 
 #### CO-210 · Finalize a mandate · Must
@@ -1259,21 +1289,22 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   ```
 
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/payments/lib/plan-captures.test.ts` passes (review focus 5):
+  - [x] `pnpm --filter web test -- src/features/payments/lib/plan-captures.test.ts` passes (review focus 5):
     - `Person 4's own row authorized: pi_person4 captures 4357, pi_person1 captures 4357, and the fronted row is released`
     - `Person 4's own row awaiting_member: pi_person1 captures 8682 for its own and fronted rows`
     - `every share has exactly one paying row`
-  - [ ] `pnpm --filter web test:db -- tests/db/finalize-mandate.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/finalize-mandate.test.ts` passes:
     - `two concurrent finalizers produce one booking and one capture per PaymentIntent` (review focus 1)
     - `each PaymentIntent is captured once, with amount_to_capture equal to holdFees' total for the rows it pays`
     - `a book() failure releases every hold and cancels the mandate with booking_failed`
     - `the item ends booked and pinned, with exactly one booking_confirmed card`
     - `complete_mandate rejects a non-member actor with not_permitted`
-  - [ ] `pnpm --filter web test:db -- tests/payments/finalize-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305 (review focus 1):
+  - [x] `pnpm --filter web test:db -- tests/payments/finalize-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305 (review focus 1):
     - `approvals from all three members in parallel produce one booking and one capture per PaymentIntent`
     - `a duplicate payment_intent.succeeded changes nothing`
     - `payment_intent.succeeded handled before complete_mandate commits: rows end captured or released per pays_share, and the mandate is still booked once`
     - `a late amount_capturable_updated arriving after capture leaves the rows captured`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `plan-captures.test.ts` → 4 passed; `finalize-mandate.test.ts` and `finalize-concurrency.test.ts` → 9 passed (RED first: no `plan-captures`, and the mandate never left `open`). Migration `20260926080050_complete_mandate.sql` adds `complete_mandate` (security definer, `search_path = ''`, clients can't execute it) and the finalizer's lease. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(payments): finalize mandates with one paying row per share`
 
 #### CO-212 · Fronting and refund flow · Must
@@ -1282,18 +1313,19 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-210
 - **Produces:** `onPlaceholderClaimed(memberId) → { pendingMandateIds }`, and `settleFrontedShare({ mandateId, memberId })`. `approveHold` calls `settleFrontedShare` when the mandate is already captured. Refunds carry `mandate_id` and `share_member_id` metadata. The `charge.refunded` handler (added here) marks that share's `fronted` row refunded, with the same conditional update as the synchronous path.
 - **Done when**, covering design §11.1 item 3 and §11.3 item 4. Each order in the design §4.2 table is one test:
-  - [ ] `pnpm --filter web test:db -- tests/db/fronting.test.ts` passes (mock payments; review focus 5):
+  - [x] `pnpm --filter web test:db -- tests/db/fronting.test.ts` passes (mock payments; review focus 5):
     - `claim before capture: Person 4's PaymentIntent captures 4357, Person 1's captures 4357 of 9600, the fronted row is released, and nothing is refunded`
     - `claim after capture: Person 1's PaymentIntent captured 8682; Person 4's approval captures 4357, then refunds Person 1 4325 (frontedShareRefundCents) once, with key cover-refund:{mandate_id}:{member_id}`
     - `never claims: Person 1's PaymentIntent captured 8682, Person 4's own row stays awaiting_member, and nothing is refunded`
     - `claims then declines after capture: the fronted row stays captured, and nothing is refunded`
     - `running the settlement twice refunds once`
     - `claiming moves only that member's awaiting_member rows to pending and returns their mandate ids`
-  - [ ] `pnpm --filter web test:db -- tests/payments/fronting-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
+  - [x] `pnpm --filter web test:db -- tests/payments/fronting-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
     - `Person 4 approving in parallel with the last finalizing approval: exactly one row pays Person 4's share, and nothing is refunded`
     - `two parallel settlements refund Person 1 once`
     - `a duplicate charge.refunded changes nothing`
     - `charge.refunded handled before the settlement's own update marks the fronted row refunded once`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-304. Proof: `fronting.test.ts` and `fronting-concurrency.test.ts` → 10 passed (RED first: `onPlaceholderClaimed` a stub, no `settleFrontedShare`); the race test forces all three interleavings of Person 4 approving during the last finalizing approval. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(payments): front a placeholder's share and refund the organizer once`
 
 #### CO-213 · Share status badge · Must
@@ -1328,10 +1360,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-105
 - **Produces:** `--stage planned|discussed|booked` (design §10.3). Do it early: stages let the other workstreams build their flows without waiting on each other.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/args.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/args.test.ts` passes:
     - `reads --batch and --stage, and the batch defaults to demo`
     - `runs stages in order up to the one requested`
     - `refuses --stage on the demo batch`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test scripts/demo/lib/args.test.ts` → the three listed pass (RED first: "Cannot find module ../stages"). The stage files throw "stage not implemented" naming AI-214, FE-222, and CO-214.
 - **Commit:** `feat(demo): seed stages for isolated development`
 
 #### VO-203 · Webhook recorder · Must
@@ -1340,11 +1373,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-103, CO-105
 - **Produces:** `recordWebhook({ provider, eventId, type, payload }) → 'process' | 'skip'`, and `finishWebhook(provider, eventId, status, error?)`. Both are exported from the `lib/reliability` barrel that CO-105 created.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/webhooks.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/webhooks.test.ts` passes:
     - `a first delivery returns process`
     - `a processed duplicate returns skip`
     - `a received event touched within 30 s returns skip`
     - `a received or failed event older than 30 s increments attempts and returns process`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test:db tests/db/webhooks.test.ts` → 6 passed (RED first: `NotBuiltError: recordWebhook`), including concurrent deliveries processing an event once. No migration; conditional updates through supabase-js.
 - **Commit:** `feat(reliability): record-first webhook handling`
 
 #### VO-209 · Claim an invite · Must
@@ -1353,13 +1387,14 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-102, CO-101
 - **Produces:** `claimInvite(token) → { tripSlug, memberId }`, and `previewInvite(token)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/claim-invite.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/claim-invite.test.ts` passes:
     - `a claim sets joined, profile_id, and claimed_at, clears the token, and returns the slug and member id`
     - `a second claim of the same token returns "already used"` (review focus 4)
     - `an unknown or empty token is rejected and changes nothing`
     - `a caller who's already a member gets an error`
     - `the trip's seed_batch is copied to the claimer's profile`
     - `previewInvite returns only the trip title, date, and that member's lane`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/claim-invite.test.ts` → 8 passed (the 6 above, a signed-out caller, and the seeded Person 4 link previewing and claiming once; RED first: `claimInvite isn't built yet`); `pnpm --filter web test src/app/api/invites` → 3 passed. A mutant without the row lock double-claimed in 1 of 3 runs of the concurrent-claim test. Migration `20260926075435_claim_invite.sql` adds `claim_invite` (security definer, `search_path = ''`, `authenticated` only) and `trip_members.claimed_token_hash`, so a used link reads "already used" rather than unknown.
 - **Commit:** `feat(invite): claim_invite and preview`
 
 #### VO-210 · Invite page · Must
@@ -1382,8 +1417,9 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/features/invite/server/after-claim.ts`, `web/src/features/invite/components/{member-joined-card.tsx,member-joined-card.test.tsx}`, `packages/shared/src/cards/member-joined.ts`, `web/tests/db/after-claim.test.ts`
 - **Depends on:** VO-209, CO-212
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/after-claim.test.ts` passes: `a claim calls onPlaceholderClaimed and writes one member_joined card listing the pending mandate ids`.
+  - [x] `pnpm --filter web test:db -- tests/db/after-claim.test.ts` passes: `a claim calls onPlaceholderClaimed and writes one member_joined card listing the pending mandate ids`.
   - [ ] `pnpm --filter web test -- src/features/invite/components/member-joined-card.test.tsx` passes: `shows "Person 4 joined" with initials and lane color`.
+- **Status:** backend done (2026-09-26, PR #6, CI green): the `MemberJoinedCard` schema in `@agp/shared`, and `afterClaim`, which moves the joiner's shares to pending and writes one card; `POST /api/invites/claim` calls it. Open: the card component (frontend).
 - **Commit:** `feat(invite): member joined card and pending holds`
 
 #### VO-213 · Booking confirmed card · Must
@@ -1432,10 +1468,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-201
 - **Produces:** `reset({ batch, all })`, per design §10.5.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/reset-plan.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/reset-plan.test.ts` passes:
     - `deletes only the batch's trips and claimers, never seeded users or other batches`
     - `--all adds seeded users, places, routes, and storage objects`
   - [ ] Check: `pnpm reset:demo --batch dev-vo` finishes in under 30 s. An open browser on the trip reloads on `demo.reset`, and seeded users stay signed in.
+- **Status:** done (2026-09-26), except the browser half of the Check. Proof: `pnpm --filter web test scripts/demo/lib/reset-plan.test.ts` → 3 passed (RED first: missing module); `pnpm --filter web test:db tests/db/reset.test.ts` → 1 passed (another batch untouched, the claimer removed, seeded users kept). `pnpm reset:demo --batch dev-vo` → 0.3 to 1.1 s. "An open browser reloads on demo.reset" needs FE-107. `--all` deletes the shared seed places, so it fails while another batch's options still point at them.
 - **Commit:** `feat(demo): batch reset under 30 seconds`
 
 #### VO-217 · e2e harness · Should
@@ -1461,11 +1498,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-102
 - **Produces:** `updateProfile({ displayName?, avatarUrl? }) → { profile }` with the user's session, and `PATCH /api/profile`. It updates the member's own profile row and copies the name onto their joined `trip_members` rows.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/update-profile.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/update-profile.test.ts` passes:
     - `sets the display name and copies it onto the member's joined rows`
     - `a caller with no session is rejected`
     - `one member's update changes no other member's rows`
-  - [ ] `pnpm --filter web test -- src/app/api/profile/route.test.ts` passes: `a name over 80 characters returns 400`.
+  - [x] `pnpm --filter web test -- src/app/api/profile/route.test.ts` passes: `a name over 80 characters returns 400`.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/update-profile.test.ts` → 4 passed and `pnpm --filter web test src/app/api/profile` → 3 passed (RED first: `updateProfile` was a stub, a session could write `stripe_customer_id`, and the route was missing). Migration `20260926080031_profile_update.sql` grants update on `display_name` and `avatar_url` only, with an own-row policy, and a definer trigger copies the name onto the user's joined `trip_members` rows.
 - **Commit:** `feat(profile): profile update route`
 
 ---
@@ -1499,10 +1537,11 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** `web/src/lib/agent/{prompt.ts,prompt.test.ts}`
 - **Depends on:** AI-212
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
-    - `the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts`
+  - [x] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
+    - `the system prompt lists every tool, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
   - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts (plan, collaborate, and book) calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
+- **Status:** prompt done; real-model check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/prompt.test.ts` → 2 passed (RED first: no per-tool guidance in the prompt). `TOOL_GUIDE` is keyed by `ToolName`, so a new tool without guidance fails the type check. **Blocked:** the 5-of-5 check on the deployed app needs `META_MODEL_API_KEY` and a deploy.
 - **Commit:** `feat(agent): tune the system prompt for muse spark`
 
 #### AI-302 · Plan a day on real providers · Must
@@ -1577,13 +1616,14 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** `web/src/lib/providers/payments/{real.ts,real.test.ts}`
 - **Depends on:** CO-203
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/payments/real.test.ts` passes (Stripe SDK mocked):
+  - [x] `pnpm --filter web test -- src/lib/providers/payments/real.test.ts` passes (Stripe SDK mocked):
     - `authorize creates one PaymentIntent with capture_method manual, confirm true, payment_method_types [card], the mandate and payer metadata, and Idempotency-Key pi-auth:{mandate_id}:{payer_member_id}`
     - `capture sends amount_to_capture, which may be less than the authorized amount`
     - `refund sends a partial amount with the idempotency key it's given, and mandate_id and share_member_id metadata`
     - `a card_declined error returns declined with the decline code`
     - `the client pins the API version and uses maxNetworkRetries 2 and a 10 s timeout`
     - `parseWebhook verifies the signature against the raw body`
+- **Status:** done (2026-09-26, commerce worker; integrated by the lead). Proof: `pnpm --filter web test src/lib/providers/payments` → 2 files, 16 passed, covering all six cases plus test-card attachment only in demo mode and refusal of a live key. The pinned `STRIPE_API_VERSION` (`2026-08-26.dahlia`) equals the installed SDK's `ApiVersion`. `PAYMENTS_PROVIDER=real` now needs both `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Not checked against Stripe itself: `web/.env.local` has no Stripe test key (CO-302, CO-303, and CO-305 need one).
 - **Commit:** `feat(payments): stripe test-mode provider`
 
 #### CO-302 · Seeded Stripe customers and claimer cards · Must
@@ -1689,12 +1729,13 @@ The per-person export is built here, then all five core flows run end to end on 
 - **Depends on:** FE-206, FE-208, CO-213
 - **Produces:** `MyItineraryView` and `buildItineraryExport({ tripId, memberId }) → { stops, totals }`, plus the download route serving one `VEVENT` per attended item as a calendar file.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/itinerary/components/my-itinerary-view.test.tsx src/features/itinerary/server/build-itinerary-export.test.ts src/app/api/trips` passes:
+  - [x] `pnpm --filter web test -- src/features/itinerary/components/my-itinerary-view.test.tsx src/features/itinerary/server/build-itinerary-export.test.ts src/app/api/trips` passes:
     - `shows only the signed-in member's attended items, in time order, each with place, time, attendees, and payment status`
     - `the calendar file has one event per attended item, with the place and start/end times`
     - `the download route returns 403 for a non-member`
     - `totals show the member's committed share and status`
   - [ ] Check: the page prints to one clean hand-off per member.
+- **Status:** in progress (2026-09-26): the backend half is done; the page and components are FE's. Proof: `pnpm --filter web test src/features/itinerary/server src/app/api/trips` → 7 passed (RED first: missing modules), covering "the calendar file has one event per attended item…", "the download route returns 403 for a non-member", and "totals show…"; `pnpm --filter web test:db tests/db/itinerary-export.test.ts` → 2 passed through row-level security. `shareStatus` in `@agp/shared` gives every money surface the same words.
 - **Commit:** `feat(itinerary): per-person itinerary with calendar download`
 
 #### FE-405 · e2e 05-itinerary · Should
@@ -1790,13 +1831,16 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S02 · Declines and covering the shortfall · Should
 
-- **Files:** `web/src/features/payments/server/{decline-hold.ts,cover-shortfall.ts}`, `web/src/app/api/mandates/[id]/{decline,cover}/route.ts`, `web/tests/db/decline-cover.test.ts`
+- **Files:** `supabase/migrations/20260926150000_cover_shortfall.sql`, `web/src/features/payments/server/{decline-hold.ts,cover-shortfall.ts,cancel-by-organizer.ts,approve-hold.ts,finalize-mandate.ts,handle-stripe-event.ts}`, `web/src/features/payments/lib/{hold.ts,hold.test.ts}`, `web/src/app/api/mandates/[id]/{action.ts,decline,cover,cancel}/`, `packages/shared/src/api/mandates.ts`, `web/tests/db/decline-cover.test.ts`
 - **Depends on:** CO-210
+- **Produces:** `declineHold`, `coverShortfall`, `cancelByOrganizer`, and `POST /api/mandates/:id/{decline,cover,cancel}`. The organizer covers on a cover hold per declined share (design §11.7 item 8).
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/decline-cover.test.ts` passes:
     - `a decline moves the mandate to partially_declined`
     - `the organizer covering the shortfall adds a fronted row to their hold, and the mandate proceeds`
     - `the organizer cancelling releases every hold`
+  - [x] `pnpm --filter web test -- src/features/payments/lib/hold.test.ts src/app/api/mandates` and `pnpm --filter @agp/shared test -- src/api/mandates.test.ts` pass.
+- **Status:** in review (2026-09-26). Unit proof: `hold.test.ts` 4, the mandate routes 10, the shared contracts 2 (RED first: missing `./hold`, the three route modules, and `CancelBody`). `decline-cover.test.ts` has 18 database cases, the three above plus: a member who already approved (declining twice is part of the first case), a placeholder who claims and declines, the organizer can't decline, a decline recorded without moving the mandate is finished by a retry, an open mandate with an unpayable share can still be covered, covering before the others approve, two overlapping covers, a webhook for the main hold leaving a cover row alone and one for a cover hold leaving the main rows alone, a declined cover card, cancelling after a cover, an approval whose authorization lands during a cancel releasing its own hold, organizer-only cover and cancel, and `cover_shortfall` rejecting a non-member or another trip's organizer. `expire-mandates.test.ts` adds that the cron also finishes an organizer cancel's releases. They run in CI's database job (no local Docker).
 - **Commit:** `feat(payments): declines and organizer cover`
 
 #### AI-S02 · `summarize` tool · Should
@@ -1804,10 +1848,11 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Files:** `packages/shared/src/tools/summarize.ts`, `packages/shared/src/cards/summary.ts`, `web/src/lib/tools/summarize/{tool.ts,card.tsx,tool.test.ts}`
 - **Depends on:** AI-106, CO-213
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/summarize` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/summarize` passes:
     - `every number is computed on the server`
     - `Person 4's share shows fronted until they pay`
     - `logistics has 5 lines or fewer`
+- **Status:** done, backend (2026-09-26). Proof: `pnpm --filter web test src/lib/tools/summarize` → 4 passed (RED first: `buildSummary` didn't exist); `pnpm --filter web test:db tests/db/summarize.test.ts` → 2 passed (a scripted run posts one `summary` card with committed $84 from the seeded holds; an unknown `M9` returns a correctable `unknown_handle` and no card). `SummarizeInput` and `SummaryCard` are final in `@agp/shared`; `formatUsd` is exported for server text. The card renderer (`summarize/card.tsx`) stays a stub for FE, and CO-213's badge reads the same `shareStatus` labels.
 - **Commit:** `feat(agent): summarize tool`
 
 #### FE-S02 · Create-trip flow · Should
@@ -1875,19 +1920,33 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S04 · Mandate expiry · Should
 
-- **Files:** `web/src/features/payments/server/expire-mandates.ts`, `web/tests/db/expire-mandates.test.ts`
+- **Files:** `web/src/features/payments/server/expire-mandates.ts`, `web/tests/db/expire-mandates.test.ts`, `web/src/app/api/cron/expire-mandates/{route.ts,route.test.ts}`, `web/vercel.json`
 - **Depends on:** CO-210
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
+  - [x] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
+- **Status:** done (2026-09-26). PR #6 (CI green): `expireMandates` plus `a mandate that hasn't expired is left open` and `approving after expiry is refused`. Then the scheduled caller ([ADR 0020](adr/0020-cron-mandate-expiry.md)): `GET /api/cron/expire-mandates` behind `CRON_SECRET`, a daily Vercel cron in `web/vercel.json`, and per-mandate failure isolation. Proof: `pnpm --filter web test src/app/api/cron src/lib/env` → 16 passed (RED first: no route module, `CRON_SECRET` unchecked, a partial failure answering 200, and production booting without the secret); `expire-mandates.test.ts` adds `two runs at once cancel the mandate once and release each PaymentIntent once`, `a release that fails on one mandate still releases the others, and the next run retries it`, and `a provider outage stops the run at the first failure; the rest wait for the next run` (CI database job). Follow-up: a sweep for PaymentIntents leaked under `released` rows (ADR 0020).
 - **Commit:** `feat(payments): expire open mandates`
 
-#### CO-S05 · Hotels through Duffel Stays (only with access) · Should
+#### CO-S05 · Hotels through Duffel Stays · Must
 
-- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-mock.ts}`
-- **Depends on:** CO-204. Also needs Duffel Stays access to be approved.
+- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,mock-merchant.ts,index.ts}`, `packages/shared/src/money/decimal.ts`
+- **Depends on:** CO-204. The `real` check also needs Duffel Stays access on the account and a `duffel_test_` token.
+- **Produces:** `@duffel/api` 4.30.0 (server-only) behind the `BookingProvider` interface. Duffel's flow is search → fetch all rates → quote → booking; ours maps `optionId` to Duffel's `rate_id`, `quote()` to `stays.quotes.create(rate_id)`, `book()` to `stays.bookings.create({ quote_id, guests, email, phone_number })`, and `cancel()` to `stays.bookings.cancel(id)`. Duffel sends money as decimal strings (`total_amount`), which are parsed to integer cents without floats. Every call goes through `withPolicy`, because the client has no timeout setting. A booking isn't retried blindly: after an error, `book()` looks the booking up by quote before trying again. Search (`stays.search` by coordinates and radius) is a tool for Muse, not part of the adapter. That tool is `search_stays` (2026-09-26, `feat/agent-search-stays`): for a lodging item with an area, it searches near it for the item's dates and attendee count and upserts the hotels as `lodging` places (`provider` mock, `raw.price_cents` = per guest for the whole stay), so `plan_day` offers them; it changes no item. Only the hotel mock searches (`STAYS_PROVIDER=mock`, fictional Midtown Atlanta hotels, nearest first). The live search is blocked: Duffel answers 403 without Stays access, and a Duffel option would need its `rate_id` carried to `quote()`, which the places cache doesn't hold. Proof: `pnpm --filter web test src/lib/providers/booking/stays-search.test.ts` → 4 passed and `pnpm --filter @agp/shared test` → 70 passed (RED first: missing module, and `tool_name` lacking `search_stays`); `tests/db/search-stays.test.ts` (CI): hotels cached as lodging candidates that `findPlaces` returns, a repeat search reusing the same places, and non-lodging or booked items refused. Migration `20260926160000_search_stays_tool.sql` adds the tool name.
 - **Done when:**
-  - [ ] Check: `getBookingProvider("stays")` quotes and books the fixture hotel with `STAYS_PROVIDER=mock`, or a Duffel test property with `real`.
+  - [x] `pnpm --filter web test src/lib/providers/booking` and `pnpm --filter @agp/shared test src/money/decimal.test.ts` pass: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
+  - [ ] Check: with `STAYS_PROVIDER=real` and a test token, a Duffel test property quotes and books.
+- **Status:** adapter done (2026-09-26, PR #4, CI green); the `real` check is blocked on a `duffel_test_` token and Stays access (sandbox only — live tokens are refused by the env loader, same rule as Stripe `sk_test_`). Proof: `stays-real.test.ts` → 16 passed after review fixes (paginate via `listWithGenerator`, re-find before reporting failed, map 401/403 to `internal`, refuse non-zero `due_at_accommodation_amount`); `mock-merchant.test.ts` → 6 passed; `decimal.test.ts` → 17 passed; typecheck and lint clean. The hotel mock is the mock merchant with `kind: "stays"`. Duffel's Stays booking has no idempotency key, so `book()` tags `metadata` with ours, scans every booking page before creating and again (with backoff) after an ambiguous failure; a create is never retried. Wired into payments (2026-09-26, `feat/booking-stays-finalize`): a `lodging` item books as kind `stays` (`bookingKindOf`); `createMandate` and `finalizeMandate` take the adapter for that kind, and the adapter supplies the approval card's merchant and the booking's `provider` (`mock_merchant`, `stays_mock`, or `duffel_stays`). Duffel needs a lead guest (`needsGuest`): the organizer, with their trip display name and their account's email and phone (`auth.users.phone` or `user_metadata.phone`). `createMandate` refuses before any hold when that's missing, and finalize cancels with `booking_failed` if it disappeared since. Proof: `pnpm --filter web test src/lib/providers/booking src/features/payments/lib` → 38 passed (RED first: no `id`/`merchantName`/`needsGuest`, no `bookingKindOf`, no `lead-guest` module); `tests/db/stays-mandate.test.ts` (CI): the hotel merchant and guest count on the mandate, finalize quoting and booking kind `stays` with `stays_mock` on the booking and card, the refusal without a phone, and the organizer passed as the lead guest.
 - **Commit:** `feat(booking): stays through duffel`
+
+#### AI-217 · Remember each person's preferences · Must
+
+- **Files:** `supabase/migrations/20260926130000_person_preferences.sql`, `web/src/lib/tools/remember-preference/tool.ts`, `web/src/lib/agent/context.ts`, `web/tests/db/person-preferences.test.ts`
+- **Depends on:** AI-209, VO-220
+- **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
+- **Done when:**
+  - [x] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
+- **Status:** done (2026-09-26, PR #4, CI green): migration + own-row RLS + join/claim trigger; `loadTripSnapshot` / `renderContext` quote notes; `remember_preference` tool (requester only, merges into trip constraints, no card); tool_name CHECK widened. Proof: shared 65, `remember-preference/tool.test.ts` → 4 passed, registry and prompt cover 6 tools; typecheck and lint clean. `person-preferences.test.ts` (5 cases) went green in CI's database job on PR #4.
+- **Commit:** `feat(agent): remember each person's preferences`
 
 ---
 
@@ -1897,13 +1956,14 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Depends on:** FE-105, VO-103
 - **Produces:** the transcription provider (`TRANSCRIBE_PROVIDER`; `muse-voice-transcribe-1.0` at `POST /v1/asr/transcribe`), `toWav(audioBuffer)` (16 kHz mono 16-bit PCM), and `POST /api/voice-notes` (design §2.5, ADR 0018).
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` passes:
+  - [x] `pnpm --filter web test -- src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` passes:
     - `toWav writes a 44-byte header for 16 kHz, mono, 16-bit, and a 1 kHz sine round-trips within one sample`
     - `the route rejects a non-WAV, stereo, 44.1 kHz, or over-2-minute upload with 400 before calling the provider`
     - `the real provider sends multipart request JSON (model, keywords) and the WAV, and parses the transcript` (fetch mocked)
     - `the transcript posts through sendMessage with the upload's client_id, so a retried upload posts once`
     - `a transcript with "@agent" starts one agent run`
   - [ ] Check: with `TRANSCRIBE_PROVIDER=real`, a 10-second voice note appears as the member's message within 5 s.
+- **Status:** backend done; real check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` → 10 passed (RED first: missing modules), adding a 5xx retry with no key in errors and a non-member refused before transcription. **Blocked:** the real check needs `META_MODEL_API_KEY`. The composer button is FE-S07.
 - **Commit:** `feat(voice): voice notes through meta speech to text`
 
 #### FE-S07 · Voice-note button in the composer · Should
@@ -1981,9 +2041,9 @@ This map shows that every Must task sits under a core user flow (design §5), or
 | --- | --- |
 | Foundation and enablers (every flow) | FE-101–108, FE-201, FE-214, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
 | 5.1 Create profile | FE-221, VO-220 |
-| 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-301, AI-302 |
+| 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-217, AI-301, AI-302 |
 | 5.3 Invite and collaborate | FE-220, AI-210, AI-216, AI-303, VO-209–211 |
-| 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, VO-203, VO-213, VO-214, FE-219, FE-302 |
+| 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, CO-S05, VO-203, VO-213, VO-214, FE-219, FE-302 |
 | 5.5 Per-person itinerary | FE-202, FE-208, FE-404 |
 
 ---
