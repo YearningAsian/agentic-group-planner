@@ -6,6 +6,8 @@ import type { RoutingProvider } from "./types";
 
 export type * from "./types";
 export { minutesFor, routeModeFor, straightLineMeters, WALKING_LIMIT_M } from "./distance";
+// Also the offline estimate for a leg the cache doesn't have yet (travel edges, fixtures).
+export { createMockRoutingProvider } from "./mock";
 
 /** Picks the implementation from `ROUTING_PROVIDER`. Pure, so tests can pass any env. */
 export function selectRoutingProvider(env: Pick<ServerEnv, "ROUTING_PROVIDER" | "ORS_API_KEY">): RoutingProvider {

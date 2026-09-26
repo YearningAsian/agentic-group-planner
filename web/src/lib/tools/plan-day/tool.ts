@@ -1,11 +1,22 @@
 import "server-only";
-import { type ConstraintUpdate, PlanDayInput, type ToolResult } from "@agp/shared";
+import { type ConstraintUpdate, PlaceCategory, PlanDayInput, type ToolResult } from "@agp/shared";
 import { applyPlan } from "@/features/itinerary/server";
+import { travelMinutes } from "@/features/map/server";
 import { resolveHandle } from "@/lib/agent/handles";
-import { buildPlanRequest, MAX_PLANNED_SLOTS } from "@/lib/optimizer/build-plan-request";
+import {
+  type BuildPlanRequestInput,
+  buildPlanRequest,
+  type RequestItem,
+  type RequestPlace,
+  travelPairs,
+} from "@/lib/optimizer/build-plan-request";
 import { getOptimizerClient, type OptimizerClient } from "@/lib/optimizer/client";
+import { findPlaces } from "@/lib/optimizer/find-places";
 import { AppError } from "@/lib/reliability";
 import { defineTool, type RunContext } from "../define-tool";
+
+/** Enough cached places per category for the builder to rank and cut to 6 after diet and hours. */
+const PLACES_PER_CATEGORY = 30;
 
 const fail = (what: string, cause: unknown) => new AppError("internal", `Couldn't read the trip's ${what}.`, { retryable: true, cause });
 
@@ -30,6 +41,74 @@ async function saveConstraints(ctx: RunContext, updates: ConstraintUpdate[], mem
   }
 }
 
+/**
+ * Everything the request builder reads about the trip: its time zone, the live items (with who
+ * goes, the chosen place and price, and a booking's confirmed start), and each member's constraints.
+ */
+async function loadTrip(ctx: RunContext) {
+  const { admin, tripId } = ctx;
+  const [trip, items, attendees, bookings, constraints] = await Promise.all([
+    admin.from("trips").select("timezone").eq("id", tripId).single(),
+    admin
+      .from("itinerary_items")
+      .select("id, slot_key, label, category, starts_at, ends_at, together, status, pinned, position, chosen_option_id")
+      .eq("trip_id", tripId)
+      .not("status", "in", "(cancelled,superseded)")
+      .order("starts_at")
+      .order("position"),
+    admin.from("item_attendees").select("item_id, member_id").eq("trip_id", tripId),
+    admin.from("bookings").select("item_id, details").eq("trip_id", tripId).eq("status", "confirmed"),
+    admin.from("member_constraints").select("member_id, budget_cents, dietary, interests").eq("trip_id", tripId),
+  ]);
+  if (trip.error) throw fail("details", trip.error);
+  if (items.error) throw fail("itinerary", items.error);
+  if (attendees.error) throw fail("attendees", attendees.error);
+  if (bookings.error) throw fail("bookings", bookings.error);
+  if (constraints.error) throw fail("constraints", constraints.error);
+
+  const chosenIds = items.data.flatMap((i) => (i.chosen_option_id ? [i.chosen_option_id] : []));
+  const chosen = chosenIds.length > 0 ? await admin.from("item_options").select("id, place_id, price_cents").in("id", chosenIds) : { data: [], error: null };
+  if (chosen.error) throw fail("options", chosen.error);
+  const options = new Map(chosen.data.map((o) => [o.id, o]));
+  const bookedAt = new Map(
+    bookings.data.flatMap((b) => {
+      const startsAt = (b.details as { starts_at?: unknown } | null)?.starts_at;
+      return typeof startsAt === "string" ? [[b.item_id, startsAt] as const] : [];
+    }),
+  );
+
+  const requestItems: (RequestItem & { label: string })[] = items.data.map((item) => {
+    const option = item.chosen_option_id ? options.get(item.chosen_option_id) : undefined;
+    return {
+      ...item,
+      attendee_ids: attendees.data.filter((a) => a.item_id === item.id).map((a) => a.member_id),
+      place_id: option?.place_id ?? null,
+      price_cents: option?.price_cents ?? null,
+      booked_starts_at: bookedAt.get(item.id) ?? null,
+    };
+  });
+  return { timezone: trip.data.timezone, items: requestItems, constraints: constraints.data };
+}
+
+/** Candidate places for every category still open, plus the places booked or pinned items go to. */
+async function loadPlaces(ctx: RunContext, items: RequestItem[], interests: string[]): Promise<RequestPlace[]> {
+  const open = items.filter((i) => !i.pinned && i.status !== "booked");
+  const categories = [...new Set(open.map((i) => PlaceCategory.parse(i.category)))];
+  const fixedIds = [...new Set(items.flatMap((i) => (i.place_id && (i.pinned || i.status === "booked") ? [i.place_id] : [])))];
+  const [candidates, fixed] = await Promise.all([
+    Promise.all(categories.map((category) => findPlaces({ category, tags: interests, limit: PLACES_PER_CATEGORY }, ctx.admin))),
+    fixedIds.length > 0
+      ? ctx.admin.from("places").select("id, name, category, rating, tags, dietary_tags, hours, raw").in("id", fixedIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (fixed.error) throw fail("places", fixed.error);
+  const byId = new Map<string, RequestPlace>();
+  for (const place of [...candidates.flat(), ...fixed.data.map((p) => ({ ...p, rating: p.rating === null ? null : Number(p.rating) }))]) {
+    byId.set(place.id, place);
+  }
+  return [...byId.values()];
+}
+
 /** `{member:<uuid>}` tokens from the optimizer become display names before anyone reads them. */
 function withNames(reasons: string[], names: Map<string, string>): string[] {
   return reasons.map((reason) => reason.replace(/\{member:([0-9a-f-]+)\}/g, (_, id: string) => names.get(id) ?? "A member"));
@@ -41,9 +120,10 @@ export interface PlanDayDeps {
 }
 
 /**
- * `plan_day`, first version (AI-107): saves constraint updates, plans the earliest 3 open slots
- * (or the named ones) with the optimizer, and writes the plan through `applyPlan`. AI-209 adds
- * splits, reasoning, and routes; AI-210 adds re-planning.
+ * `plan_day` (design §2.1): saves constraint updates, plans the earliest 3 open slots (or the named
+ * ones) with the optimizer, with booked neighbors as pinned context and travel from the route cache
+ * or a straight-line estimate, and writes the plan through `applyPlan`. AI-209 adds splits,
+ * reasoning, and routes; AI-210 adds re-planning.
  */
 export function createPlanDayTool(deps: PlanDayDeps = {}) {
   return defineTool({
@@ -61,49 +141,38 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
       const memberIds = members.data.map((m) => m.id);
 
       await saveConstraints(ctx, input.constraint_updates ?? [], memberIds);
-
       const wanted = input.item_handles?.map((handle) => resolveHandle(ctx.handles, handle, "I"));
-      let query = admin
-        .from("itinerary_items")
-        .select("id, slot_key, category, starts_at, ends_at, together, status, pinned")
-        .eq("trip_id", ctx.tripId)
-        .order("starts_at");
-      query = wanted ? query.in("id", wanted) : query.eq("status", "tbd").eq("pinned", false).limit(MAX_PLANNED_SLOTS);
-      const items = await query;
-      if (items.error) throw fail("itinerary", items.error);
-      if (items.data.length === 0) {
-        throw new AppError("conflict", "There are no open slots to plan. Every slot is decided, booked, or pinned.");
-      }
-      const closed = items.data.find((item) => item.status !== "tbd" && item.status !== "proposing");
-      if (closed) throw new AppError("conflict", `The ${closed.slot_key} slot is ${closed.status}, so it can't be planned again.`);
 
-      const [constraints, places] = await Promise.all([
-        admin.from("member_constraints").select("member_id, budget_cents, dietary, interests").eq("trip_id", ctx.tripId),
-        admin
-          .from("places")
-          .select("id, name, category, rating, tags, dietary_tags, raw")
-          .in("category", [...new Set(items.data.map((i) => i.category))])
-          .order("rating", { ascending: false, nullsFirst: false })
-          .limit(200),
-      ]);
-      if (constraints.error) throw fail("constraints", constraints.error);
-      if (places.error) throw fail("places", places.error);
-      const byMember = new Map(constraints.data.map((c) => [c.member_id, c]));
-
-      const request = buildPlanRequest({
+      const trip = await loadTrip(ctx);
+      const interests = [...new Set(trip.constraints.flatMap((c) => c.interests))];
+      const base: BuildPlanRequestInput = {
         requestId: ctx.toolCallId,
         mode: input.mode,
-        members: memberIds.map((id) => ({
-          id,
-          budget_cents: byMember.get(id)?.budget_cents ?? null,
-          dietary: byMember.get(id)?.dietary ?? [],
-          interests: byMember.get(id)?.interests ?? [],
-        })),
-        items: items.data,
-        places: places.data.map((p) => ({ ...p, rating: p.rating === null ? null : Number(p.rating) })),
-      });
-      const empty = request.slots.find((slot) => slot.candidates.length === 0);
+        timezone: trip.timezone,
+        members: members.data,
+        constraints: trip.constraints,
+        items: trip.items,
+        places: await loadPlaces(ctx, trip.items, interests),
+        travel: [],
+        planItemIds: wanted,
+      };
+      const draft = buildPlanRequest(base);
+      const plannedKeys = new Set(draft.slots.filter((s) => !s.pinned).map((s) => s.key));
+      const planned = trip.items.filter((i) => plannedKeys.has(i.slot_key));
+      if (planned.length === 0) {
+        throw new AppError("conflict", "There are no open slots to plan. Every slot is decided, booked, or pinned.");
+      }
+      const closed = planned.find((item) => item.status !== "tbd" && item.status !== "proposing");
+      if (closed) throw new AppError("conflict", `The ${closed.slot_key} slot is ${closed.status}, so it can't be planned again.`);
+      const empty = draft.slots.find((slot) => slot.candidates.length === 0);
       if (empty) throw new AppError("conflict", `There are no priced places to suggest for ${empty.key} yet.`);
+
+      const pairs = travelPairs(draft.slots);
+      const minutes = await travelMinutes(pairs, { admin });
+      const request = buildPlanRequest({
+        ...base,
+        travel: pairs.map((p) => ({ from_place_id: p.from, to_place_id: p.to, minutes: minutes.get(`${p.from}:${p.to}`) ?? 0 })),
+      });
 
       const response = await (deps.optimizer ?? getOptimizerClient)().plan(request);
       const names = new Map(members.data.map((m) => [m.id, m.display_name]));
@@ -120,7 +189,7 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
         mode: input.mode,
         request,
         response: { ...response, infeasible_reasons: withNames(response.infeasible_reasons, names) },
-        itemsBySlot: Object.fromEntries(items.data.map((i) => [i.slot_key, i.id])),
+        itemsBySlot: Object.fromEntries(planned.map((i) => [i.slot_key, i.id])),
         reasoning: {},
       });
       return { ok: true, summary: result.summary, card_message_id: result.cardMessageId };

@@ -1,7 +1,7 @@
 import type { Database } from "@agp/shared/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ensureRoutes } from "@/features/map/server";
+import { ensureRoutes, travelMinutes } from "@/features/map/server";
 import { createMockRoutingProvider } from "@/lib/providers/routing/mock";
 import type { RoutingProvider } from "@/lib/providers/routing/types";
 import { adminClient, cleanup, createPlace, testBatch } from "./helpers";
@@ -111,5 +111,22 @@ describe("ensureRoutes", () => {
     // Everything is cached now.
     await ensureRoutes([{ from: farAway, to: nearby }], { provider });
     expect(calls).toHaveLength(1);
+  });
+
+  it("travel minutes come from the cache, or a straight-line estimate, and write nothing", async () => {
+    const lonely = (await createPlace(batch, { name: "Lonely", lat: 33.7634, lng: -84.3861 })).placeId;
+    const before = await routeRows(lonely);
+
+    const minutes = await travelMinutes([
+      { from: nearby, to: farAway },
+      { from: lonely, to: aquarium },
+      { from: aquarium, to: aquarium },
+    ]);
+
+    // Cached: 1234 s is 21 minutes, rounded up. Estimated: 832 m walked at 4.8 km/h is 624 s, 11 minutes.
+    expect(minutes.get(`${nearby}:${farAway}`)).toBe(21);
+    expect(minutes.get(`${lonely}:${aquarium}`)).toBe(11);
+    expect(minutes.get(`${aquarium}:${aquarium}`)).toBe(0);
+    expect(await routeRows(lonely)).toEqual(before);
   });
 });
