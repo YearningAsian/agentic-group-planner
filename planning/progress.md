@@ -36,3 +36,20 @@ Frontend impact: `cards.tsx` no longer maps `call_status` or `recap`; the featur
 | `feat(agent): runner with leases, idempotent tool calls, and status broadcasts` | AI-106: `claimRun`, `startAgentRun`, `runTool`, `supabaseBroadcast` | db `runner.test.ts` 11 passed (RED first: missing runner); web unit 71, db 9 files / 44 passed |
 
 Decision: a run's end (message plus status) is one write function, `finish_agent_run`, added to design §3.4, so a crash can't split them.
+
+### Feature 3 (part 1) · Run queue and the send-message route
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(agent): one running run per trip with a queue` | AI-212: `sweepTrip`, `nextQueuedRun`; the runner sweeps, claims, runs, then drains | db `run-queue.test.ts` 4 passed (RED first on all three behaviors) |
+| `fix(db): keep a message's item and reply on its own trip` | migration `20260926071157_messages_same_trip_links.sql` | db `send-message.test.ts`, the policy case (RED first: a cross-trip comment was accepted) |
+| `feat(chat): idempotent send-message route that starts agent runs` | FE-105: `sendMessage`, `mentionsAgent`, `POST /api/messages` | db 6 passed; unit 7 passed (RED first: stub and missing route) |
+
+### Reviews before merging into `testing`
+
+Two independent reviewers, one per branch, each in its own worktree:
+
+- **`feat/agent-llm-provider` (AI-104): mergeable after fixes.** The blocking finding was that a model's invalid tool call (bad input or an unknown tool) ended the run with a bare string instead of going back to the model. Fixed in `fix(agent): let the model correct bad tool calls, and fail runs at the cap`, which also covers the 90 s timeout as `AppError timeout`, the step cap failing the run (design §4.4), and the mock's abort, key, and file-name checks. Deferred: tools aren't raced against the run budget (the lease and sweep bound it).
+- **`colin-data-backend`: mergeable after one fix.** The blocking finding was that the SDK validated tool input, so `runTool` never recorded bad input and the model never saw `invalid_input`. Fixed in `fix(agent): runTool validates tool input, and the runner trusts finish`, which also covers finish results, a shared and saved handle table (`addHandle`), `actorMemberId` in `RunContext`, and a lost insert race.
+
+Gates after the fixes: shared 32, web unit 83, db 11 files / 57 passed, optimizer 5, lint, typecheck, `check_plan.py`, and gitleaks all clean.

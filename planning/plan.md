@@ -305,11 +305,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** FE-102, VO-104, CO-102, AI-103
 - **Produces:** `sendMessage({ tripId, clientId, body, itemId? })`, which returns `{ messageId, agentRunId }`. A message whose body contains `@agent` (case-insensitive, as a whole word) inserts one queued `agent_runs` row through the admin client, and the route starts it with `after(() => startAgentRun(agentRunId))`. `maxDuration = 300`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/send-message.test.ts` passes:
     - `the same client_id twice returns the same message_id and one row`
     - `a body with @agent creates exactly one queued agent_run linked by trigger_message_id`
     - `a non-member gets not_permitted`
-  - [ ] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+  - [x] `pnpm --filter web test -- src/app/api/messages/route.test.ts` passes: `a body over 2000 characters returns 400 with { error: { code, message, retryable } }`.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/send-message.test.ts` → 6 passed (RED first: `sendMessage` was a stub, and the insert policy accepted another trip's item); `pnpm --filter web test src/app/api/messages src/features/chat` → 7 passed (RED first: no route). Migration `20260926071157_messages_same_trip_links.sql` makes the members' insert policy require `item_id` and `reply_to_message_id` on the message's own trip.
 - **Commit:** `feat(chat): idempotent send-message route that starts agent runs`
 
 #### FE-106 · Trip route and chat view · Must
@@ -1089,10 +1090,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/lib/agent/{queue.ts,runner.ts}`, `web/tests/db/run-queue.test.ts`
 - **Depends on:** AI-106
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/run-queue.test.ts` passes:
     - `a run started while another is running stays queued, then runs when the first finishes`
     - `a running run with an expired lease is marked failed by the next claimant`
     - `a queued run older than 5 minutes is failed, not started`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/run-queue.test.ts` → 4 passed (RED first: the queued run never started, the expired lease was never failed, and the stale run was started): the three listed plus "a live lease is left alone". Before claiming, the runner sweeps the trip (an expired lease or a queued run older than 5 minutes is failed with a timeout error card), and a finished run starts the oldest queued one in the same `after()`.
 - **Commit:** `feat(agent): one running run per trip with a queue`
 
 #### AI-213 · Agent run recorder · Should
