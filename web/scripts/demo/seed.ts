@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SEEDED_USERS, type SeededUserKey, seededEmail } from "./fixtures/users";
 import { type ScriptAdmin, scriptAdmin } from "./lib/admin";
 import { parseSeedArgs, type Stage } from "./lib/args";
@@ -50,7 +50,7 @@ interface TripFixture {
   }[];
 }
 
-const FIXTURES = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures");
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 export const SATURDAY_TRIP: TripFixture = JSON.parse(readFileSync(path.join(FIXTURES, "saturday-trip.json"), "utf8"));
 
 export interface SeedResult {

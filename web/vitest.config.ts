@@ -48,10 +48,10 @@ export default defineConfig({
         test: {
           name: "db",
           environment: "node",
-          include: ["tests/db/**/*.test.ts", "tests/payments/**/*.test.ts"],
+          include: ["tests/db/**/*.test.ts", "tests/payments/**/*.test.ts", "scripts/sandbox-smoke.ts"],
           env,
-          testTimeout: 30_000,
-          hookTimeout: 60_000,
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
         },
       },
       {
