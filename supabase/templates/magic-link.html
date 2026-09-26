@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Magic-link email (ADR 0016, design §2.4). The sign-in form sets emailRedirectTo to
+      <app origin>/auth/confirm?next=<path>, so .RedirectTo already carries the query string and
+      the token hash is appended to it. /auth/confirm verifies the hash on the server, sets the
+      session cookie, and sends the member on to next (same-origin paths only).
+    -->
+  </head>
+  <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#1c1917;background:#fafaf9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;">
+      <tr>
+        <td style="padding:24px;background:#ffffff;border-radius:12px;">
+          <h1 style="margin:0 0 12px;font-size:20px;">Sign in to your trip</h1>
+          <p style="margin:0 0 20px;font-size:16px;line-height:1.5;">
+            Tap the button to sign in as {{ .Email }}. The link works once and expires in an hour.
+          </p>
+          <p style="margin:0 0 20px;">
+            <a
+              href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email"
+              style="display:inline-block;min-height:44px;padding:12px 20px;box-sizing:border-box;border-radius:8px;background:#1c1917;color:#ffffff;font-size:16px;text-decoration:none;"
+              >Sign in</a
+            >
+          </p>
+          <p style="margin:0;font-size:14px;line-height:1.5;color:#57534e;">
+            If you didn't ask to sign in, you can ignore this email.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
