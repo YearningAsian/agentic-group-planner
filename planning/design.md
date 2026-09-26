@@ -1831,3 +1831,21 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 7. **The mandate expiry cron** ([ADR 0020](adr/0020-cron-mandate-expiry.md)). `GET /api/cron/expire-mandates`, behind `CRON_SECRET`, runs daily on Vercel. Approving an expired mandate was already refused, so the cron releases the holds of mandates nobody finished.
 8. **Covering a declined share uses a cover hold** (CO-S02). §4.2 says the organizer's cover "adds a fronted row to their hold", but by then the organizer's hold is usually authorized, and an authorized PaymentIntent can't grow. So each covered share gets its own PaymentIntent, authorized when the organizer taps Cover, for that share's cap (`$48` on the seeded trip) and charged like a member's own hold (`$43.57`). Its keys add `:cover:{share_member_id}` to the organizer's (§7.1), and its row's `idempotency_key` starts `cover:`, which is how the approval, finalize, and webhook paths keep each hold's rows apart. The organizer's own share is never covered (their card is the one covering), and a declined cover leaves the mandate partially declined, for the organizer to cancel. The organizer can't decline; they cancel instead, through `POST /api/mandates/:id/cancel`, which §2.4 lacked.
 9. **`request_alternatives` posts a plan card, not an itinerary change** (AI-216). New options only mean something with their scores, prices, and reasoning, which the plan card already shows, so the action runs `plan_day`'s replan for the one item with its old places excluded (a booked or pinned neighbor keeps its place as context). A revision run, one started by a comment on an item, also quotes that item's earlier comments in the system prompt, since the last 30 messages can miss them (AI-210). They're members' words, not instructions: each is JSON-quoted (a newline can't forge a prompt line) and cut to 500 characters, comments already among the recent messages are skipped, and the newest are kept within 6,000 characters. The request re-plans without every place the slot has offered, in any round or split group. A replan's time shift is applied once: `itinerary_items.shifted_min` records the minutes already moved, since the booked item's Δ never goes away.
+
+### 11.8 Screens follow the database (2026-09-26)
+
+[ADR 0021](adr/0021-supabase-session-for-trip-reads.md). The trip-draft screens read `localStorage` (`useTrip`, `trips-db`, `profile-db`). They will read Supabase through `useTripView` / `useTrips` instead. Providers stay mock.
+
+**Auth.** RLS keeps using `auth.uid()`. Clerk does not become that id. Dev mode adds a Person 1–4 switcher on the existing magic-link `demoSignIn`. Production members still use a magic link.
+
+**Field mapping.**
+
+| Screen field | localStorage today | Database | Write |
+| --- | --- | --- | --- |
+| Trip title, city, date, timezone | `TripState` | `trips` | `create_trip` once; after that the row |
+| Members, lanes, placeholder | `TripState.members` | `trip_members` | claim / seed |
+| Stops, options, statuses | `TripState` plan fields | `itinerary_items`, `item_options`, `places` | `applyPlan` and the item tools |
+| Chat and cards | none (UI fixtures) | `messages` | post message / agent tools |
+| Profile name and home | `profile-db` | `profiles` | profile update route |
+| Votes, photos, recap | UI-only or absent | none | dropped (§11.6); do not add tables |
+| Onboarding text before the first save | `TripState` | none | local draft only, until `create_trip` |
