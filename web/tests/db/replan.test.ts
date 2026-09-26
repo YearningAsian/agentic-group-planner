@@ -35,7 +35,7 @@ async function newTrip(): Promise<Trip> {
   return { tripId, memberIds, runId: run.id };
 }
 
-async function addItem(trip: Trip, slot: string, status: string, hour: number): Promise<string> {
+async function addItem(trip: Trip, slot: string, status: string, hour: number, chosenPlace = placeIds[0]): Promise<string> {
   const { data, error } = await admin
     .from("itinerary_items")
     .insert({
@@ -55,7 +55,7 @@ async function addItem(trip: Trip, slot: string, status: string, hour: number): 
   if (status === "decided") {
     const option = await admin
       .from("item_options")
-      .insert({ trip_id: trip.tripId, item_id: data.id, place_id: placeIds[0], rank: 1, price_cents: 4200, score: 0.5, score_breakdown: {}, source: "mock", seed_batch: batch })
+      .insert({ trip_id: trip.tripId, item_id: data.id, place_id: chosenPlace, rank: 1, price_cents: 4200, score: 0.5, score_breakdown: {}, source: "mock", seed_batch: batch })
       .select("id")
       .single();
     if (option.error) throw option.error;
@@ -187,8 +187,40 @@ describe("apply_plan replan", () => {
     expect(result.changes).toContainEqual({ item_id: afternoon, kind: "superseded", before: "decided", after: "voting" });
   });
 
-  it("booked items never change", async () => {
+  it("a decided slot whose chosen place comes back as the top option is kept, with its choice and options", async () => {
     const trip = await newTrip();
+    const afternoon = await addItem(trip, "afternoon", "decided", 18, placeIds[1]);
+    const before = await item(afternoon);
+    const toolCallId = await startToolCall(trip);
+    const { request, response } = replanOf(trip, toolCallId, "afternoon", 18);
+
+    const result = await applyPlan({
+      tripId: trip.tripId,
+      actorMemberId: trip.memberIds[0]!,
+      runId: trip.runId,
+      toolCallId,
+      mode: "replan",
+      request,
+      response,
+      itemsBySlot: { afternoon },
+      reasoning: {},
+    });
+
+    expect(await item(afternoon)).toMatchObject({ status: "decided", chosen_option_id: before.chosen_option_id });
+    const { count: replacements } = await admin.from("itinerary_items").select("*", { count: "exact", head: true }).eq("supersedes_item_id", afternoon);
+    expect(replacements).toBe(0);
+    const { count: options } = await admin.from("item_options").select("*", { count: "exact", head: true }).eq("item_id", afternoon);
+    expect(options).toBe(1);
+    expect(result.changes).toEqual([]);
+    expect(result.slots).toEqual([
+      expect.objectContaining({
+        slot_key: "afternoon",
+        groups: [expect.objectContaining({ item_id: afternoon, options: [expect.objectContaining({ option_id: before.chosen_option_id, place_id: placeIds[1] })] })],
+      }),
+    ]);
+  });
+
+  it("booked items never change", async () => {    const trip = await newTrip();
     const dinner = await addItem(trip, "dinner", "booked", 20);
     const before = await item(dinner);
 

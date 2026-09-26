@@ -6,6 +6,7 @@ import type { PlannerResponse, PlanRequest } from "@/lib/optimizer/client";
 import { formatUsd } from "@/lib/money";
 import { AppError, rpcError } from "@/lib/reliability";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { type LiveSlotItem, unchangedSlots } from "./replan-keep";
 
 /** What the model reads back from a plan: its summary, and handles for the rows the plan created. */
 export interface PlanResultText {
@@ -65,6 +66,56 @@ function plainSummary(slots: SlotSummary[]): PlanResultText {
 
 const REPLACED = new Set(["voting", "decided"]);
 
+interface StoredOption {
+  id: string;
+  place_id: string;
+  rank: number;
+  price_cents: number;
+  score: number;
+  score_breakdown: unknown;
+  reasoning: string | null;
+  name: string;
+}
+
+/** Each live item's attendees and options (by rank), to tell whether a replan changes its slot. */
+async function currentChoices(admin: ReturnType<typeof getAdminClient>, itemIds: string[]) {
+  const attendees = new Map<string, string[]>();
+  const options = new Map<string, StoredOption[]>();
+  if (itemIds.length === 0) return { attendees, options };
+  const [attendeeResult, optionResult] = await Promise.all([
+    admin.from("item_attendees").select("item_id, member_id").in("item_id", itemIds),
+    admin
+      .from("item_options")
+      .select("id, item_id, place_id, rank, price_cents, score, score_breakdown, reasoning, place:places(name)")
+      .in("item_id", itemIds)
+      .order("rank"),
+  ]);
+  if (attendeeResult.error) throw rpcError(attendeeResult.error);
+  if (optionResult.error) throw rpcError(optionResult.error);
+  for (const a of attendeeResult.data) attendees.set(a.item_id, [...(attendees.get(a.item_id) ?? []), a.member_id]);
+  for (const { item_id, place, ...o } of optionResult.data) {
+    options.set(item_id, [...(options.get(item_id) ?? []), { ...o, name: place?.name ?? "Unknown place" }]);
+  }
+  return { attendees, options };
+}
+
+/** A kept item's options as card snapshots: the chosen one first, then by rank. */
+function snapshotsOf(item: { chosen_option_id: string | null }, options: StoredOption[], keep: number): SlotSummary["groups"][number]["options"] {
+  const ordered = [...options].sort((a, b) => Number(b.id === item.chosen_option_id) - Number(a.id === item.chosen_option_id) || a.rank - b.rank);
+  return ordered.slice(0, keep).map((o) => {
+    const b = (o.score_breakdown ?? {}) as Partial<Record<"preference" | "cost" | "travel" | "fairness", number>>;
+    return {
+      option_id: o.id,
+      place_id: o.place_id,
+      name: o.name,
+      price_cents: o.price_cents,
+      score: o.score,
+      breakdown: { preference: b.preference ?? 0, cost: b.cost ?? 0, travel: b.travel ?? 0, fairness: b.fairness ?? 0 },
+      reasoning: o.reasoning ?? `${formatUsd(o.price_cents)} per person`,
+    };
+  });
+}
+
 /** "15:00–18:00" in the trip's time zone. */
 function window(startsAt: string, endsAt: string, timeZone: string): string {
   const clock = new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -80,7 +131,8 @@ function window(startsAt: string, endsAt: string, timeZone: string): string {
  *
  * A replan (AI-210) also moves items to the builder's shifted times, keeping their status, and a
  * slot already voting or decided is superseded: its live items become `superseded` and each group
- * gets a new item that points back through `supersedes_item_id`. Booked items never change.
+ * gets a new item that points back through `supersedes_item_id`. Booked items never change. A slot
+ * whose groups and top options come back the same is kept as it is (`unchangedSlots`).
  */
 export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult> {
   checkPlanResponse(input.request, input.response);
@@ -103,7 +155,7 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
   if (items.length !== itemIds.length) throw new AppError("not_permitted", "An item belongs to another trip.");
 
   const shiftedIds = Object.keys(shifts);
-  const columns = "id, slot_key, label, status, starts_at, ends_at";
+  const columns = "id, slot_key, label, status, starts_at, ends_at, chosen_option_id";
   const [liveResult, shiftedResult] = await Promise.all([
     replan
       ? admin.from("itinerary_items").select(columns).eq("trip_id", input.tripId).in("slot_key", items.map((i) => i.slot_key)).not("status", "in", "(superseded,cancelled)")
@@ -124,11 +176,20 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
     const shift = shifts[id]!;
     changes.push({ item_id: id, kind: "time_shift", before: window(row.starts_at, row.ends_at, timeZone), after: window(shift.starts_at, shift.ends_at, timeZone) });
   }
+  const current = await currentChoices(admin, live.map((r) => r.id));
+  const liveSlots: LiveSlotItem[] = live.map((r) => {
+    const options = current.options.get(r.id) ?? [];
+    const best = (r.chosen_option_id ? options.find((o) => o.id === r.chosen_option_id) : undefined) ?? options[0];
+    return { id: r.id, slot_key: r.slot_key, status: r.status, attendees: current.attendees.get(r.id) ?? [], best_place_id: best?.place_id ?? null };
+  });
+  const everyone = input.request.members.map((m) => m.id);
+  const kept = replan ? unchangedSlots({ everyone, live: liveSlots, answer: input.response.slot_options }) : new Set<string>();
+
   const supersede: string[] = [];
   /** Items whose slot is re-planned onto new items: every live item in that slot is replaced. */
   const replaced = new Set<string>();
   for (const item of items) {
-    if (!replan || !REPLACED.has(item.status)) continue;
+    if (!replan || !REPLACED.has(item.status) || kept.has(item.slot_key)) continue;
     const inSlot = live.filter((r) => r.slot_key === item.slot_key);
     if (inSlot.some((r) => r.status === "booked")) throw new AppError("not_permitted", `The ${item.slot_key} slot is booked, so it can't change.`);
     replaced.add(item.id);
@@ -152,6 +213,15 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
   const slots: SlotSummary[] = [];
   const payloadSlots = [];
   for (const item of items) {
+    const times = shifts[item.id] ?? item;
+    if (kept.has(item.slot_key)) {
+      // The group's choice stands: the card shows the slot's live items and options as stored.
+      const groups = live
+        .filter((r) => r.slot_key === item.slot_key)
+        .map((r) => ({ item_id: r.id, member_ids: current.attendees.get(r.id) ?? everyone, options: snapshotsOf(r, current.options.get(r.id) ?? [], keep) }));
+      slots.push({ slot_key: item.slot_key, label: item.label, starts_at: times.starts_at, ends_at: times.ends_at, groups });
+      continue;
+    }
     const options = input.response.slot_options.find((s) => s.slot_key === item.slot_key);
     if (!options || options.groups.length === 0 || options.groups.length > 2) {
       throw new AppError("internal", `The planner's answer has no usable groups for ${item.slot_key}.`, { retryable: false });
@@ -197,7 +267,6 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
         })),
       });
     }
-    const times = shifts[item.id] ?? item;
     slots.push({ slot_key: item.slot_key, label: item.label, starts_at: times.starts_at, ends_at: times.ends_at, groups: summaryGroups });
   }
 
