@@ -828,7 +828,7 @@ function Composer({
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-ink-faint">
-        Attaching a link or photo turns your comment into a suggested option the group can vote on.
+        Attaching a link or photo turns your comment into a suggested option the group can weigh in on.
       </p>
     </form>
   );
