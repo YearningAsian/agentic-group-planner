@@ -3,10 +3,11 @@ import { randomUUID } from "node:crypto";
 import { ApprovalCard, type ApprovalHold, ApprovalShare, holdFees } from "@agp/shared";
 import { z } from "zod";
 import { capFor, splitEvenly } from "@/lib/money";
-import { getBookingProvider, MOCK_MERCHANT_NAME } from "@/lib/providers/booking";
+import { bookingKindOf, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
 import { AppError } from "@/lib/reliability";
 import type { RunContext } from "@/lib/tools/define-tool";
 import { mandateSummary } from "../lib/mandate-summary";
+import { loadLeadGuest, MISSING_GUEST_MESSAGE } from "./lead-guest";
 import { readError, rpcError } from "./rpc-error";
 
 /** How long the group has to approve before the mandate expires (design §2.1). */
@@ -22,6 +23,8 @@ export interface CreateMandateInput {
   note?: string;
   /** `mandate:{run_id}:{tool_call_id}` (design §7.1); the write function checks the shape. */
   idempotencyKey: string;
+  /** The merchant; defaults to the adapter for the item's kind. */
+  booking?: BookingProvider;
 }
 
 export interface CreateMandateResult {
@@ -101,11 +104,11 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
     admin.from("trips").select("price_threshold_percent").eq("id", ctx.tripId).single(),
     admin
       .from("trip_members")
-      .select("id, display_name, status, sort_order")
+      .select("id, display_name, status, sort_order, profile_id")
       .eq("trip_id", ctx.tripId)
       .eq("role", "organizer")
       .single(),
-    admin.from("itinerary_items").select("status, starts_at").eq("id", input.itemId).eq("trip_id", ctx.tripId).maybeSingle(),
+    admin.from("itinerary_items").select("status, starts_at, category").eq("id", input.itemId).eq("trip_id", ctx.tripId).maybeSingle(),
     admin
       .from("item_options")
       .select("place_id, price_cents, places(name)")
@@ -140,8 +143,14 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
     .sort((a, b) => a.sortOrder - b.sortOrder);
   if (attendees.length === 0) throw new AppError("invalid_input", "Nobody is attending this item yet.");
 
-  const quote = await getBookingProvider("tickets").quote({
-    kind: "tickets",
+  const kind = bookingKindOf(item.category);
+  const booking = input.booking ?? getBookingProvider(kind);
+  // Refused here, not at finalize, so nobody authorizes a hold for a booking that can't be made.
+  if (booking.needsGuest && !(await loadLeadGuest(admin, organizerResult.data!))) {
+    throw new AppError("domain_rule", MISSING_GUEST_MESSAGE);
+  }
+  const quote = await booking.quote({
+    kind,
     placeId: option.place_id,
     optionId: input.optionId,
     partySize: attendees.length,
@@ -164,13 +173,14 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
   });
 
   const mandateId = randomUUID();
-  const title = `${option.places?.name ?? "Tickets"} · ${attendees.length} ${attendees.length === 1 ? "ticket" : "tickets"}`;
+  const unit = kind === "stays" ? "guest" : "ticket";
+  const title = `${option.places?.name ?? (kind === "stays" ? "Hotel" : "Tickets")} · ${attendees.length} ${unit}${attendees.length === 1 ? "" : "s"}`;
   const card = ApprovalCard.parse({
     card_type: "approval",
     mandate_id: mandateId,
     item_id: input.itemId,
     title,
-    merchant: MOCK_MERCHANT_NAME,
+    merchant: booking.merchantName,
     quote_cents: quote.totalCents,
     cap_cents: rows.filter((r) => r.kind === "own").reduce((sum, r) => sum + r.cap_cents, 0),
     holds: holdsFor(attendees, organizer, amounts, capPercent),

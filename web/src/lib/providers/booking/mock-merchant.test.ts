@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { NotBuiltError } from "@/lib/not-built";
-import { getBookingProvider, selectStaysProvider } from "./index";
+import { bookingKindOf, getBookingProvider, selectStaysProvider } from "./index";
 import { createMockMerchant } from "./mock-merchant";
 
 const placeId = "00000000-0000-4000-8000-0000000000c1";
@@ -75,5 +75,26 @@ describe("mock merchant", () => {
     });
     expect(() => selectStaysProvider({ STAYS_PROVIDER: "real" })).toThrow(/DUFFEL_ACCESS_TOKEN/);
     expect(selectStaysProvider({ STAYS_PROVIDER: "real", DUFFEL_ACCESS_TOKEN: "duffel_test_x" }).quote).toBeTypeOf("function");
+  });
+
+  it("each adapter names its provider, its merchant, and whether it needs a lead guest", () => {
+    expect(createMockMerchant()).toMatchObject({ id: "mock_merchant", merchantName: "Demo Tickets (mock merchant)", needsGuest: false });
+    expect(selectStaysProvider({ STAYS_PROVIDER: "mock" })).toMatchObject({
+      id: "stays_mock",
+      merchantName: "Demo Hotels (mock merchant)",
+      needsGuest: false,
+    });
+    expect(selectStaysProvider({ STAYS_PROVIDER: "real", DUFFEL_ACCESS_TOKEN: "duffel_test_x" })).toMatchObject({
+      id: "duffel_stays",
+      merchantName: "Duffel Stays",
+      needsGuest: true,
+    });
+  });
+
+  it("bookingKindOf books lodging as stays and everything else as tickets", () => {
+    expect(bookingKindOf("lodging")).toBe("stays");
+    for (const category of ["food", "activity", "dessert", "nightlife", "other"] as const) {
+      expect(bookingKindOf(category)).toBe("tickets");
+    }
   });
 });

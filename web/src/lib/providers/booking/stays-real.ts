@@ -105,6 +105,10 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
   }
 
   return {
+    id: "duffel_stays",
+    merchantName: "Duffel Stays",
+    needsGuest: true,
+
     async quote(input): Promise<Quote> {
       assertStays(input.kind);
       const { data } = await duffelCall(() => client.quotes.create(input.optionId), READ_POLICY).catch((error: unknown) => {
