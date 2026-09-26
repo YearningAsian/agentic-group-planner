@@ -11,7 +11,7 @@ function scenario(
   const profile = { id: "profile-1", ...saved };
   const ensureCustomer = vi.fn(async () => ({ customerId: "cus_new" }));
   const attachTestCard = vi.fn(async () => ({ paymentMethodId: "pm_new" }));
-  const payments = { ensureCustomer, attachTestCard } as unknown as PaymentsProvider;
+  const payments = { name: "real", ensureCustomer, attachTestCard } as unknown as PaymentsProvider;
   const admin = {
     from(table: string) {
       const row = table === "trip_members" ? member : profile;
@@ -74,6 +74,27 @@ describe("ensurePayer", () => {
       customerId: "cus_new", paymentMethodId: "pm_new",
     });
     expect(s.ensureCustomer).toHaveBeenCalledOnce();
+  });
+
+  it("on Stripe, the mock provider's IDs count as missing: demo mode provisions real ones", async () => {
+    const s = scenario({ stripe_customer_id: "cus_mock_abc123", default_payment_method_id: "pm_mock_visa" });
+
+    expect(await ensurePayer("member-1", { ...s, demoMode: true })).toEqual({ customerId: "cus_new", paymentMethodId: "pm_new" });
+    expect(s.profile).toMatchObject({ stripe_customer_id: "cus_new", default_payment_method_id: "pm_new" });
+  });
+
+  it("on Stripe, mock IDs outside demo mode are refused, not sent to Stripe", async () => {
+    const s = scenario({ stripe_customer_id: "cus_mock_abc123", default_payment_method_id: "pm_mock_visa" });
+
+    await expect(ensurePayer("member-1", { ...s, demoMode: false })).rejects.toMatchObject({ code: "not_permitted" });
+    expect(s.ensureCustomer).not.toHaveBeenCalled();
+  });
+
+  it("a new customer always gets a new card, never the stored one", async () => {
+    const s = scenario({ stripe_customer_id: null, default_payment_method_id: "pm_orphan" });
+
+    expect(await ensurePayer("member-1", { ...s, demoMode: true })).toEqual({ customerId: "cus_new", paymentMethodId: "pm_new" });
+    expect(s.attachTestCard).toHaveBeenCalledWith({ customerId: "cus_new", card: "visa" });
   });
 
   it("does not provision a placeholder before they join", async () => {

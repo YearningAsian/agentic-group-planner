@@ -9,8 +9,9 @@ function scenario() {
   }]));
   const users = { person1: "id-1", person2: "id-2", person3: "id-3" };
   const create = vi.fn(async () => ({ id: `cus_${create.mock.calls.length}` }));
+  const retrieve = vi.fn(async (id: string) => ({ id, deleted: false }) as { id: string; deleted: boolean });
   const attach = vi.fn(async () => ({ id: `pm_${attach.mock.calls.length}` }));
-  const stripe = { customers: { create }, paymentMethods: { attach } } as unknown as Stripe;
+  const stripe = { customers: { create, retrieve }, paymentMethods: { attach } } as unknown as Stripe;
   const admin = {
     from(table: string) {
       if (table !== "profiles") throw new Error(`unexpected table: ${table}`);
@@ -29,7 +30,7 @@ function scenario() {
       return query;
     },
   } as unknown as ScriptAdmin;
-  return { admin, stripe, create, attach, profiles, users };
+  return { admin, stripe, create, retrieve, attach, profiles, users };
 }
 
 describe("seedStripeCustomers", () => {
@@ -68,6 +69,27 @@ describe("seedStripeCustomers", () => {
       idempotencyKey: "seed-test-card:cus_saved:visa",
     });
     expect(s.profiles.get("id-1")?.default_payment_method_id).toBe("pm_1");
+  });
+
+  it("replaces the mock provider's IDs left by a mock-mode run with real test customers", async () => {
+    const s = scenario();
+    s.profiles.set("id-1", { id: "id-1", stripe_customer_id: "cus_mock_abc123", default_payment_method_id: "pm_mock_visa" });
+
+    expect(await seedStripeCustomers(s.admin, "dev-co", { person1: "id-1" }, { stripe: s.stripe, secretKey: "sk_test_unit" })).toBe(1);
+
+    expect(s.retrieve).not.toHaveBeenCalled();
+    expect(s.profiles.get("id-1")).toMatchObject({ stripe_customer_id: "cus_1", default_payment_method_id: "pm_1" });
+  });
+
+  it("recreates a customer Stripe no longer has, and never pairs it with the old card", async () => {
+    const s = scenario();
+    s.profiles.set("id-1", { id: "id-1", stripe_customer_id: "cus_gone", default_payment_method_id: "pm_old" });
+    s.retrieve.mockResolvedValueOnce({ id: "cus_gone", deleted: true });
+
+    expect(await seedStripeCustomers(s.admin, "dev-co", { person1: "id-1" }, { stripe: s.stripe, secretKey: "sk_test_unit" })).toBe(1);
+
+    expect(s.profiles.get("id-1")).toMatchObject({ stripe_customer_id: "cus_1", default_payment_method_id: "pm_1" });
+    expect(s.attach).toHaveBeenCalledWith("pm_card_visa", { customer: "cus_1" }, { idempotencyKey: "seed-test-card:cus_1:visa" });
   });
 
   it("persists each customer before attaching its card so reruns do not duplicate it after an error", async () => {

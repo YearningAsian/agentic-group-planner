@@ -1,6 +1,6 @@
 import "server-only";
 import { getServerEnv } from "@/lib/env/server";
-import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
+import { getPaymentsProvider, isMockPaymentId, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { readError } from "./rpc-error";
@@ -30,23 +30,30 @@ export async function ensurePayer(memberId: string, deps: EnsurePayerDeps = {}):
     .eq("id", member.profile_id)
     .single();
   if (profileError) throw readError(profileError, "your profile");
-  if (profile.stripe_customer_id && profile.default_payment_method_id) {
-    return { customerId: profile.stripe_customer_id, paymentMethodId: profile.default_payment_method_id };
-  }
+  const payments = deps.payments ?? getPaymentsProvider();
+  // On Stripe, IDs the mock provider left on this profile belong to no Stripe account.
+  const usable = (id: string | null) => (id && !(payments.name === "real" && isMockPaymentId(id)) ? id : null);
+  const storedCustomer = usable(profile.stripe_customer_id);
+  // A card only belongs with the customer it was attached to, so a new customer never reuses one.
+  const storedCard = storedCustomer ? usable(profile.default_payment_method_id) : null;
+  if (storedCustomer && storedCard) return { customerId: storedCustomer, paymentMethodId: storedCard };
   if (!(deps.demoMode ?? getServerEnv().NEXT_PUBLIC_DEMO_MODE)) {
     throw new AppError("not_permitted", "Add a payment method before approving this purchase.");
   }
 
-  const payments = deps.payments ?? getPaymentsProvider();
-  const customerId = profile.stripe_customer_id ??
+  const customerId = storedCustomer ??
     (await payments.ensureCustomer({ profileId: member.profile_id, name: member.display_name })).customerId;
-  if (!profile.stripe_customer_id) {
-    const saved = await admin.from("profiles").update({ stripe_customer_id: customerId }).eq("id", member.profile_id);
+  if (customerId !== profile.stripe_customer_id) {
+    // Saved before the card is attached, so a failed attach never leads to a second customer; the
+    // old card is cleared with it, since it can't be charged through the new customer.
+    const saved = await admin
+      .from("profiles")
+      .update({ stripe_customer_id: customerId, default_payment_method_id: null })
+      .eq("id", member.profile_id);
     if (saved.error) throw readError(saved.error, "your profile");
   }
-  const paymentMethodId = profile.default_payment_method_id ??
-    (await payments.attachTestCard({ customerId, card: "visa" })).paymentMethodId;
-  if (!profile.default_payment_method_id) {
+  const paymentMethodId = storedCard ?? (await payments.attachTestCard({ customerId, card: "visa" })).paymentMethodId;
+  if (paymentMethodId !== profile.default_payment_method_id || customerId !== profile.stripe_customer_id) {
     const saved = await admin.from("profiles").update({ default_payment_method_id: paymentMethodId }).eq("id", member.profile_id);
     if (saved.error) throw readError(saved.error, "your profile");
   }

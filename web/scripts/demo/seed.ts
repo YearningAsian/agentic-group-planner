@@ -60,6 +60,8 @@ export interface SeedResult {
   slug: string;
   inviteToken: string;
   counts: Record<string, number>;
+  /** Step 2: Stripe test customers created this run (0 on mock payments, and on a rerun). */
+  stripeCustomersCreated: number;
 }
 
 function check<T>(result: { data: T; error: unknown }, what: string): T {
@@ -228,15 +230,16 @@ async function countRows(admin: ScriptAdmin, batch: string, tripId: string): Pro
 export async function seed(options: { batch: string; stage?: Stage; now?: Date; admin?: ScriptAdmin }): Promise<SeedResult> {
   const admin = options.admin ?? scriptAdmin();
   const users = await upsertUsers(admin, options.batch);
+  let stripeCustomersCreated = 0;
   if (process.env.PAYMENTS_PROVIDER === "real") {
-    await seedStripeCustomers(admin, options.batch, users);
+    stripeCustomersCreated = await seedStripeCustomers(admin, options.batch, users);
   } else if (process.env.PAYMENTS_PROVIDER !== "mock") {
     throw new Error("PAYMENTS_PROVIDER must be real or mock to seed the demo.");
   }
   await upsertPlaces(admin, SATURDAY_TRIP);
   const trip = await upsertTrip(admin, options.batch, users, options.now ?? new Date());
   await runStages({ admin, batch: options.batch, tripId: trip.tripId }, options.stage);
-  return { batch: options.batch, ...trip, counts: await countRows(admin, options.batch, trip.tripId) };
+  return { batch: options.batch, ...trip, counts: await countRows(admin, options.batch, trip.tripId), stripeCustomersCreated };
 }
 
 async function main(): Promise<void> {
@@ -245,6 +248,7 @@ async function main(): Promise<void> {
   const app = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   console.log(`Seeded batch ${result.batch}.`);
   for (const [table, n] of Object.entries(result.counts)) console.log(`  ${table.padEnd(20)} ${n}`);
+  if (process.env.PAYMENTS_PROVIDER === "real") console.log(`Stripe customers created: ${result.stripeCustomersCreated}`);
   console.log(`Trip:              ${app}/trip/${result.slug}`);
   console.log(`Person 4's invite: ${app}/invite/${result.inviteToken}`);
 }
