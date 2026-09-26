@@ -130,6 +130,6 @@ describe("person_preferences", () => {
     expect(snapshot.members.find((m) => m.id === trip.memberIds[1])).not.toHaveProperty("remembered");
 
     const { system } = renderContext(snapshot, trip.memberIds[1]!);
-    expect(system).toMatch(/M1 Person 2 \(vegetarian\) · no budget set · likes art, food · remembers "hates early starts"/);
+    expect(system).toMatch(/M1 Person 2 \(organizer, vegetarian\) · no budget set · likes art, food · remembers "hates early starts"/);
   });
 });
