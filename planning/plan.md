@@ -587,14 +587,14 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `.github/workflows/ci.yml`, `web/eslint.config.mjs`, `web/tests/lint/boundaries.test.ts`
 - **Depends on:** FE-102, AI-101, AI-102
-- **Produces:** the three CI jobs from checklist B11, and the `no-restricted-imports` rules from design §1. The VO engineer owns both files from Milestone 2 on.
+- **Produces:** the four CI jobs (web and shared, optimizer, database and mock payments, contracts drift), and the `no-restricted-imports` rules from design §1. The VO engineer owns both files from Milestone 2 on.
 - **Done when:**
   - [x] `pnpm --filter web test -- tests/lint/boundaries.test.ts` passes (ESLint Node API):
     - `app/ deep-importing features/payments/server/approve-hold is an error`
     - `app/ importing features/payments/server is allowed`
     - `lib/optimizer importing any feature is an error`
     - `a client component importing lib/providers is an error`
-  - [ ] Check: a push to `main` runs all three jobs green.
+  - [ ] Check: a PR into `testing`, and the push after it merges, run all four jobs green. The pipeline runs only for `testing` (pull requests into it, pushes to it, and `workflow_dispatch`), and branch protection on `testing` requires the four checks.
 - **Status:** done (2026-09-26). Proof: `pnpm --filter web test tests/lint/boundaries.test.ts` → 6 passed (RED first: all four listed cases); the three jobs ran green on GitHub on PR #3 (web and shared, optimizer, contracts drift). A local ESLint rule stops a "use client" module from importing server-only code.
 - **Commit:** `ci: lint, typecheck, tests, pytest, and contracts drift`
 
