@@ -2,7 +2,7 @@
  * `pnpm seed:demo [--batch <name>] [--stage <stage>]`: seeds the Saturday trip for development and
  * tests (design §10.4). Safe to re-run: every row has a deterministic ID, rows with a status are
  * only inserted when missing (so a re-run never moves a status backward), and the cache rows are
- * upserted. Steps 2 (Stripe customers, CO-302) and 5 (stages, VO-201) arrive with their tasks.
+ * upserted. Step 2 (Stripe customers) arrives with CO-302; step 5 runs the requested stage.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { SEEDED_USERS, type SeededUserKey, seededEmail } from "./fixtures/users";
 import { type ScriptAdmin, scriptAdmin } from "./lib/admin";
 import { parseSeedArgs, type Stage } from "./lib/args";
+import { runStages } from "./stages";
 import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
 
@@ -221,13 +222,13 @@ async function countRows(admin: ScriptAdmin, batch: string, tripId: string): Pro
   };
 }
 
-/** Seeds one batch (design §10.4 steps 1, 3, 4, and 6). */
+/** Seeds one batch (design §10.4 steps 1 and 3–6). */
 export async function seed(options: { batch: string; stage?: Stage; now?: Date; admin?: ScriptAdmin }): Promise<SeedResult> {
-  if (options.stage) throw new Error(`--stage ${options.stage} isn't available yet: seed stages come with VO-201.`);
   const admin = options.admin ?? scriptAdmin();
   const users = await upsertUsers(admin, options.batch);
   await upsertPlaces(admin, SATURDAY_TRIP);
   const trip = await upsertTrip(admin, options.batch, users, options.now ?? new Date());
+  await runStages({ admin, batch: options.batch, tripId: trip.tripId }, options.stage);
   return { batch: options.batch, ...trip, counts: await countRows(admin, options.batch, trip.tripId) };
 }
 
