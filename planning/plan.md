@@ -941,11 +941,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 
   `plan_score` is implemented here, because it is the objective. `build_score_table` is only declared here, and AI-203 implements it.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_score_table.py` passes:
+  - [x] `cd optimizer && pytest tests/test_score_table.py` passes:
     - `test_small_table_round_trips_from_json`
     - `test_plan_score_matches_the_hand_computed_values_in_small_expected`
     - `test_plan_score_adds_fairness_and_subtracts_the_split_penalty`
-  - [ ] Check: `small_expected.json` lists the top 3 plans for `small_table.json`, worked out by hand in a comment block at the top of the test.
+  - [x] Check: `small_expected.json` lists the top 3 plans for `small_table.json`, worked out by hand in a comment block at the top of the test.
+- **Status:** done (2026-09-26). Proof: `cd optimizer && pytest tests/test_score_table.py` → 3 passed (RED first: "No module named 'app.score_table'"); ruff clean. The table stores `preference` and `cost` separately and derives `utility(m, s, c)`, because PlanResponse reports each member's mean terms; `plan_score` returns them. The fixture has 5 feasible plans, and its top 3 are P2, P4, and P3 in the docstring.
 - **Commit:** `feat(optimizer): score table interface, objective, and planner fixtures`
 
 #### AI-203 · Rules and scoring: build the score table · Must
@@ -954,7 +955,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `build_score_table(request) → ScoreTable`, using the hard-constraint predicates `dietary_ok`, `budget_ok`, `open_ok`, and `arrival_ok`, and the design §2.2 terms `preference`, `cost`, and `travel`.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
+  - [x] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
     - `test_dietary_needs_tags_on_food_slots_only`
     - `test_null_budget_means_unlimited`
     - `test_open_through_start_plus_duration`
@@ -964,6 +965,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `test_travel_caps_at_45_minutes`
     - `test_build_score_table_on_small_request_equals_small_table` (within 1e-6)
     - `test_infeasible_reason_names_the_member`: a vegetarian with no vegetarian lunch option
+- **Status:** done (2026-09-26). Proof: `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` → 13 passed (RED first: "No module named 'app.rules'", "'app.scoring'"); ruff clean; full pytest 21 passed. Food stops are candidates tagged `food` or `dessert`, so AI-207 must put the place category in `tags`. Infeasible reasons also cover no open option and budgets (one slot, or the whole day). Budgets cover open slots only. A missing travel edge raises `ValueError`, which AI-206 should turn into a 422.
 - **Commit:** `feat(optimizer): rules and scoring build the score table`
 
 #### AI-204 · Enumeration engine · Must
