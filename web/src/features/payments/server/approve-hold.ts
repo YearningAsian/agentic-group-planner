@@ -274,7 +274,8 @@ export async function approveHold(input: { mandateId: string; memberId: string }
       // A placeholder who joined after the booking pays their share now (design §4.2).
       await authorizeHold(admin, payments, mandate, member, "settling");
     } else if (mandate.status === "authorized") {
-      // Finalization may still be in flight or may have failed; retried below.
+      // Pending rows cannot authorize while another caller is booking; ask them to retry.
+      throw finalizing();
     } else {
       throw new AppError("conflict", "This purchase isn't waiting for approvals any more.");
     }
@@ -301,7 +302,7 @@ export async function approveHold(input: { mandateId: string; memberId: string }
     if (winError) throw readError(winError, "the purchase");
     if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
   } else if (mandate.status === "authorized") {
-    // A previous finalize attempt may have failed after booking or a capture; both are idempotent.
+    // No pending rows left for this member: retry a finalize that crashed after open → authorized.
     await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
   }
 
