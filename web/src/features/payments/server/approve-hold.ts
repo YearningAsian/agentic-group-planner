@@ -7,8 +7,8 @@ import { type FinalizeDeps, finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 import { settleFrontedShare } from "./settle-fronted-share";
 
-/** Long enough for an authorization with its retries; short enough that a crash only delays a retry. */
-const PROVIDER_LEASE_MS = 60_000;
+/** Covers authorize under Stripe's 40 s outer policy after customer/card are resolved first. */
+const PROVIDER_LEASE_MS = 90_000;
 
 export interface PaymentsDeps extends FinalizeDeps {
   /** The payments provider; tests pass a wrapped one to count or reorder calls. */
@@ -103,6 +103,8 @@ async function authorizeHold(
   member: Member,
   phase: "approving" | "settling",
 ): Promise<void> {
+  // Resolve the card before claiming the lease so Stripe's slow customer/card calls aren't under it.
+  const { customerId, paymentMethodId } = await paymentMethodFor(admin, payments, member);
   const now = new Date();
   const { data: claimed, error: claimError } = await admin
     .from("payment_holds")
@@ -127,11 +129,9 @@ async function authorizeHold(
       if (current.status !== "open" && current.status !== "partially_declined") throw finalizing();
     }
 
-    // The hold covers every row this member may pay (the organizer's includes fronted shares),
-    // so the amount is the same on every attempt with this idempotency key.
+    // Customer and card before authorize only — they were resolved before the lease was claimed.
     const rows = await payerRows(admin, mandate.id, member.id);
     const amountCents = rows.reduce((sum, r) => sum + r.cap_cents, 0);
-    const { customerId, paymentMethodId } = await paymentMethodFor(admin, payments, member);
     const result = await payments.authorize({
       customerId,
       paymentMethodId,
@@ -258,6 +258,13 @@ export async function approveHold(input: { mandateId: string; memberId: string }
 
   const rows = await payerRows(admin, mandate.id, member.id);
   if (rows.length === 0) throw new AppError("not_permitted", "You don't have a share of this purchase to approve.");
+
+  // A late hold whose release failed left released rows with a live PaymentIntent; finish releasing.
+  const leakedIntent = rows.find((r) => r.status === "released" && r.stripe_payment_intent_id)?.stripe_payment_intent_id;
+  if (leakedIntent && !rows.some((r) => r.status === "authorized" || r.status === "captured" || r.status === "pending")) {
+    await payments.release({ paymentIntentId: leakedIntent, idempotencyKey: `pi-release:${mandate.id}:${member.id}` });
+  }
+
   const open = mandate.status === "open" || mandate.status === "partially_declined";
   if (rows.some((r) => r.status === "pending")) {
     if (open) {
@@ -267,15 +274,21 @@ export async function approveHold(input: { mandateId: string; memberId: string }
       // A placeholder who joined after the booking pays their share now (design §4.2).
       await authorizeHold(admin, payments, mandate, member, "settling");
     } else if (mandate.status === "authorized") {
+      // Pending rows cannot authorize while another caller is booking; ask them to retry.
       throw finalizing();
     } else {
       throw new AppError("conflict", "This purchase isn't waiting for approvals any more.");
     }
   }
 
+  // Retry settlement when the member's own row is authorized, or captured while a fronted row still needs refunding.
   if (mandate.status === "captured") {
-    const own = (await payerRows(admin, mandate.id, member.id)).find((r) => r.kind === "own" && r.status === "authorized");
-    if (own) await (deps.settle ?? ((i) => settleFrontedShare(i, deps)))({ mandateId: mandate.id, memberId: member.id });
+    const afterAuth = await payerRows(admin, mandate.id, member.id);
+    const own = afterAuth.find((r) => r.kind === "own");
+    const frontedOpen = afterAuth.some((r) => r.kind === "fronted" && r.status === "captured");
+    if (own && (own.status === "authorized" || (own.status === "captured" && frontedOpen))) {
+      await (deps.settle ?? ((i) => settleFrontedShare(i, deps)))({ mandateId: mandate.id, memberId: member.id });
+    }
   }
 
   const satisfied = await isSatisfied(admin, mandate.id);
@@ -288,6 +301,9 @@ export async function approveHold(input: { mandateId: string; memberId: string }
       .select("id");
     if (winError) throw readError(winError, "the purchase");
     if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
+  } else if (mandate.status === "authorized") {
+    // No pending rows left for this member: retry a finalize that crashed after open → authorized.
+    await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
   }
 
   const after = await payerRows(admin, mandate.id, member.id);

@@ -12,7 +12,7 @@ export const STRIPE_OPTIONS = {
 } as const satisfies Stripe.StripeConfig;
 
 // The SDK retries individual requests; this outer bound gives its three attempts time to finish.
-const STRIPE_POLICY = { timeoutMs: 40_000, retries: 0 } as const;
+export const STRIPE_POLICY = { timeoutMs: 40_000, retries: 0 } as const;
 
 interface StripeProviderOptions {
   secretKey: string;
@@ -28,6 +28,10 @@ function positiveCents(amount: number): void {
   }
 }
 
+function isStripeCode(error: unknown, code: string): boolean {
+  return (error as { code?: unknown } | null)?.code === code;
+}
+
 async function stripeCall<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await withPolicy(() => call(), STRIPE_POLICY);
@@ -40,6 +44,7 @@ async function stripeCall<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Any card failure that produced a PaymentIntent is a decline we record, not a retryable outage. */
 function cardDecline(error: unknown): { paymentIntentId: string; status: "declined"; declineCode: string } | null {
   const failed = error as {
     type?: unknown;
@@ -47,35 +52,49 @@ function cardDecline(error: unknown): { paymentIntentId: string; status: "declin
     decline_code?: unknown;
     payment_intent?: { id?: unknown };
   } | null;
-  if (failed?.type !== "StripeCardError" || failed.code !== "card_declined") return null;
+  if (failed?.type !== "StripeCardError") return null;
   const paymentIntentId = failed.payment_intent?.id;
   if (typeof paymentIntentId !== "string" || !paymentIntentId) return null;
   return {
     paymentIntentId,
     status: "declined",
-    declineCode: typeof failed.decline_code === "string" ? failed.decline_code : "card_declined",
+    declineCode:
+      typeof failed.decline_code === "string"
+        ? failed.decline_code
+        : typeof failed.code === "string"
+          ? failed.code
+          : "card_declined",
   };
 }
 
+function asRecord(metadata: Stripe.Metadata | null | undefined): Record<string, string> {
+  return metadata ?? {};
+}
+
 function normalizeEvent(event: Stripe.Event): PaymentsEvent {
-  const object = event.data.object;
+  const object = event.data.object as unknown as Record<string, unknown>;
   const isIntent = event.type.startsWith("payment_intent.");
   const isCharge = event.type.startsWith("charge.");
-  const intent = isIntent ? (object as Stripe.PaymentIntent) : null;
-  const charge = isCharge ? (object as Stripe.Charge) : null;
-  const paymentIntent = charge?.payment_intent;
+  const isRefund = event.type.startsWith("refund.");
+  const intent = isIntent ? (event.data.object as Stripe.PaymentIntent) : null;
+  const charge = isCharge ? (event.data.object as Stripe.Charge) : null;
+  const refund = isRefund ? (event.data.object as Stripe.Refund) : null;
+  const chargePi = charge?.payment_intent;
+  const refundPi = refund?.payment_intent;
   return {
     id: event.id,
     type: event.type,
-    paymentIntentId: intent?.id ?? (typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null),
-    status: intent?.status ?? charge?.status ?? null,
-    metadata: intent?.metadata ?? charge?.metadata ?? {},
+    paymentIntentId:
+      intent?.id ??
+      (typeof chargePi === "string" ? chargePi : chargePi?.id ?? null) ??
+      (typeof refundPi === "string" ? refundPi : refundPi?.id ?? null),
+    status: intent?.status ?? charge?.status ?? refund?.status ?? null,
+    metadata: asRecord(intent?.metadata ?? charge?.metadata ?? refund?.metadata),
     declineCode: intent?.last_payment_error?.decline_code ?? null,
-    refunds: (charge?.refunds?.data ?? []).map((refund) => ({
-      id: refund.id,
-      amountCents: refund.amount,
-      metadata: refund.metadata ?? {},
-    })),
+    // Charge.refunds is not expanded on API ≥ 2022-11-15; refund.* events carry the Refund object.
+    refunds: refund
+      ? [{ id: refund.id, amountCents: refund.amount, metadata: asRecord(refund.metadata) }]
+      : [],
   };
 }
 
@@ -89,14 +108,20 @@ export function createStripePaymentsProvider(options: StripeProviderOptions): Pa
   }
   const stripe = options.client ?? new Stripe(options.secretKey, STRIPE_OPTIONS);
 
+  async function retrieveIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent> {
+    return stripeCall(() => stripe.paymentIntents.retrieve(paymentIntentId));
+  }
+
   return {
     name: "real",
 
     async ensureCustomer({ profileId, email, name }) {
-      const customer = await stripeCall(() => stripe.customers.create(
-        { ...(email ? { email } : {}), name, metadata: { profile_id: profileId } },
-        { idempotencyKey: `customer:${profileId}` },
-      ));
+      const customer = await stripeCall(() =>
+        stripe.customers.create(
+          { ...(email ? { email } : {}), name, metadata: { profile_id: profileId } },
+          { idempotencyKey: `customer:${profileId}` },
+        ),
+      );
       return { customerId: customer.id };
     },
 
@@ -106,11 +131,9 @@ export function createStripePaymentsProvider(options: StripeProviderOptions): Pa
       }
       // Unlike pm_card_visa_chargeDeclined, this test method can be attached before it declines.
       const testMethod = card === "visa" ? "pm_card_visa" : "pm_card_chargeCustomerFail";
-      const method = await stripeCall(() => stripe.paymentMethods.attach(
-        testMethod,
-        { customer: customerId },
-        { idempotencyKey: `test-card:${customerId}:${card}` },
-      ));
+      const method = await stripeCall(() =>
+        stripe.paymentMethods.attach(testMethod, { customer: customerId }, { idempotencyKey: `test-card:${customerId}:${card}` }),
+      );
       return { paymentMethodId: method.id };
     },
 
@@ -118,16 +141,21 @@ export function createStripePaymentsProvider(options: StripeProviderOptions): Pa
       positiveCents(input.amountCents);
       let intent: Stripe.PaymentIntent;
       try {
-        intent = await stripeCall(() => stripe.paymentIntents.create({
-          amount: input.amountCents,
-          currency: input.currency,
-          customer: input.customerId,
-          payment_method: input.paymentMethodId,
-          metadata: input.metadata,
-          capture_method: "manual",
-          confirm: true,
-          payment_method_types: ["card"],
-        }, { idempotencyKey: input.idempotencyKey }));
+        intent = await stripeCall(() =>
+          stripe.paymentIntents.create(
+            {
+              amount: input.amountCents,
+              currency: input.currency,
+              customer: input.customerId,
+              payment_method: input.paymentMethodId,
+              metadata: input.metadata,
+              capture_method: "manual",
+              confirm: true,
+              payment_method_types: ["card"],
+            },
+            { idempotencyKey: input.idempotencyKey },
+          ),
+        );
       } catch (error) {
         const decline = cardDecline(error instanceof AppError ? error.cause : error);
         if (decline) return decline;
@@ -146,31 +174,46 @@ export function createStripePaymentsProvider(options: StripeProviderOptions): Pa
 
     async capture({ paymentIntentId, amountCents, idempotencyKey }) {
       positiveCents(amountCents);
-      const intent = await stripeCall(() => stripe.paymentIntents.capture(
-        paymentIntentId,
-        { amount_to_capture: amountCents },
-        { idempotencyKey },
-      ));
-      if (intent.status !== "succeeded" || intent.amount_received !== amountCents) {
-        throw new AppError("provider_unavailable", "Stripe did not confirm the requested capture.");
+      try {
+        const intent = await stripeCall(() =>
+          stripe.paymentIntents.capture(paymentIntentId, { amount_to_capture: amountCents }, { idempotencyKey }),
+        );
+        if (intent.status !== "succeeded" || intent.amount_received !== amountCents) {
+          throw new AppError("provider_unavailable", "Stripe did not confirm the requested capture.");
+        }
+        return { status: "captured" as const, capturedCents: intent.amount_received };
+      } catch (error) {
+        const cause = error instanceof AppError ? error.cause : error;
+        if (!isStripeCode(cause, "payment_intent_unexpected_state")) throw error;
+        const intent = await retrieveIntent(paymentIntentId);
+        if (intent.status === "succeeded" && intent.amount_received === amountCents) {
+          return { status: "captured", capturedCents: intent.amount_received };
+        }
+        throw error;
       }
-      return { status: "captured", capturedCents: intent.amount_received };
     },
 
     async release({ paymentIntentId, idempotencyKey }) {
-      const intent = await stripeCall(() => stripe.paymentIntents.cancel(paymentIntentId, {}, { idempotencyKey }));
-      if (intent.status !== "canceled") {
-        throw new AppError("provider_unavailable", "Stripe did not release the hold.");
+      try {
+        const intent = await stripeCall(() => stripe.paymentIntents.cancel(paymentIntentId, {}, { idempotencyKey }));
+        if (intent.status !== "canceled") {
+          throw new AppError("provider_unavailable", "Stripe did not release the hold.");
+        }
+        return { status: "released" as const };
+      } catch (error) {
+        const cause = error instanceof AppError ? error.cause : error;
+        if (!isStripeCode(cause, "payment_intent_unexpected_state")) throw error;
+        const intent = await retrieveIntent(paymentIntentId);
+        if (intent.status === "canceled") return { status: "released" };
+        throw error;
       }
-      return { status: "released" };
     },
 
     async refund({ paymentIntentId, amountCents, idempotencyKey, metadata }) {
       positiveCents(amountCents);
-      const refund = await stripeCall(() => stripe.refunds.create(
-        { payment_intent: paymentIntentId, amount: amountCents, metadata },
-        { idempotencyKey },
-      ));
+      const refund = await stripeCall(() =>
+        stripe.refunds.create({ payment_intent: paymentIntentId, amount: amountCents, metadata }, { idempotencyKey }),
+      );
       return { refundId: refund.id };
     },
 

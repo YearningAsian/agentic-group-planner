@@ -25,23 +25,25 @@ Last updated: 2026-09-26.
 
 ## Before real Stripe (`PAYMENTS_PROVIDER=real`)
 
-From the PR #3 review. Mock payments are unaffected.
+Needs `STRIPE_WEBHOOK_SECRET` (whsec_…) in `.env.local` — secret key is present locally; do not flip until webhook secret is set and these land:
 
-- [ ] Refund webhooks: handle `refund.created` / `refund.updated` (charge events carry no refunds list)
-- [ ] Approval lease longer than the Stripe calls it covers, or renewed before `authorize`
-- [ ] A retry entry point for `finalizeMandate` and `settleFrontedShare` (sweeper or re-entry from `approveHold`)
-- [ ] Re-release a late hold whose release failed
-- [ ] Capture and release succeed when the PaymentIntent is already in that state
-- [ ] Every card decline counts as declined, not retryable
+- [x] Refund webhooks: handle `refund.created` / `refund.updated` (charge events carry no refunds list)
+- [x] Approval lease: resolve customer/card before claim; 90 s lease covers authorize
+- [x] Retry `finalizeMandate` / `settleFrontedShare` from `approveHold` when mandate is authorized/captured
+- [x] Re-release a late hold whose release failed (and cancelled holds with a leftover PI)
+- [x] Capture and release succeed when the PaymentIntent is already in that state
+- [x] Every card decline with a PaymentIntent counts as declined, not retryable
 - [ ] CO-302: seeded Stripe customers and claimer cards
+- [ ] Set `STRIPE_WEBHOOK_SECRET` and only then `PAYMENTS_PROVIDER=real` (test mode)
 
 ## Blocked on accounts or keys
 
 - [ ] Docker on this machine (DB tests run only in CI for now)
-- [ ] `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (test mode): CO-303, CO-304, CO-305
+- [x] `STRIPE_SECRET_KEY` (test) present locally — still need `STRIPE_WEBHOOK_SECRET` for CO-303+
 - [ ] `META_MODEL_API_KEY` in `web/.env.local`: AI-301, AI-302, AI-303
-- [ ] `DUFFEL_ACCESS_TOKEN` (`duffel_test_`) and Stays access: CO-S05's live check
-- [ ] Hosted Supabase and Vercel: VO-101, VO-107
+- [x] `DUFFEL_ACCESS_TOKEN` (`duffel_test_`) present locally — Stays search returned 403 (request Stays access)
+- [x] Hosted Supabase URL/keys present locally (project linked in `.env.local`) — VO-101 push still open
+- [ ] Hosted Vercel: VO-107
 
 ## Done (recent)
 

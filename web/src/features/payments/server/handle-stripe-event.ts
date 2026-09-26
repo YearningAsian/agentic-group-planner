@@ -72,7 +72,9 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
       break;
     }
     case "charge.refunded":
-      // Each refund names the fronted share it settles; the same conditional update as settleFrontedShare.
+    case "refund.created":
+    case "refund.updated":
+      // Prefer refund.*; charge.refunded on API ≥ 2022-11-15 carries no refunds list.
       for (const refund of event.refunds) {
         const { mandate_id: mandateId, share_member_id: shareMemberId } = refund.metadata;
         if (!mandateId || !shareMemberId) continue;

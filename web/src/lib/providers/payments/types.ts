@@ -20,7 +20,7 @@ export interface PaymentsEvent {
   metadata: Record<string, string>;
   /** Set on a failed payment that the card issuer declined. */
   declineCode: string | null;
-  /** `charge.refunded`: every refund on the charge so far, each with its own metadata. */
+  /** `charge.refunded` (legacy) or `refund.created` / `refund.updated`: each refund names the fronted share. */
   refunds: { id: string; amountCents: number; metadata: Record<string, string> }[];
 }
 

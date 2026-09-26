@@ -134,7 +134,13 @@ async function releaseCancelledHolds(
   mandateId: string,
   rows: HoldRow[],
 ): Promise<void> {
-  const intents = [...new Set(rows.filter((r) => r.status === "authorized").map((r) => r.stripe_payment_intent_id!))];
+  const intents = [
+    ...new Set(
+      rows
+        .filter((r) => (r.status === "authorized" || r.status === "released") && r.stripe_payment_intent_id)
+        .map((r) => r.stripe_payment_intent_id!),
+    ),
+  ];
   for (const intentId of intents) {
     await payments.release({ paymentIntentId: intentId, idempotencyKey: `pi-release:${mandateId}:${payerOf(rows, intentId)}` });
   }
