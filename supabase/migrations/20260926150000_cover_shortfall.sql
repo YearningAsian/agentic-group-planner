@@ -9,7 +9,9 @@
 -- payload: trip_id, actor_member_id (the trip's joined organizer), mandate_id.
 -- returns { rows: [{ id, share_member_id, cap_cents, status }] }: every cover row of the mandate,
 -- including ones an earlier call created, so a retry picks up where it stopped. The organizer's own
--- share isn't covered: their card is the one covering.
+-- share isn't covered (their card is the one covering), and neither is a share that already has a
+-- fronted row: a placeholder's, or an earlier cover. A mandate still `open` whose decline only the
+-- payment_failed webhook recorded moves to `partially_declined` here.
 
 create function public.cover_shortfall(payload jsonb)
 returns jsonb
@@ -39,6 +41,22 @@ begin
   if not found then
     raise exception 'not_permitted: the purchase belongs to another trip' using errcode = '42501';
   end if;
+  if v_mandate.status = 'open' and exists (
+    select 1 from public.payment_holds o
+    where o.mandate_id = v_mandate_id
+      and o.kind = 'own'
+      and o.share_member_id <> v_actor
+      -- Nobody can pay it any more: no row for the share is live, and it has no fronted row yet.
+      and not exists (
+        select 1 from public.payment_holds r
+        where r.mandate_id = v_mandate_id
+          and r.share_member_id = o.share_member_id
+          and (r.status in ('awaiting_member', 'pending', 'authorized', 'captured') or r.kind = 'fronted')
+      )
+  ) then
+    update public.mandates set status = 'partially_declined' where id = v_mandate_id and status = 'open';
+    v_mandate.status := 'partially_declined';
+  end if;
   if v_mandate.status <> 'partially_declined' then
     raise exception 'conflict: nobody has declined, so there''s no shortfall to cover';
   end if;
@@ -51,15 +69,16 @@ begin
     format('cover:%s:%s', v_mandate_id, o.share_member_id), o.seed_batch
   from public.payment_holds o
   where o.mandate_id = v_mandate_id
-    and o.kind = 'own'
-    and o.share_member_id <> v_actor
-    and not exists (
-      select 1 from public.payment_holds r
-      where r.mandate_id = v_mandate_id
-        and r.share_member_id = o.share_member_id
-        and r.status in ('awaiting_member', 'pending', 'authorized', 'captured')
-    )
-  on conflict do nothing;
+      and o.kind = 'own'
+      and o.share_member_id <> v_actor
+      -- Nobody can pay it any more: no row for the share is live, and it has no fronted row yet.
+      and not exists (
+        select 1 from public.payment_holds r
+        where r.mandate_id = v_mandate_id
+          and r.share_member_id = o.share_member_id
+          and (r.status in ('awaiting_member', 'pending', 'authorized', 'captured') or r.kind = 'fronted')
+      )
+  on conflict (idempotency_key) do nothing;
 
   return jsonb_build_object('rows', coalesce((
     select jsonb_agg(jsonb_build_object('id', h.id, 'share_member_id', h.share_member_id, 'cap_cents', h.cap_cents, 'status', h.status))
