@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { ApprovalCard } from "@agp/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createMandate } from "@/features/payments/server";
+import { type CreateMandateInput, createMandate as createMandateWithKey } from "@/features/payments/server";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { adminClient, cleanup, createPlace, createTrip, createUser, testBatch, type TestUser } from "./helpers";
+
+/** As propose_purchase calls it: one mandate per tool call (design §7.1). */
+const createMandate = (input: Omit<CreateMandateInput, "idempotencyKey">) =>
+  createMandateWithKey({ ...input, idempotencyKey: `mandate:${input.ctx.runId}:${input.ctx.toolCallId}` });
 
 const batch = testBatch();
 const admin = adminClient();
@@ -86,7 +90,7 @@ async function toolCall(trip: Trip) {
     status: "started",
   });
   return {
-    ctx: { tripId: trip.tripId, runId: trip.runId, toolCallId, requesterMemberId: trip.memberIds[1]!, admin: getAdminClient() },
+    ctx: { tripId: trip.tripId, runId: trip.runId, toolCallId, actorMemberId: trip.memberIds[1]!, admin: getAdminClient() },
     toolCallId,
   };
 }
@@ -237,7 +241,7 @@ describe("create_mandate", () => {
     // The wrapper surfaces it as an AppError.
     const { ctx } = await toolCall(trip);
     await expect(
-      createMandate({ ctx: { ...ctx, requesterMemberId: other.memberIds[0]! }, itemId: trip.itemId, optionId: trip.optionId }),
+      createMandate({ ctx: { ...ctx, actorMemberId: other.memberIds[0]! }, itemId: trip.itemId, optionId: trip.optionId }),
     ).rejects.toMatchObject({ code: "not_permitted" });
   });
 

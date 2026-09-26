@@ -2,22 +2,26 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { ApprovalCard, type ApprovalHold, ApprovalShare, holdFees } from "@agp/shared";
 import { z } from "zod";
-import { capFor, formatUsd, splitEvenly } from "@/lib/money";
+import { capFor, splitEvenly } from "@/lib/money";
 import { getBookingProvider, MOCK_MERCHANT_NAME } from "@/lib/providers/booking";
 import { AppError } from "@/lib/reliability";
 import type { RunContext } from "@/lib/tools/define-tool";
+import { mandateSummary } from "../lib/mandate-summary";
+import { readError, rpcError } from "./rpc-error";
 
 /** How long the group has to approve before the mandate expires (design §2.1). */
 const APPROVAL_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface CreateMandateInput {
-  ctx: Pick<RunContext, "tripId" | "runId" | "toolCallId" | "requesterMemberId" | "admin">;
+  ctx: Pick<RunContext, "tripId" | "runId" | "toolCallId" | "actorMemberId" | "admin">;
   itemId: string;
   optionId: string;
   /** 100–125; defaults to the trip's price threshold. */
   capPercent?: number;
   /** Shown on the approval card; at most 200 characters. */
   note?: string;
+  /** `mandate:{run_id}:{tool_call_id}` (design §7.1); the write function checks the shape. */
+  idempotencyKey: string;
 }
 
 export interface CreateMandateResult {
@@ -25,6 +29,8 @@ export interface CreateMandateResult {
   cardMessageId: string;
   /** The card's shares, in the members' lane order. */
   shares: ApprovalShare[];
+  /** The approval card as stored: on a replay, the first call's card. */
+  card: ApprovalCard;
 }
 
 interface Attendee {
@@ -49,18 +55,6 @@ const RpcResult = z.object({
   shares: z.array(ApprovalShare),
   replayed: z.boolean(),
 });
-
-/** Maps a write function's `code: message` exception to an AppError, as apply_plan's wrapper does. */
-function rpcError(error: { message: string; code?: string }): AppError {
-  const match = /^(not_permitted|conflict|invalid_input):\s*(.*)$/.exec(error.message);
-  if (match) return new AppError(match[1] as "not_permitted" | "conflict" | "invalid_input", match[2] ?? error.message);
-  if (error.code === "42501") return new AppError("not_permitted", error.message);
-  return new AppError("internal", "The database write failed.", { retryable: true, cause: error });
-}
-
-function readError(error: unknown): AppError {
-  return new AppError("internal", "Couldn't read the trip.", { retryable: true, cause: error });
-}
 
 /** One hold per member who may pay: each joined attendee, each placeholder (for when they join), and the organizer's fronting. */
 function holdsFor(attendees: Attendee[], organizer: Attendee, amounts: Map<string, number>, capPercent: number): ApprovalHold[] {
@@ -90,28 +84,14 @@ function holdsFor(attendees: Attendee[], organizer: Attendee, amounts: Map<strin
     });
 }
 
-function summaryFor(title: string, card: ApprovalCard, organizer: Attendee): string {
-  const shares = card.shares
-    .map((s) => {
-      const line = `${s.display_name} ${formatUsd(s.share_cents)} (up to ${formatUsd(s.cap_cents)})`;
-      return s.covered_by_member_id ? `${line}, fronted by ${organizer.displayName} until they join` : line;
-    })
-    .join("; ");
-  const text =
-    `Posted an approval card for ${title}: ${formatUsd(card.quote_cents)} total, up to ${formatUsd(card.cap_cents)} ` +
-    `if the price changes. Shares: ${shares}. Each member approves their own hold on the card.`;
-  return text.slice(0, 600);
-}
-
 /**
  * Asks the group to pay for a decided item (`propose_purchase`, design §2.1). The server quotes
  * the merchant, splits the quote evenly across the item's attendees (the organizer absorbs
  * leftover cents), caps each share with its fees, and itemizes every payer's hold with
  * `holdFees`. A placeholder's share waits for them (`awaiting_member`) and the organizer fronts it.
  * The mandate, its share rows, and the approval card are written in one transaction
- * (`create_mandate`), keyed `mandate:{run_id}:{tool_call_id}`, so calling this twice for the same
- * tool call returns the same mandate. The actor is the run's requester, or the organizer for a
- * run no member started.
+ * (`create_mandate`), keyed by `idempotencyKey`, so calling this twice for the same tool call
+ * returns the same mandate and card. The write is on behalf of `ctx.actorMemberId`.
  */
 export async function createMandate(input: CreateMandateInput): Promise<CreateMandateResult> {
   const { ctx } = input;
@@ -209,7 +189,7 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
   const { data, error } = await admin.rpc("create_mandate", {
     payload: {
       trip_id: ctx.tripId,
-      actor_member_id: ctx.requesterMemberId ?? organizer.id,
+      actor_member_id: ctx.actorMemberId,
       run_id: ctx.runId,
       tool_call_id: ctx.toolCallId,
       mandate: {
@@ -223,14 +203,21 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
         cap_cents: card.cap_cents,
         currency: card.currency,
         expires_at: card.expires_at,
-        idempotency_key: `mandate:${ctx.runId}:${ctx.toolCallId}`,
+        idempotency_key: input.idempotencyKey,
       },
       shares: rows,
       card,
-      result_summary: summaryFor(title, card, organizer),
+      result_summary: mandateSummary(card),
     },
   });
   if (error) throw rpcError(error);
   const result = RpcResult.parse(data);
-  return { mandateId: result.mandate_id, cardMessageId: result.card_message_id, shares: result.shares };
+  let stored = card;
+  if (result.replayed) {
+    // The first call wrote its own mandate ID and expiry into the card; return that card.
+    const message = await admin.from("messages").select("card_payload").eq("id", result.card_message_id).single();
+    if (message.error) throw readError(message.error, "the approval card");
+    stored = ApprovalCard.parse(message.data.card_payload);
+  }
+  return { mandateId: result.mandate_id, cardMessageId: result.card_message_id, shares: result.shares, card: stored };
 }
