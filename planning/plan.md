@@ -410,12 +410,13 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most, 25 s per step, 90 s per run.
   - `recordingKey(prompt | { trigger, slotKey })` and `recordingFileName(key)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
     - `normalizes the plan prompt to "plan saturday 80 each person 2s vegetarian person 4 joins later"`
     - `mock runAgent returns the recorded steps in order and replayed = true`
     - `mock runAgent without a recording throws a named error`
     - `the meta provider never sends a tool_choice other than auto` (Meta returns 400 otherwise)
     - `meta generateObject sends response_format json_schema, not a forced tool call`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm` → 17 passed (RED first: "Cannot find module ./mock", "./real", "./recording-key"). The two meta tests live in `real.test.ts` (with a `describeImage` test), and provider selection in `index.test.ts`. Each model request goes through `withPolicy` (25 s, one retry) by `wrapLanguageModel` middleware, so tools are never retried and never count against the 25 s; the run has a 90 s total. A tool that throws ends the run on every provider (`runAgent` rejects). After review: 21 tests in `src/lib/providers/llm` and `src/lib/agent`. The mock's `generateObject` and `describeImage` throw `NotBuiltError` until a caller needs fixtures. Typecheck and lint exit 0.
 - **Commit:** `feat(agent): llm provider with meta, google, and replay mock`
 
 #### AI-105 · Agent context and handles · Must
