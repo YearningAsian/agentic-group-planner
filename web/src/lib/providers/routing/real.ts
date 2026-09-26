@@ -58,11 +58,12 @@ export function createOrsRoutingProvider(options: OrsRoutingOptions): RoutingPro
   const fetch = options.fetch ?? globalThis.fetch;
   const base = (options.baseUrl ?? ORS_BASE_URL).replace(/\/+$/, "");
 
+  /** POSTs to a path relative to the base URL, like `v2/matrix/foot-walking`. */
   async function post(path: string, body: unknown): Promise<unknown> {
     try {
       return await withPolicy(
         async (signal) => {
-          const response = await fetch(`${base}${path}`, {
+          const response = await fetch(`${base}/${path}`, {
             method: "POST",
             headers: { authorization: options.apiKey, "content-type": "application/json" },
             body: JSON.stringify(body),
@@ -90,7 +91,7 @@ export function createOrsRoutingProvider(options: OrsRoutingOptions): RoutingPro
     name: "ors",
     async route({ from, to, mode }) {
       const parsed = DirectionsResponse.safeParse(
-        await post(`/v2/directions/${PROFILE[mode]}/geojson`, { coordinates: [lngLat(from), lngLat(to)] }),
+        await post(`v2/directions/${PROFILE[mode]}/geojson`, { coordinates: [lngLat(from), lngLat(to)] }),
       );
       if (!parsed.success) throw unreadable(parsed.error);
       const [feature] = parsed.data.features;
@@ -103,7 +104,7 @@ export function createOrsRoutingProvider(options: OrsRoutingOptions): RoutingPro
     },
     async matrix({ points, mode }) {
       const parsed = MatrixResponse.safeParse(
-        await post(`/v2/matrix/${PROFILE[mode]}`, { locations: points.map(lngLat), metrics: ["duration"] }),
+        await post(`v2/matrix/${PROFILE[mode]}`, { locations: points.map(lngLat), metrics: ["duration"] }),
       );
       if (!parsed.success) throw unreadable(parsed.error);
       return parsed.data.durations.map((row) =>
