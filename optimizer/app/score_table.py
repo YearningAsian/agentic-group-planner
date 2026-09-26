@@ -90,7 +90,7 @@ class ScoreTable:
     arrival_ok: dict[Key3, bool]
     #: (s, c) → cents per person.
     price: dict[Key2, int]
-    #: Per member; None means unlimited.
+    #: Per member, for the open slots (a pinned slot is context, already paid for); None means unlimited.
     budget: tuple[int | None, ...]
     weights: Weights
     #: Found while building. Members appear as {member:<uuid>} tokens, which plan_day replaces with names.
