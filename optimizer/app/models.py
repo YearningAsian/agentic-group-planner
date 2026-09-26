@@ -11,6 +11,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 MAX_UNPINNED_SLOTS = 3
 
 Dietary = Literal["vegetarian", "vegan", "gluten_free", "halal", "kosher", "nut_free", "dairy_free"]
+PlaceCategory = Literal["food", "activity", "dessert", "nightlife", "lodging", "other"]
 
 
 class Model(BaseModel):
@@ -45,6 +46,9 @@ class Slot(Model):
     starts_at: AwareDatetime
     ends_at: AwareDatetime
     together: bool
+    category: PlaceCategory | None = Field(
+        default=None, description="The item's category. Dietary needs apply only to food and dessert slots."
+    )
     pinned: Pinned | None = Field(description="Set for booked or pinned context slots.")
     candidates: list[Candidate] = Field(min_length=1, max_length=6)
 
@@ -101,6 +105,10 @@ class PlanRequest(Model):
         keys = [s.key for s in self.slots]
         if len(set(keys)) != len(keys):
             raise ValueError("slot keys must be unique")
+        member_ids = {m.id for m in self.members}
+        for s in self.slots:
+            if s.pinned is not None and not set(s.pinned.member_ids) <= member_ids:
+                raise ValueError(f"slot {s.key}: pinned member_ids must be members of the request")
         return self
 
 

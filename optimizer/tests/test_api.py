@@ -111,3 +111,10 @@ def test_pinned_slot_must_have_one_candidate(client: TestClient) -> None:
     body = plan_request()
     body["slots"].append(slot("dinner", 19, [9, 10], pinned=True))
     assert post_plan(client, body).status_code == 422
+
+
+def test_pinned_members_must_be_request_members(client: TestClient) -> None:
+    body = plan_request()
+    body["slots"].append(slot("dinner", 19, [9], pinned=True))
+    body["slots"][-1]["pinned"]["member_ids"] = [MEMBERS[0], "00000000-0000-4000-8000-000000000099"]
+    assert post_plan(client, body).status_code == 422
