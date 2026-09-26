@@ -8,3 +8,4 @@ export * from "./cards";
 export * from "./api";
 export * from "./copy/human-in-loop";
 export * from "./money/fees";
+export * from "./money/share-status";
