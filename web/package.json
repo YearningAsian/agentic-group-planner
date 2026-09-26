@@ -16,7 +16,7 @@
   "dependencies": {
     "@agp/shared": "workspace:*",
     "@ai-sdk/google": "4.0.76",
-    "@ai-sdk/xai": "5.0.5",
+    "@ai-sdk/openai-compatible": "3.0.53",
     "@base-ui/react": "1.8.0",
     "@elevenlabs/elevenlabs-js": "2.68.0",
     "@sentry/nextjs": "10.75.3",
@@ -33,6 +33,7 @@
     "nanoid": "6.0.1",
     "next": "16.3.5",
     "next-themes": "0.4.6",
+    "openai": "7.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1",

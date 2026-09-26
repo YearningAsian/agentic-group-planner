@@ -50,7 +50,7 @@ async function tripWithItems(): Promise<Trip> {
   }
   const { data: run, error } = await admin
     .from("agent_runs")
-    .insert({ trip_id: tripId, trigger: "mention", status: "running", provider: "mock", model: "grok-4.7", seed_batch: batch })
+    .insert({ trip_id: tripId, trigger: "mention", status: "running", provider: "mock", model: "muse-spark-1.3", seed_batch: batch })
     .select("id")
     .single();
   if (error) throw error;

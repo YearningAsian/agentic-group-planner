@@ -1,7 +1,7 @@
 import type { ModelMessage, ToolSet } from "ai";
 import type { z } from "zod";
 
-export type LlmProviderName = "xai" | "google" | "mock";
+export type LlmProviderName = "meta" | "google" | "mock";
 
 export interface AgentStep {
   toolName: string;

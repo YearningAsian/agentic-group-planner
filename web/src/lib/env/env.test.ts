@@ -39,7 +39,6 @@ describe("server env", () => {
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "SUPABASE_SECRET_KEY",
       "NEXT_PUBLIC_DEMO_MODE",
-      "LLM_PROVIDER",
       "OPTIMIZER_URL",
       "OPTIMIZER_TOKEN",
       "PAYMENTS_PROVIDER",
@@ -48,20 +47,50 @@ describe("server env", () => {
       "ROUTING_PROVIDER",
     ];
     expect(() => parseServerEnv({})).toThrow(EnvError);
-    expect(problems({}).sort()).toEqual([...required].sort());
+    // LLM_PROVIDER defaults to meta, so its key is missing too.
+    expect(problems({}).sort()).toEqual([...required, "META_MODEL_API_KEY"].sort());
     // One message names every problem, so a failed boot says exactly what to fix. An empty
     // value counts as missing.
-    expect(() => parseServerEnv({ ...buildProfile, OPTIMIZER_TOKEN: "", LLM_PROVIDER: undefined })).toThrow(
-      /LLM_PROVIDER[\s\S]*OPTIMIZER_TOKEN/,
-    );
+    const boot = () => parseServerEnv({ ...buildProfile, OPTIMIZER_TOKEN: "", LLM_PROVIDER: undefined });
+    expect(boot).toThrow(/OPTIMIZER_TOKEN/);
+    expect(boot).toThrow(/META_MODEL_API_KEY/);
   });
 
-  it("requires XAI_API_KEY only when LLM_PROVIDER=xai, and GOOGLE_GENERATIVE_AI_API_KEY only when google", () => {
-    expect(problems({ ...buildProfile, LLM_PROVIDER: "xai" })).toEqual(["XAI_API_KEY"]);
-    expect(problems({ ...buildProfile, LLM_PROVIDER: "xai", XAI_API_KEY: "xai-key" })).toEqual([]);
-    expect(problems({ ...buildProfile, LLM_PROVIDER: "google" })).toEqual(["GOOGLE_GENERATIVE_AI_API_KEY"]);
-    expect(problems({ ...buildProfile, LLM_PROVIDER: "google", GOOGLE_GENERATIVE_AI_API_KEY: "g-key" })).toEqual([]);
+  it("LLM_PROVIDER defaults to meta and needs META_MODEL_API_KEY; google needs its key and explicit model IDs", () => {
+    expect(problems({ ...buildProfile, LLM_PROVIDER: undefined })).toEqual(["META_MODEL_API_KEY"]);
+    expect(problems({ ...buildProfile, LLM_PROVIDER: "meta" })).toEqual(["META_MODEL_API_KEY"]);
+    expect(problems({ ...buildProfile, LLM_PROVIDER: "meta", META_MODEL_API_KEY: "meta-key" })).toEqual([]);
+    // The defaults are Meta model IDs, so the fallback must name its own.
+    expect(problems({ ...buildProfile, LLM_PROVIDER: "google" }).sort()).toEqual(
+      ["AGENT_MODEL", "GOOGLE_GENERATIVE_AI_API_KEY", "VISION_MODEL"].sort(),
+    );
+    const google = { LLM_PROVIDER: "google", GOOGLE_GENERATIVE_AI_API_KEY: "g-key", AGENT_MODEL: "g-model", VISION_MODEL: "g-model" };
+    expect(problems({ ...buildProfile, ...google })).toEqual([]);
     expect(problems({ ...buildProfile, LLM_PROVIDER: "mock" })).toEqual([]);
+    // xAI is a possible later adapter, not a built one.
+    expect(problems({ ...buildProfile, LLM_PROVIDER: "xai" })).toEqual(["LLM_PROVIDER"]);
+  });
+
+  it("each Meta capability has its own flag, mock by default, and needs META_MODEL_API_KEY only when real", () => {
+    const env = parseServerEnv(buildProfile);
+    const flags = ["TRANSCRIBE_PROVIDER", "SEGMENT_PROVIDER", "IMAGE_PROVIDER", "GROUNDING_PROVIDER"] as const;
+    for (const flag of flags) {
+      expect(env[flag]).toBe("mock");
+      expect(problems({ ...buildProfile, [flag]: "real" })).toEqual(["META_MODEL_API_KEY"]);
+      expect(problems({ ...buildProfile, [flag]: "real", META_MODEL_API_KEY: "meta-key" })).toEqual([]);
+    }
+  });
+
+  it("model IDs come from env, with the verified Meta defaults", () => {
+    const env = parseServerEnv(buildProfile);
+    expect(env.META_MODEL_API_BASE_URL).toBe("https://api.meta.ai/v1");
+    expect(env.AGENT_MODEL).toBe("muse-spark-1.3");
+    expect(env.VISION_MODEL).toBe("muse-spark-1.3");
+    expect(env.TRANSCRIBE_MODEL).toBe("muse-voice-transcribe-1.0");
+    expect(env.SEGMENT_MODEL).toBe("sam-3.1");
+    expect(env.IMAGE_MODEL).toBe("muse-image-1.0");
+    expect(env.GROUNDING_MODEL).toBe("muse-spark-1.3");
+    expect(parseServerEnv({ ...buildProfile, AGENT_MODEL: "muse-spark-1.2" }).AGENT_MODEL).toBe("muse-spark-1.2");
   });
 
   it("rejects a live Stripe key (sk_live_)", () => {
@@ -83,7 +112,7 @@ describe("server env", () => {
     const env = parseServerEnv(buildProfile);
     expect(env.NEXT_PUBLIC_DEMO_MODE).toBe(true);
     expect(env.LLM_PROVIDER).toBe("mock");
-    expect(env.AGENT_MODEL).toBe("grok-4.7");
+    expect(env.AGENT_MODEL).toBe("muse-spark-1.3");
     expect(env.STAYS_PROVIDER).toBe("mock");
     expect(env.VOICE_MOCK_SCENARIO).toBe("accept");
   });

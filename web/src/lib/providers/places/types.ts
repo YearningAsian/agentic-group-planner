@@ -1,4 +1,7 @@
 import type { PlaceCategory } from "@agp/shared";
+import type { VenueFacts } from "../grounding/types";
+
+export type { Citation, VenueFacts } from "../grounding/types";
 
 /** A row for the `places` cache, as a provider returns it. */
 export interface PlaceRecord {
@@ -27,4 +30,10 @@ export interface PlacesProvider {
     maxResults: number;
   }): Promise<PlaceRecord[]>;
   get(providerPlaceId: string): Promise<PlaceRecord | null>;
+  /**
+   * Current hours and prices from the web, with the sources cited for them. Delegates to the
+   * grounding provider (its own flag, `GROUNDING_PROVIDER`), and the caller stores the citations
+   * next to the facts.
+   */
+  groundFacts(place: Pick<PlaceRecord, "name" | "address">, city: string): Promise<VenueFacts>;
 }

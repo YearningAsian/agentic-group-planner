@@ -23,7 +23,7 @@ beforeAll(async () => {
 afterAll(() => cleanup(batch));
 
 function run(status: string) {
-  return { trip_id: tripId, trigger: "mention", status, provider: "mock", model: "grok-4.7", seed_batch: batch };
+  return { trip_id: tripId, trigger: "mention", status, provider: "mock", model: "muse-spark-1.3", seed_batch: batch };
 }
 
 describe("agent and chat migration", () => {
