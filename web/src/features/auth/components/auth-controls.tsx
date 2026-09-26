@@ -1,40 +1,45 @@
 "use client";
 
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { DemoLoginPicker } from "@/features/demo";
+import { signOut } from "@/features/auth/server/sign-out";
+import { sessionLabel } from "@/features/auth/session-label";
+import { getBrowserClient } from "@/lib/supabase/browser";
 
-/** Sign-in / sign-up when signed out; Clerk user menu when signed in. */
+/** Person switcher, and sign-out once a Supabase session exists. */
 export function AuthControls({ className }: { className?: string }) {
+  const [email, setEmail] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    const client = getBrowserClient();
+    void client.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user.email ?? null);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const label = sessionLabel(email);
+
   return (
-    <div className={className ?? "flex items-center gap-2"}>
-      <Show when="signed-out">
-        <SignInButton mode="modal">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 rounded-lg border-line bg-surface px-3 text-[12.5px] font-semibold text-ink hover:bg-bg-muted"
-          >
-            Sign in
-          </Button>
-        </SignInButton>
-        <SignUpButton mode="modal">
-          <Button
-            type="button"
-            className="h-9 rounded-lg bg-ink px-3 text-[12.5px] font-semibold text-white hover:bg-[#302a22]"
-          >
-            Sign up
-          </Button>
-        </SignUpButton>
-      </Show>
-      <Show when="signed-in">
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "size-8",
-            },
+    <div className={className}>
+      <DemoLoginPicker />
+      {label ? (
+        <button
+          type="button"
+          disabled={pending}
+          className="rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+          onClick={() => {
+            setPending(true);
+            void signOut()
+              .then(() => window.location.reload())
+              .catch(() => setPending(false));
           }}
-        />
-      </Show>
+        >
+          {pending ? "Signing out…" : `Sign out ${label}`}
+        </button>
+      ) : null}
     </div>
   );
 }

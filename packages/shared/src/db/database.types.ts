@@ -1080,6 +1080,27 @@ export type Database = {
           },
         ]
       }
+      studio_board: {
+        Row: {
+          active_trip_id: string | null
+          id: string
+          trips: Json
+          updated_at: string
+        }
+        Insert: {
+          active_trip_id?: string | null
+          id: string
+          trips?: Json
+          updated_at?: string
+        }
+        Update: {
+          active_trip_id?: string | null
+          id?: string
+          trips?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       studio_state: {
         Row: {
           active_trip_id: string | null

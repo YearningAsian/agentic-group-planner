@@ -1836,7 +1836,7 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 
 [ADR 0021](adr/0021-supabase-session-for-trip-reads.md). The trip-draft screens read `localStorage` (`useTrip`, `trips-db`, `profile-db`). They will read Supabase through `useTripView` / `useTrips` instead. Providers stay mock.
 
-**Auth.** RLS keeps using `auth.uid()`. Clerk does not become that id. Dev mode adds a Person 1–4 switcher on the existing magic-link `demoSignIn`. Production members still use a magic link.
+**Auth.** RLS keeps using `auth.uid()`. Dev mode signs in with the Person 1–3 magic-link picker. Production members still use a magic link. Clerk is not part of the shell ([ADR 0022](adr/0022-shared-studio-board.md)).
 
 **Field mapping.**
 
@@ -1849,3 +1849,7 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 | Profile name and home | `profile-db` | `profiles` | profile update route |
 | Votes, photos, recap | UI-only or absent | none | dropped (§11.6); do not add tables |
 | Onboarding text before the first save | `TripState` | none | local draft only, until `create_trip` |
+
+### 11.9 Shared studio board (2026-09-26)
+
+[ADR 0022](adr/0022-shared-studio-board.md). The trip-draft trip list is one `studio_board` row (`id = 'demo'`), readable and writable by any signed-in user, so an edit made as one person shows up for the others. Realtime on that table is a doorbell: the client refetches `/api/studio-state` and does not apply the payload. The home address stays on the per-user `studio_state` row. A later save replaces the whole trip list.

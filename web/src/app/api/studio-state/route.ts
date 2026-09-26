@@ -15,10 +15,16 @@ const documentSchema = z.object({
   profile: profileSchema,
 });
 
-const empty = { activeTripId: null, trips: [], profile: { homeAddress: "", homeLat: null, homeLng: null } };
+const emptyProfile = { homeAddress: "", homeLat: null, homeLng: null };
+const BOARD_ID = "demo";
 
 function badRequest(message: string): Response {
   return Response.json({ error: { code: "invalid_input", message, retryable: false } }, { status: 400 });
+}
+
+function profileFrom(value: unknown) {
+  const parsed = profileSchema.safeParse(value);
+  return parsed.success ? parsed.data : emptyProfile;
 }
 
 async function session() {
@@ -28,21 +34,24 @@ async function session() {
   return { client, id: data.user.id };
 }
 
-/** The signed-in user's studio document. Missing row means they have not saved yet. */
+/** Shared trips plus the signed-in user's home address. */
 export async function GET(): Promise<Response> {
   try {
     const { client, id } = await session();
-    const { data, error } = await client
-      .from("studio_state")
-      .select("active_trip_id, trips, profile")
-      .eq("profile_id", id)
-      .maybeSingle();
-    if (error) throw new AppError("internal", "Couldn't load your trips.", { cause: error, retryable: true });
-    if (!data) return Response.json(empty);
+    const [board, profile] = await Promise.all([
+      client.from("studio_board").select("active_trip_id, trips").eq("id", BOARD_ID).maybeSingle(),
+      client.from("studio_state").select("profile").eq("profile_id", id).maybeSingle(),
+    ]);
+    if (board.error || profile.error) {
+      throw new AppError("internal", "Couldn't load your trips.", {
+        cause: board.error ?? profile.error,
+        retryable: true,
+      });
+    }
     return Response.json({
-      activeTripId: data.active_trip_id,
-      trips: data.trips,
-      profile: data.profile,
+      activeTripId: board.data?.active_trip_id ?? null,
+      trips: Array.isArray(board.data?.trips) ? board.data.trips : [],
+      profile: profileFrom(profile.data?.profile),
     });
   } catch (error) {
     const { status, body } = toHttpError(error);
@@ -50,7 +59,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
-/** Replaces the signed-in user's studio document. The profile id always comes from the session. */
+/** Writes trips onto the shared board and the home address onto the session user. */
 export async function PUT(request: Request): Promise<Response> {
   let json: unknown;
   try {
@@ -63,13 +72,25 @@ export async function PUT(request: Request): Promise<Response> {
 
   try {
     const { client, id } = await session();
-    const { error } = await client.from("studio_state").upsert({
-      profile_id: id,
-      active_trip_id: parsed.data.activeTripId,
-      trips: parsed.data.trips as Json,
-      profile: parsed.data.profile as Json,
-    });
-    if (error) throw new AppError("internal", "Couldn't save your trips.", { cause: error, retryable: true });
+    const [board, profile] = await Promise.all([
+      client
+        .from("studio_board")
+        .update({
+          active_trip_id: parsed.data.activeTripId,
+          trips: parsed.data.trips as Json,
+        })
+        .eq("id", BOARD_ID),
+      client.from("studio_state").upsert({
+        profile_id: id,
+        profile: parsed.data.profile as Json,
+      }),
+    ]);
+    if (board.error || profile.error) {
+      throw new AppError("internal", "Couldn't save your trips.", {
+        cause: board.error ?? profile.error,
+        retryable: true,
+      });
+    }
     return Response.json({ ok: true });
   } catch (error) {
     const { status, body } = toHttpError(error);

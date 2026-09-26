@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Studio trip state. The signed-in user's copy is `studio_state` in the database.
+ * Studio trip state. Trips are the shared board; the home address stays on this user.
  * Screen map: `app/(trip-draft)/layout.tsx`. Read and write only through `useTrip()`.
  */
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
@@ -14,7 +14,7 @@ import {
   type TripRecord,
   type TripsDatabase,
 } from "@/features/trip-draft/trips-db";
-import { pullStudio, resetStudioMemory } from "./studio-store";
+import { pullStudio, resetStudioMemory, subscribeStudio } from "./studio-store";
 
 export type Member = {
   id: string;
@@ -105,6 +105,7 @@ const emptyTrips: TripRecord[] = [];
 let dbSnapshot: TripsDatabase = { activeTripId: null, trips: [] };
 let snapshot: TripState = emptySnapshot;
 let didHydrate = false;
+let stopLive: (() => void) | undefined;
 const listeners = new Set<() => void>();
 
 function matchFixture(place: Pick<ConfirmedPlace, "label" | "iataCode" | "airportIatas">) {
@@ -172,18 +173,23 @@ function applyLoaded() {
   }
 }
 
+function refreshFromServer() {
+  applyLoaded();
+  notify();
+}
+
 function hydrate() {
   if (didHydrate) return;
   didHydrate = true;
   applyLoaded();
-  void pullStudio().then(() => {
-    applyLoaded();
-    notify();
-  });
+  void pullStudio().then(refreshFromServer);
+  stopLive = subscribeStudio(refreshFromServer);
 }
 
 /** Test hook: forgets the loaded document so the next render reads the memory store. */
 export function resetTripContextForTests(): void {
+  stopLive?.();
+  stopLive = undefined;
   didHydrate = false;
   snapshot = initialState();
   dbSnapshot = { activeTripId: null, trips: [] };
