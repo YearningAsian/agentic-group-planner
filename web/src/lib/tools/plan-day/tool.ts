@@ -12,8 +12,10 @@ import {
   travelPairs,
 } from "@/lib/optimizer/build-plan-request";
 import { checkPlanResponse } from "@/lib/optimizer/check-response";
+import { getServerEnv } from "@/lib/env/server";
 import { getOptimizerClient, type OptimizerClient, type PlannerResponse, type PlanRequest } from "@/lib/optimizer/client";
 import { findPlaces } from "@/lib/optimizer/find-places";
+import { MIN_RATE_LIFETIME_MS } from "@/lib/providers/booking";
 import { formatUsd } from "@/lib/money";
 import { minutesFor } from "@/lib/providers/routing";
 import { AppError } from "@/lib/reliability";
@@ -109,7 +111,15 @@ async function loadPlaces(ctx: RunContext, items: RequestItem[], interests: stri
   const categories = [...new Set(open.map((i) => PlaceCategory.parse(i.category)))];
   const fixedIds = [...new Set(items.flatMap((i) => (i.place_id && (i.pinned || i.status === "booked") ? [i.place_id] : [])))];
   const [candidates, fixed] = await Promise.all([
-    Promise.all(categories.map((category) => findPlaces({ category, tags: interests, limit: PLACES_PER_CATEGORY }, ctx.admin))),
+    Promise.all(categories.map((category) => findPlaces({
+      category, tags: interests, limit: PLACES_PER_CATEGORY,
+      ...(category === "lodging" ? { stays: {
+        provider: getServerEnv().STAYS_PROVIDER,
+        itemIds: open.filter((item) => item.category === "lodging").map((item) => item.id),
+        // A rate about to expire can't collect approvals in time (approvalDeadline), so don't offer it.
+        now: new Date(Date.now() + MIN_RATE_LIFETIME_MS).toISOString(),
+      } } : {}),
+    }, ctx.admin))),
     fixedIds.length > 0
       ? ctx.admin.from("places").select("id, name, category, rating, tags, dietary_tags, hours, raw").in("id", fixedIds)
       : Promise.resolve({ data: [], error: null }),

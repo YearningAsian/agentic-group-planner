@@ -12,6 +12,8 @@ export interface FindPlacesQuery {
   /** The group's interests; places tagged with more of them come first. */
   tags?: readonly string[];
   limit: number;
+  /** Duffel rates are only offered to the item and dates/party that searched for them. */
+  stays?: { provider: "real" | "mock"; itemIds: readonly string[]; now: string };
 }
 
 /**
@@ -21,11 +23,18 @@ export interface FindPlacesQuery {
  * place carries, then rating, then name.
  */
 export async function findPlaces(query: FindPlacesQuery, admin: AdminClient = getAdminClient()): Promise<RequestPlace[]> {
-  const { data, error } = await admin
+  if (query.category === "lodging" && query.stays?.provider === "real" && query.stays.itemIds.length === 0) return [];
+  let request = admin
     .from("places")
     .select("id, name, category, rating, tags, dietary_tags, hours, raw")
     .eq("category", query.category)
-    .not("raw->price_cents", "is", null)
+    .not("raw->price_cents", "is", null);
+  if (query.category === "lodging" && query.stays) {
+    request = query.stays.provider === "real"
+      ? request.eq("provider", "duffel_stays").in("raw->>item_id", [...query.stays.itemIds]).gt("raw->>expires_at", query.stays.now)
+      : request.neq("provider", "duffel_stays");
+  }
+  const { data, error } = await request
     .order("rating", { ascending: false, nullsFirst: false })
     .limit(SCAN_LIMIT);
   if (error) throw new AppError("internal", "Couldn't read the places cache.", { retryable: true, cause: error });

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { ApprovalCard } from "@agp/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type CreateMandateInput, createMandate as createMandateWithKey } from "@/features/payments/server";
+import type { BookingProvider } from "@/lib/providers/booking";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { adminClient, cleanup, createPlace, createTrip, createUser, testBatch, type TestUser } from "./helpers";
 
@@ -156,6 +157,64 @@ beforeAll(async () => {
 afterAll(() => cleanup(batch));
 
 describe("create_mandate", () => {
+  it("quotes the scoped Duffel rate ID from the selected place instead of the option UUID", async () => {
+    const trip = await decidedTrip();
+    const { ctx } = await toolCall(trip);
+    const { placeId } = await createPlace(batch, {
+      provider: "duffel_stays", category: "lodging", name: "Duffel Test Hotel",
+      raw: { source: "search_stays", rate_id: "rat_test_mandate", item_id: trip.itemId,
+        trip_id: trip.tripId, check_in_date: "2026-10-03", check_out_date: "2026-10-05",
+        guests: 4, expires_at: "2099-10-01T14:00:00.000Z", total_cents: 16800, price_cents: 4200 },
+    });
+    const item = await admin.from("itinerary_items").update({
+      category: "lodging", starts_at: "2026-10-03T22:00:00Z", ends_at: "2026-10-05T15:00:00Z",
+    }).eq("id", trip.itemId);
+    if (item.error) throw item.error;
+    const option = await admin.from("item_options").update({ place_id: placeId }).eq("id", trip.optionId);
+    if (option.error) throw option.error;
+    const quote = vi.fn(async () => ({ quoteId: "quo_test", totalCents: 16800, currency: "usd", expiresAt: "2099-10-01T14:10:00.000Z" }));
+    const booking: BookingProvider = {
+      id: "duffel_stays", merchantName: "Duffel Stays", needsGuest: false, quote,
+      book: async () => ({ status: "confirmed", providerRef: "bok_test" }),
+      cancel: async () => ({ status: "cancelled" }),
+    };
+
+    await createMandate({ ctx, itemId: trip.itemId, optionId: trip.optionId, booking });
+
+    expect(quote).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "stays", optionId: "rat_test_mandate", placeId, partySize: 4,
+    }));
+  });
+
+  it("a Duffel rate that expires soon ends the approval window before it, and one about to expire is refused", async () => {
+    for (const [minutes, expectRefusal] of [[180, false], [20, true]] as const) {
+      const trip = await decidedTrip();
+      const { ctx } = await toolCall(trip);
+      const rateExpiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
+      const { placeId } = await createPlace(batch, {
+        provider: "duffel_stays", category: "lodging", name: "Short Rate Hotel",
+        raw: { source: "search_stays", rate_id: `rat_${minutes}`, item_id: trip.itemId, trip_id: trip.tripId,
+          check_in_date: "2026-10-03", check_out_date: "2026-10-05", guests: 4, expires_at: rateExpiresAt, total_cents: 16800, price_cents: 4200 },
+      });
+      await admin.from("itinerary_items").update({ category: "lodging", starts_at: "2026-10-03T22:00:00Z", ends_at: "2026-10-05T15:00:00Z" }).eq("id", trip.itemId);
+      await admin.from("item_options").update({ place_id: placeId }).eq("id", trip.optionId);
+      const booking: BookingProvider = {
+        id: "duffel_stays", merchantName: "Duffel Stays", needsGuest: false,
+        quote: async () => ({ quoteId: "quo_test", totalCents: 16800, currency: "usd", expiresAt: rateExpiresAt }),
+        book: async () => ({ status: "confirmed", providerRef: "bok_test" }),
+        cancel: async () => ({ status: "cancelled" }),
+      };
+      const create = createMandate({ ctx, itemId: trip.itemId, optionId: trip.optionId, booking });
+      if (expectRefusal) {
+        await expect(create).rejects.toMatchObject({ code: "conflict" });
+      } else {
+        const { mandateId } = await create;
+        const { data } = await admin.from("mandates").select("expires_at").eq("id", mandateId).single();
+        expect(Date.parse(data!.expires_at)).toBe(Date.parse(rateExpiresAt) - 10 * 60_000);
+      }
+    }
+  });
+
   it("four attendees with Person 4 as a placeholder give own rows pending for Persons 1–3, Person 4's own row awaiting_member, and a fronted row for Person 4's share whose payer is Person 1", async () => {
     const trip = await decidedTrip();
     const { ctx } = await toolCall(trip);
