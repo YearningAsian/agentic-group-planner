@@ -1075,15 +1075,16 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-206, AI-207, AI-209
 - **Produces:** `supersedeItem(itemId) → { newItemId }`, and `apply_plan` in replan mode. The context includes the item's comments for revision runs.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_seeded_replan.py` passes (§11.3, item 3). It reads `requests/saturday-replan.json`, which AI-207's builder generates from the seed fixture with dinner booked at 19:45:
+  - [x] `cd optimizer && pytest tests/test_seeded_replan.py` passes (§11.3, item 3). It reads `requests/saturday-replan.json`, which AI-207's builder generates from the seed fixture with dinner booked at 19:45:
     - `test_seeded_replan_shifts_the_afternoon`: the request's afternoon slot runs 15:00–18:00, and nothing earlier moves. The builder computed this; the test only asserts it.
     - `test_seeded_replan_respects_opening_hours`: every place in the rank-1 plan is open from its shifted start through start plus duration.
-  - [ ] `pnpm --filter web test:db -- tests/db/replan.test.ts` passes:
+  - [ ] `pnpm --filter web test:db -- tests/db/replan.test.ts` passes (3 of 5 so far):
     - `a replan applies the builder's shifted times to the afternoon items, records time_shift changes, and keeps their status`
     - `an option change on a decided item supersedes it, and the replacement goes tbd → proposing → voting and points back through supersedes_item_id`
     - `booked items never change`
     - `a revision run's context includes the item's comments and has a requester`
     - `apply_plan in replan mode rejects a non-member actor`
+- **Status:** in progress (2026-09-26). Merged in PR #7 with every CI job green: migration `apply_plan_replan`, `applyPlan` replan mode (time shifts keep status; a voting or decided slot whose option changes is superseded; booked items and purchases in progress are refused), `plan_day` `mode: "replan"`, and `test_seeded_replan.py` (2 passed). `replan.test.ts` has the first three cases above. Open: the revision-context case (item comments in the context) and the replan-mode non-member case, plus `update_item`'s `request_alternatives` single-item path (AI-216).
 - **Commit:** `feat(agent): re-plan with superseding items and time shifts`
 
 #### AI-211 · Plan card · Must
@@ -1415,8 +1416,9 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/features/invite/server/after-claim.ts`, `web/src/features/invite/components/{member-joined-card.tsx,member-joined-card.test.tsx}`, `packages/shared/src/cards/member-joined.ts`, `web/tests/db/after-claim.test.ts`
 - **Depends on:** VO-209, CO-212
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/after-claim.test.ts` passes: `a claim calls onPlaceholderClaimed and writes one member_joined card listing the pending mandate ids`.
+  - [x] `pnpm --filter web test:db -- tests/db/after-claim.test.ts` passes: `a claim calls onPlaceholderClaimed and writes one member_joined card listing the pending mandate ids`.
   - [ ] `pnpm --filter web test -- src/features/invite/components/member-joined-card.test.tsx` passes: `shows "Person 4 joined" with initials and lane color`.
+- **Status:** backend done (2026-09-26, PR #6, CI green): the `MemberJoinedCard` schema in `@agp/shared`, and `afterClaim`, which moves the joiner's shares to pending and writes one card; `POST /api/invites/claim` calls it. Open: the card component (frontend).
 - **Commit:** `feat(invite): member joined card and pending holds`
 
 #### VO-213 · Booking confirmed card · Must
@@ -1917,7 +1919,8 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Files:** `web/src/features/payments/server/expire-mandates.ts`, `web/tests/db/expire-mandates.test.ts`
 - **Depends on:** CO-210
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
+  - [x] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
+- **Status:** done (2026-09-26, PR #6, CI green): `expireMandates` plus `a mandate that hasn't expired is left open` and `approving after expiry is refused`. Nothing calls it on a schedule yet; the cron route is the next step.
 - **Commit:** `feat(payments): expire open mandates`
 
 #### CO-S05 · Hotels through Duffel Stays · Must
@@ -1928,7 +1931,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Done when:**
   - [x] `pnpm --filter web test src/lib/providers/booking` and `pnpm --filter @agp/shared test src/money/decimal.test.ts` pass: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
   - [ ] Check: with `STAYS_PROVIDER=real` and a test token, a Duffel test property quotes and books.
-- **Status:** adapter done (2026-09-26); the `real` check is blocked on a `duffel_test_` token and Stays access (sandbox only — live tokens are refused by the env loader, same rule as Stripe `sk_test_`). Proof: `stays-real.test.ts` → 16 passed after review fixes (paginate via `listWithGenerator`, re-find before reporting failed, map 401/403 to `internal`, refuse non-zero `due_at_accommodation_amount`); `mock-merchant.test.ts` → 6 passed; `decimal.test.ts` → 17 passed; typecheck and lint clean. The hotel mock is the mock merchant with `kind: "stays"`. Duffel's Stays booking has no idempotency key, so `book()` tags `metadata` with ours, scans every booking page before creating and again (with backoff) after an ambiguous failure; a create is never retried. Not wired yet: `create_mandate` and `finalizeMandate` still ask for `tickets`, and a stays mandate needs a lead guest's email and phone.
+- **Status:** adapter done (2026-09-26, PR #4, CI green); the `real` check is blocked on a `duffel_test_` token and Stays access (sandbox only — live tokens are refused by the env loader, same rule as Stripe `sk_test_`). Proof: `stays-real.test.ts` → 16 passed after review fixes (paginate via `listWithGenerator`, re-find before reporting failed, map 401/403 to `internal`, refuse non-zero `due_at_accommodation_amount`); `mock-merchant.test.ts` → 6 passed; `decimal.test.ts` → 17 passed; typecheck and lint clean. The hotel mock is the mock merchant with `kind: "stays"`. Duffel's Stays booking has no idempotency key, so `book()` tags `metadata` with ours, scans every booking page before creating and again (with backoff) after an ambiguous failure; a create is never retried. Not wired yet: `create_mandate` and `finalizeMandate` still ask for `tickets`, and a stays mandate needs a lead guest's email and phone.
 - **Commit:** `feat(booking): stays through duffel`
 
 #### AI-217 · Remember each person's preferences · Must
@@ -1937,8 +1940,8 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Depends on:** AI-209, VO-220
 - **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
-- **Status:** done except CI db proof (2026-09-26). Done: migration + own-row RLS + join/claim trigger; `loadTripSnapshot` / `renderContext` quote notes; `remember_preference` tool (requester only, merges into trip constraints, no card); tool_name CHECK widened. Proof: shared 65, `remember-preference/tool.test.ts` → 4 passed, registry and prompt cover 6 tools; typecheck and lint clean. Open: `person-preferences.test.ts` green in CI (Docker down locally).
+  - [x] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
+- **Status:** done except CI db proof (2026-09-26). Done: migration + own-row RLS + join/claim trigger; `loadTripSnapshot` / `renderContext` quote notes; `remember_preference` tool (requester only, merges into trip constraints, no card); tool_name CHECK widened. Proof: shared 65, `remember-preference/tool.test.ts` → 4 passed, registry and prompt cover 6 tools; typecheck and lint clean. `person-preferences.test.ts` (5 cases) went green in CI's database job on PR #4.
 - **Commit:** `feat(agent): remember each person's preferences`
 
 ---

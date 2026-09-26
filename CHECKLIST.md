@@ -14,14 +14,15 @@ Last updated: 2026-09-26.
 
 - [ ] Stays mandates: `create_mandate` and `finalizeMandate` use `getBookingProvider("stays")` for hotels, with a lead guest's email and phone (test-mode Duffel only: `duffel_test_`)
 - [ ] Muse tool `search_stays`: Duffel `stays.search` by the trip's coordinates (sandbox), results saved as places with rate options
-- [ ] AI-217: remember each person's preferences across trips, and feed them to Muse
+- [x] AI-217: remember each person's preferences across trips, and feed them to Muse
   - [x] migration + RLS + join trigger; agent context quotes remembered notes
   - [x] `remember_preference` tool (requester only; no card)
-  - [ ] CI db tests green (`person-preferences.test.ts`)
+  - [x] CI db tests green (`person-preferences.test.ts`, PR #4)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
   - [x] migration + `applyPlan` replan: time shifts keep status; voting/decided slots superseded; booked refused
   - [x] `plan_day` accepts `mode: "replan"`; seeded replan optimizer test
   - [x] CI green (`replan.test.ts`, `test_seeded_replan.py`)
+  - [ ] revision context quotes the item's comments; replan-mode non-member test
   - [ ] `update_item` `request_alternatives` (single-item replan path)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
   - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
