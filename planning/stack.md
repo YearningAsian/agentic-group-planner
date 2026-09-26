@@ -3,6 +3,7 @@
 > **Verify on npm and PyPI before installing.** These versions come from the master plan §7 ("latest stable as of Sep 21, 2026"). Before changing any of them, run the check in [`checklist.md`](checklist.md#b1-verify-versions-before-installing-anything), fix any version that's missing, update this file, and record the date below. Versions are exact (`savePrefix: ""` in `pnpm-workspace.yaml`), and the lockfiles are committed.
 
 - Last verified: **2026-09-23**, at Milestone 1 install. The B1 loop printed `ok` for every npm pin and `200` for every PyPI pin. Every "pin at install" row below now names its exact version. Newer releases exist for some pins (for example `maplibre-gl` 6.11.1); the pins were kept.
+- Meta Model API and the AI packages re-verified **2026-09-25** on dev.meta.ai and npm (below). The model IDs are env defaults, so a newer model is a config change.
 - Derived from: the master plan §7 (Sep 23 revision) and `Projects/STACK.md` (snapshot 2026-06-13, for Node and pnpm).
 - Deviations from STACK.md: [ADR 0001](adr/0001-stack.md).
 
@@ -25,8 +26,9 @@
 | shadcn (CLI) and mapcn | 4.21.0 | style `base-nova` (Base UI); mapcn installs through `shadcn add @mapcn/map` (FE-210) |
 | maplibre-gl | 6.10.0 | mapcn requires ^6.3; worker files self-hosted |
 | ai | 7.0.109 | server-side agent runner only; `@ai-sdk/react` is not used ([ADR 0005](adr/0005-cards-as-message-rows-realtime-refetch.md)) |
-| @ai-sdk/xai | 5.0.5 | Grok 4.7 |
-| @ai-sdk/google | 4.0.76 | Gemini Flash fallback |
+| @ai-sdk/openai-compatible | 3.0.53 | Meta Model API over Chat Completions: the agent loop, `generateObject`, `describeImage` ([ADR 0017](adr/0017-meta-model-api.md)). Shares `ai` 7.0.109's `@ai-sdk/provider` 4.0.17; 3.0.57 was latest on 2026-09-25 |
+| openai | 7.23.0 | Meta Model API over the Responses API and images: search grounding, SAM, the recap cover. Latest on 2026-09-25; its peers are optional |
+| @ai-sdk/google | 4.0.76 | Gemini fallback (`LLM_PROVIDER=google`) |
 | zod | 4.6.5 | also in packages/shared |
 | @supabase/supabase-js | 2.116.0 | |
 | @supabase/ssr | 0.12.7 | |
@@ -96,7 +98,24 @@
 | Stripe | test mode | holds, captures, refunds |
 | ElevenLabs Agents | account with calling | voice agent and server tool |
 | Twilio | **upgraded** (no trial notice) | phone number, imported into ElevenLabs |
-| xAI | API credits | Grok 4.7 |
+| Meta Model API | API key (`META_MODEL_API_KEY`) | Muse Spark, speech to text, SAM, Muse Image, search grounding |
 | Google AI Studio | free | Gemini Flash fallback |
 | Google Places, OpenRouteService | API keys | venues, routing |
 | Sentry | free | errors |
+
+## Meta Model API (verified 2026-09-25)
+
+Source: dev.meta.ai/docs (developer.meta.com/ai redirects there). Bearer auth with `META_MODEL_API_KEY` (Meta's docs call it `MODEL_API_KEY`).
+
+| Use | Model ID | Endpoint | Env var (default) | Price on 2026-09-25 |
+| --- | --- | --- | --- | --- |
+| Agent planning, tool calling, photo captions, best-shot scoring | `muse-spark-1.3` | `POST /v1/chat/completions` | `AGENT_MODEL`, `VISION_MODEL` | $1.25 input, $0.15 cached, $4.25 output per 1M tokens |
+| Voice notes | `muse-voice-transcribe-1.0` | `POST /v1/asr/transcribe` (multipart; WAV 16-bit PCM mono, 16 or 24 kHz; ≤ 10 min, ≤ 32 MB) | `TRANSCRIBE_MODEL` | $0.18 per audio hour |
+| Subject segmentation | `sam-3.1` | `POST /v1/responses` | `SEGMENT_MODEL` | $2.50 per 1,000 images |
+| Recap cover | `muse-image-1.0` | `POST /v1/images/generations`, `/v1/images/edits` | `IMAGE_MODEL` | $0.01 per image |
+| Search grounding | `muse-spark-1.3` with the `web_search` tool | `POST /v1/responses` only | `GROUNDING_MODEL` | $2.50 per 1,000 searches, plus tokens |
+
+- Base URL `https://api.meta.ai/v1` (`META_MODEL_API_BASE_URL`). Standard tier: 3,000 requests and 4M tokens per minute; Muse Image, 150 requests per minute.
+- `tool_choice` accepts only `"auto"`. Structured output: `response_format` JSON schema (Chat Completions) or `text.format` (Responses); strict mode rejects `oneOf` and `allOf`.
+- Images in: JPEG, PNG, GIF, WebP; up to 50 per request, 50 MB each, in user messages only.
+- Also listed: `muse-spark-1.2`, `muse-spark-1.1`, contributor-tier variants, and `muse-glimmer` (open weights, self-hosted; not used).

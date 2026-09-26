@@ -315,8 +315,9 @@ Input
 How the server builds the mandate:
 
 1. **Quote and split:** `quote()` from the merchant sets the total; the model never supplies an amount. Shares are split evenly across attendees, and the organizer's share absorbs any leftover cents.
-2. **Caps:** each share's cap is `ceil(share × cap_percent / 100)`, rounded up to a whole dollar.
-3. **Placeholders:** each placeholder attendee gets an `own` share row in `awaiting_member`, plus a `fronted` row on the organizer's hold ([ADR 0004](adr/0004-consent-as-mandates-with-holds.md)). The organizer fronts that share until the placeholder pays (§4.2).
+2. **Caps:** each share's cap is `shareCapCents(share, cap_percent)` from `@agp/shared` (`money/fees.ts`): the share's price at `cap_percent`, plus the fees on that price, rounded up to a whole dollar. A hold's cap is the sum of its shares' caps ([ADR 0019](adr/0019-fee-pass-through.md)).
+3. **Fees:** `holdFees({ sharesCents, capPercent })` itemizes each hold: the shares it pays, the processor fee (Stripe's 2.9% + 30¢, grossed up so the platform nets the shares), the platform fee (always shown, $0 today), the total charged at the quote, and the cap. Nothing else computes fees.
+4. **Placeholders:** each placeholder attendee gets an `own` share row in `awaiting_member`, plus a `fronted` row on the organizer's hold ([ADR 0004](adr/0004-consent-as-mandates-with-holds.md)). The organizer fronts that share until the placeholder pays (§4.2).
 
 Card `approval`
 
@@ -328,6 +329,7 @@ Card `approval`
 | merchant | text | yes | "Demo Tickets (mock merchant)" |
 | quote_cents | cents | yes | total |
 | cap_cents | cents | yes | total cap (the sum of share caps) |
+| holds | Hold[] | yes | one per payer, from `holdFees` |
 | currency | text | yes | `usd` |
 | expires_at | ts | yes | default: created + 24 h |
 | shares | Share[] | yes | |
@@ -335,10 +337,16 @@ Card `approval`
 
 Share: `member_id` uuid, `display_name` text, `share_cents` cents, `cap_cents` cents, `covered_by_member_id` uuid or null (set when the organizer fronts a placeholder).
 
+Hold: `payer_member_id` uuid, `share_member_ids` uuid[], `share_cents`, `processor_fee_cents`, `platform_fee_cents`, `total_cents`, and `cap_cents`, all cents. The card renders these; it never computes them.
+
+**Fee disclosure (Must).** Above the approve button, every approval card itemizes the viewer's hold: each share it pays, the processor fee, the platform fee (shown as $0.00, never hidden), the total charged now, and the cap. On the seeded trip, a member's card reads "Your share $42.00 · Processor fee $1.57 · Platform fee $0.00 · Total $43.57 · Up to $48 if the price changes", and the organizer's lists "Person 4's share $42.00, until they join" too, with a $2.82 processor fee, an $86.82 total, and a $96 cap.
+
+**Human in the loop (Must).** Every surface that shows money (the `plan`, `approval`, `booking_confirmed`, and `price_change` cards, plus the lanes' share badges) shows `HUMAN_IN_LOOP_LABEL`, "Agent proposed · You approve", from `@agp/shared`. No copy, prompt, fixture, or agent message makes the agent the subject of "paid": people pay. `pairsAgentWithPaid` enforces it in a repo-wide copy test, and the runner checks the agent's final text with `speaker: "agent"` (§8.4).
+
 Button copy on the approval card is built from the shares, so every member sees the same numbers:
 
 - A member: "Approve up to ${own cap}".
-- The organizer, when fronting placeholders: "Approve up to ${own cap + each covered cap}, including {placeholder}'s ${covered cap} until they join". On the seeded trip: "Approve up to $94, including Person 4's $47 until they join".
+- The organizer, when fronting placeholders: "Approve up to ${own cap + each covered cap}, including {placeholder}'s ${covered cap} until they join". On the seeded trip: "Approve up to $96, including Person 4's $48 until they join".
 - The placeholder's share row reads "Fronted by the organizer" until that member's own hold is captured, then "Paid".
 
 Idempotency: `mandates.idempotency_key = mandate:{run_id}:{tool_call_id}`, and a partial unique index allows only one live mandate per item.
@@ -512,7 +520,7 @@ Stop matching, in order:
 2. Otherwise, the nearest stop within 300 m by GPS.
 3. Otherwise, `none`.
 
-Captions and aesthetic scores are **not** computed here. Next.js calls Grok vision through the LLM adapter (§2.3), and `processPhotos` sets `quality_score = 0.5 × technical + 0.5 × aesthetic`.
+Captions and aesthetic scores are **not** computed here. Next.js calls Muse Spark vision (`VISION_MODEL`) through the LLM adapter (§2.3), and `processPhotos` sets `quality_score = 0.5 × technical + 0.5 × aesthetic`. With `SEGMENT_PROVIDER=real` (Should), SAM 3.1 finds the photo's people, and best-shot picking prefers photos whose subject is large and near the thirds; the recap crops around the same box.
 
 ### 2.3 Provider adapters
 
@@ -526,7 +534,11 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 
 | Provider | Owner | Flag | Real | Mock |
 | --- | --- | --- | --- | --- |
-| llm | AI | `LLM_PROVIDER` = `xai` \| `google` \| `mock` | Grok 4.7 via `@ai-sdk/xai`; Gemini Flash via `@ai-sdk/google` | replays recorded tool decisions (§7.5); fixture captions |
+| llm | AI | `LLM_PROVIDER` = `meta` (default) \| `google` \| `mock` | Muse Spark 1.3 on Meta's Model API, through `@ai-sdk/openai-compatible` (Chat Completions); Gemini via `@ai-sdk/google` as the fallback | replays recorded tool decisions (§7.5); fixture captions |
+| transcription | VO | `TRANSCRIBE_PROVIDER` = `real` \| `mock` (default `mock`) | `muse-voice-transcribe-1.0`, `POST /v1/asr/transcribe` (multipart) | a fixture transcript per recording length |
+| segmentation | AI | `SEGMENT_PROVIDER` = `real` \| `mock` (default `mock`) | `sam-3.1` on the Responses API, through the `openai` SDK | a centered box per photo |
+| image | AI | `IMAGE_PROVIDER` = `real` \| `mock` (default `mock`) | `muse-image-1.0`, `images.generate` or `images.edit` through the `openai` SDK | a fixture cover |
+| grounding | AI | `GROUNDING_PROVIDER` = `real` \| `mock` (default `mock`); only the places adapter calls it | `muse-spark-1.3` with the `web_search` tool on the Responses API, through the `openai` SDK | fixture hours and prices with one citation |
 | payments | CO | `PAYMENTS_PROVIDER` = `real` \| `mock` | Stripe test mode, API version pinned in code | authorizes immediately; payment method `pm_mock_declined` declines |
 | booking (`book()`) | CO | none for tickets; stays uses `STAYS_PROVIDER` | tickets: mock merchant (the same code in both modes); stays: Duffel; restaurant: records a voice reservation | stays: fixture hotel |
 | voice | VO | `VOICE_PROVIDER` = `real` \| `mock` | ElevenLabs Agents outbound call over Twilio | plays a whole call against our real routes: the mid-call `confirm_reservation` tool (with `x-tool-secret`) and a signed post-call webhook. `VOICE_MOCK_SCENARIO` picks the scenario (§9.1). |
@@ -539,7 +551,18 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 | --- | --- | --- | --- |
 | `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s per step; 90 s per run |
 | `generateObject` | Zod schema, `prompt`, `images?` | the parsed object | used by the recap |
-| `describeImage` | `url`, `context` | `{ caption, aesthetic_score }` | Grok vision; captions ≤ 120 chars |
+| `describeImage` | `url`, `context` | `{ caption, aesthetic_score }` | Muse Spark vision (`VISION_MODEL`); captions ≤ 120 chars |
+
+Meta's Model API accepts only `tool_choice: "auto"`; `"required"`, `"none"`, and named tools return HTTP 400. So the runner never forces a tool, and `generateObject` uses `response_format` with a JSON schema, never a forced tool call ([ADR 0017](adr/0017-meta-model-api.md)).
+
+#### Meta capability providers (Should)
+
+| Provider | Method | Input | Output | Notes |
+| --- | --- | --- | --- | --- |
+| transcription | `transcribe` | `wav` (RIFF/WAVE, 16-bit PCM, mono, 16 kHz), `keywords?` | `{ text, durationMs }` | at most 10 minutes or 32 MB; the browser converts the recording ([ADR 0018](adr/0018-voice-notes-convert-in-browser.md)) |
+| segmentation | `segment` | `imageUrl`, `prompt` (a noun phrase such as "person") | `[{ box (0–1), score }]` | boxes only; masks aren't stored |
+| image | `generate` | `prompt`, `size`, `referenceImageUrls?` | `{ bytes, format }` | the recap cover, uploaded to `trip-photos` |
+| grounding | `venueFacts` | `name`, `address`, `city` | `{ hours, priceNote, answerText, citations: [{ url, title, startIndex, endIndex }], model, checkedAt }` | reached only through `PlacesProvider.groundFacts`; the caller stores the citations with the facts |
 
 #### PaymentsProvider
 
@@ -610,6 +633,7 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 | POST | `/api/mandates/:id/cover` | organizer | `{}` | `{ mandate_status }` | CO |
 | POST | `/api/invites/claim` | signed in | `{ token }` | `{ trip_slug, member_id }` | VO |
 | GET | `/auth/confirm` | the link's token | query `token_hash`, `type=email`, `next` (same-origin path) | redirect to `next`, or `/login?error=link` | VO |
+| POST | `/api/voice-notes` | member | multipart: `trip_id`, `client_id`, `audio` (16 kHz mono WAV, ≤ 2 min) | `{ message_id, agent_run_id \| null }` | VO (Should, §2.5) |
 | POST | `/api/photos` | member | `{ trip_id, storage_path, taken_at?, lat?, lng? }` | `{ photo_id }` | VO (Should) |
 | POST | `/api/recaps/:tripId/regenerate` | member | `{ tone? }` | `{ recap_id }` | AI |
 | POST | `/api/webhooks/stripe` | Stripe signature | raw | `200` | CO |
@@ -621,6 +645,15 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 Agent runs start inside `/api/messages` through Next.js `after()`, and inside the voice tool route for call follow-ups. There is no public "run the agent" route. Routes that start runs set `maxDuration = 300`.
 
 HTTP errors: 400 validation · 401 no session · 403 not a member, or not the organizer · 404 · 409 conflict (for example, the item is already booked) · 422 domain rule · 502 provider error · 504 provider timeout. Every error body is `{ error: { code, message, retryable } }`.
+
+### 2.5 Meta Model API capabilities (Should)
+
+Each capability has its own provider and flag (§2.3), a mock for development and tests, and a plan task with an owner. None is needed by a core flow, and each one switches to Meta on its own ([ADR 0017](adr/0017-meta-model-api.md)).
+
+- **Voice notes in the trip chat.** The composer's mic button records with `MediaRecorder` (at most 2 minutes). The browser decodes the recording, resamples it to 16 kHz mono with an `OfflineAudioContext`, and encodes 16-bit PCM WAV ([ADR 0018](adr/0018-voice-notes-convert-in-browser.md)). `POST /api/voice-notes` (member; multipart `trip_id`, `client_id`, `audio`) checks the RIFF header, calls `transcribe` with the trip's venue names as keywords, and posts the transcript through `sendMessage` as the member's own text message, so "@agent" in speech starts a run. The audio isn't stored.
+- **Subject segmentation.** `processPhotos` asks SAM 3.1 for "person" in each photo. Best-shot picking adds a subject term (the largest box's area and its distance from the thirds lines), and the recap crops each photo around the same box. Boxes are stored on the photo row as `subject_box` (jsonb, 0–1 coordinates, null when none).
+- **Recap cover.** After `generate_recap`, `muse-image-1.0` composes a cover from the three best photos and the recap's title (`images.edit` with the photos as references, 1792x1024, webp). It's stored in `trip-photos` under the recap, as `recaps.cover_path`. Regenerate keeps the old cover until the new one uploads.
+- **Search grounding for venues.** `PlacesProvider.groundFacts(place, city)` asks the grounding provider for the venue's current hours and prices, with the `web_search` tool on the Responses API. The places cache stores the result in `places.facts` (jsonb: `hours`, `price_note`, `answer_text`, `citations` with `url`, `title`, `start_index`, and `end_index`, `model`, `checked_at`), and a stop's details list the sources. The model decides whether to search, so an empty result is normal; the cached facts older than 7 days are refreshed when a plan uses the venue.
 
 ---
 
@@ -996,7 +1029,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | requester_member_id | uuid | yes | FK → trip_members |
 | status | run_status | no | default `queued` |
 | lease_expires_at | timestamptz | yes | a running run with an expired lease counts as dead |
-| provider | text | no | `xai` \| `google` \| `mock` |
+| provider | text | no | `meta` \| `google` \| `mock` |
 | model | text | no | |
 | replayed | bool | no | default false |
 | step_count | int | no | default 0 |
@@ -1223,26 +1256,26 @@ stateDiagram-v2
     }
 ```
 
-- **Holds and shares.** Each payer has one hold (one PaymentIntent) per mandate. The organizer's hold covers their own share plus each fronted share, so its cap is the sum ($94 on the seeded trip). Each share has an `own` row, and a placeholder's share also has a `fronted` row on the organizer's hold.
+- **Holds and shares.** Each payer has one hold (one PaymentIntent) per mandate. The organizer's hold covers their own share plus each fronted share, so its cap is the sum ($96 on the seeded trip). Each share has an `own` row, and a placeholder's share also has a `fronted` row on the organizer's hold.
 - **Satisfied shares.** A share is satisfied when a row that may pay it is `authorized`: the `own` row, or for a placeholder, the `fronted` row. The mandate moves `open → authorized` when every share is satisfied. So the booking can happen before Person 4 joins, and a member who joins late never blocks the group.
 - **Finalizing:** exactly one caller wins the conditional update `open → authorized` and runs `finalizeMandate`:
   1. `book()`.
   2. **Precedence: each share is paid by exactly one row.** If the share's `own` row is `authorized`, it pays; otherwise the `fronted` row pays. The row that doesn't pay moves to `released`.
   3. Capture each PaymentIntent once, for the sum of the rows it pays. When Person 4's own hold paid their share, the organizer's hold is partially captured for the organizer's own share only, and Stripe releases the remainder.
   4. `complete_mandate` (§3.4) sets `final_cents`, moves the item to `booked`, and writes the `booking_confirmed` card.
-- **After capture.** If a `fronted` row paid Person 4's share and Person 4 later approves, their `own` row goes `pending → authorized → captured` for the same amount. Then the `fronted` row goes `captured → refunded`, and the organizer's PaymentIntent gets a partial refund of that amount. The Stripe idempotency key is `cover-refund:{mandate_id}:{share_member_id}`, and the conditional update `captured → refunded` makes a repeat a no-op. **The refund applies only when the organizer's hold actually paid the share.**
+- **After capture.** If a `fronted` row paid Person 4's share and Person 4 later approves, their `own` row goes `pending → authorized → captured` for the same amount. Then the `fronted` row goes `captured → refunded`, and the organizer's PaymentIntent gets a partial refund of `frontedShareRefundCents`: the share plus the fee it added to the organizer's hold, so the organizer ends up paying what any member pays. Stripe keeps its fee on refunded amounts, and the platform absorbs that ([ADR 0019](adr/0019-fee-pass-through.md)). The Stripe idempotency key is `cover-refund:{mandate_id}:{share_member_id}`, and the conditional update `captured → refunded` makes a repeat a no-op. **The refund applies only when the organizer's hold actually paid the share.**
 - **Fronting, as the user sees it** ([ADR 0004](adr/0004-consent-as-mandates-with-holds.md)):
-  - The organizer's approval card says so: "Approve up to $94, including Person 4's $47 until they join" (§2.1).
+  - The organizer's approval card says so: "Approve up to $96, including Person 4's $48 until they join" (§2.1).
   - Until Person 4's own share is captured, it reads "Fronted by the organizer" in their lane (`ShareStatusBadge`) and on the approval card.
-- **Every order, on the seeded trip** ($42 shares, $47 caps). A database test pins each row (plan CO-212):
+- **Every order, on the seeded trip** ($42 shares; $43.57 per member hold with fees; $48 caps). A database test pins each row (plan CO-212):
 
   | Order | Who pays Person 4's share | Organizer's PaymentIntent | Person 4's PaymentIntent | Refund to the organizer |
   | --- | --- | --- | --- | --- |
-  | Claims and approves before capture | Person 4's own hold | authorized $94, captured $42, $52 released | captured $42 | none |
-  | Claims and approves after capture | the organizer's hold, then Person 4 | authorized $94, captured $84 | captured $42 | $42, once |
-  | Never claims, or claims and declines | the organizer's hold | authorized $94, captured $84 | none | none |
+  | Claims and approves before capture | Person 4's own hold | authorized $96, captured $43.57, $52.43 released | captured $43.57 | none |
+  | Claims and approves after capture | the organizer's hold, then Person 4 | authorized $96, captured $86.82 | captured $43.57 | $43.25, once |
+  | Never claims, or claims and declines | the organizer's hold | authorized $96, captured $86.82 | none | none |
 - **Price change (Should).** `book()` re-quotes at finalize time. In development, the dev toolbar's price-change trigger changes the mock merchant's price before the last approval:
-  - New total within the cap: capture the new amount (`auto_captured`).
+  - New total within the cap: capture the new amount, with its fees recomputed by `holdFees` (`auto_captured`).
   - A drop: capture the lower amount (`auto_captured_lower`).
   - Above the cap: the mandate is cancelled (`price_above_cap`), its holds are released, and a new mandate with `supersedes_mandate_id` asks everyone again (`reapproval_requested`).
 
@@ -1320,7 +1353,7 @@ sequenceDiagram
     participant All as All members
     participant API as Next.js /api/messages
     participant Run as Agent runner
-    participant LLM as Grok 4.7
+    participant LLM as Muse Spark 1.3
     participant Solver as FastAPI /v1/plan
     participant DB as Supabase
     Org->>API: POST message with client_id
@@ -1368,7 +1401,7 @@ sequenceDiagram
 
 ### 5.3 Book with group approval
 
-The organizer asks the agent to book a decided item. Each attending member sees an approval card reading "Approve up to $47". The organizer's card also covers Person 4, who hasn't joined yet: "Approve up to $94, including Person 4's $47 until they join". Once every share is satisfied, the server books and captures. Everyone sees the booked card, and Person 4's lane reads "Fronted by the organizer" (§4.2).
+The organizer asks the agent to book a decided item. Each attending member sees an approval card that itemizes their share and fees, marked "Agent proposed · You approve", with the button "Approve up to $48". The organizer's card also covers Person 4, who hasn't joined yet: "Approve up to $96, including Person 4's $48 until they join". Once every share is satisfied, the server books and captures. Everyone sees the booked card, and Person 4's lane reads "Fronted by the organizer" (§4.2).
 
 ```mermaid
 sequenceDiagram
@@ -1377,7 +1410,7 @@ sequenceDiagram
     participant Mem as Person 2 and Person 3
     participant All as All members
     participant Run as Agent runner
-    participant LLM as Grok 4.7
+    participant LLM as Muse Spark 1.3
     participant Pay as payments server
     participant Book as book() mock merchant
     participant Stripe as Stripe test mode
@@ -1393,7 +1426,7 @@ sequenceDiagram
     Pay->>Stripe: create and confirm PaymentIntent, manual capture, Idempotency-Key pi-auth
     Stripe-->>Pay: requires_capture
     Pay->>DB: that payer's rows pending to authorized
-    Org->>Pay: approve: one hold up to $94, for own share and Person 4's fronted share
+    Org->>Pay: approve: one hold up to $96, for own share and Person 4's fronted share
     Pay->>Stripe: one authorization
     Pay->>DB: organizer's own and fronted rows authorized
     Pay->>DB: conditional update mandate open to authorized when every share is satisfied (one caller wins)
@@ -1415,7 +1448,7 @@ sequenceDiagram
     participant Org as Organizer
     participant All as All members
     participant Run as Agent runner
-    participant LLM as Grok 4.7
+    participant LLM as Muse Spark 1.3
     participant Voice as voice server
     participant EL as ElevenLabs Agents
     participant Rest as Restaurant
@@ -1495,7 +1528,7 @@ sequenceDiagram
     participant User as Member
     participant Page as /trip/slug/recap
     participant API as /api/recaps/tripId/regenerate
-    participant LLM as Grok 4.7
+    participant LLM as Muse Spark 1.3
     participant DB as Supabase
     User->>Page: open a past trip's recap
     Page->>DB: recap by trip slug (member) or share slug (public, Should)
@@ -1508,7 +1541,7 @@ sequenceDiagram
     DB-->>User: recaps and messages changes, refetch
 ```
 
-`processPhotos` handles the photos: FastAPI analyzes them, and Grok vision writes captions. For the seeded past trip, it runs once through `pnpm demo:process-photos`, and the results are saved as seed fixtures.
+`processPhotos` handles the photos: FastAPI analyzes them, and Muse Spark vision writes captions. For the seeded past trip, it runs once through `pnpm demo:process-photos`, and the results are saved as seed fixtures.
 
 ---
 
@@ -1618,8 +1651,12 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 
 | Dependency | Timeout | Retries | Fallback |
 | --- | --- | --- | --- |
-| Grok, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
-| Grok vision, recap | 20 s | 1 | keep the previous recap; show a toast |
+| Muse Spark, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
+| Muse Spark vision, recap | 20 s | 1 | keep the previous recap; show a toast |
+| Meta ASR, voice note | 30 s | 1 | the composer keeps the recording and shows Try again; nothing is posted |
+| SAM 3.1, photo | 15 s | 1 | offline job; the photo keeps its other scores and is retried by hand |
+| Muse Image, recap cover | 60 s | 0 | the recap keeps its previous cover, or none |
+| Search grounding, venue | 20 s | 1 | the stop shows its cached facts and when they were checked |
 | FastAPI `/v1/plan` | 8 s | 1 | an error card with Try again. Inside FastAPI, enumeration covers a CP-SAT failure (§2.2). |
 | FastAPI `/v1/photos/analyze` | 20 s | 0 | offline job; retry by hand |
 | Stripe | 10 s | 2 (SDK `maxNetworkRetries`, same idempotency key) | the hold becomes `failed`; the card shows "Try again" |
@@ -1766,6 +1803,8 @@ Card catalog:
 | member_joined | VO | `members` | none |
 | error | FE | none | Try again (if retryable) |
 
+**Money surfaces.** The `plan`, `approval`, `booking_confirmed`, and `price_change` cards (`MONEY_CARD_TYPES` in `@agp/shared`), and the lanes' share badges, render `HumanInLoopLabel` ("Agent proposed · You approve") in the card header, as muted text that screen readers read before the amounts. The approval card's fee list (§2.1) sits between the shares and the approve button, so every number is visible before the tap.
+
 ### 8.5 Loading, error, empty, and interaction states
 
 | View | Loading | Empty | Error |
@@ -1808,12 +1847,17 @@ Card catalog:
 | `SUPABASE_SECRET_KEY` | server | yes | or the legacy service role key; only the admin client uses it |
 | `NEXT_PUBLIC_DEMO_MODE` | public | yes | `true` \| `false`; `true` is dev mode (§9.4). Never true in production. |
 | `DEMO_ADMIN_TOKEN` | server | in dev mode | the `x-demo-token` value for `/api/demo/*` |
-| `LLM_PROVIDER` | server | yes | `xai` \| `google` \| `mock` |
-| `AGENT_MODEL` | server | yes | default `grok-4.7` |
-| `VISION_MODEL` | server | yes | default `grok-4.7` |
+| `LLM_PROVIDER` | server | no | `meta` (default) \| `google` \| `mock` |
+| `AGENT_MODEL` | server | when `google` | default `muse-spark-1.3`; with `google`, set a Gemini model ID |
+| `VISION_MODEL` | server | when `google` | default `muse-spark-1.3`; with `google`, set a Gemini model ID |
 | `AGENT_RECORD` | server | no | `1` records agent runs to fixtures |
-| `XAI_API_KEY` | server | when `xai` | |
+| `META_MODEL_API_KEY` | server | when `meta`, or any Meta capability is `real` | bearer token for `https://api.meta.ai/v1` |
+| `META_MODEL_API_BASE_URL` | server | no | default `https://api.meta.ai/v1` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | server | when `google` | |
+| `TRANSCRIBE_PROVIDER`, `TRANSCRIBE_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-voice-transcribe-1.0` |
+| `SEGMENT_PROVIDER`, `SEGMENT_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `sam-3.1` |
+| `IMAGE_PROVIDER`, `IMAGE_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-image-1.0` |
+| `GROUNDING_PROVIDER`, `GROUNDING_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-spark-1.3` |
 | `OPTIMIZER_URL` | server | yes | Railway URL, or `http://localhost:8000` |
 | `OPTIMIZER_TOKEN` | server | yes | shared with the optimizer |
 | `PAYMENTS_PROVIDER` | server | yes | `real` \| `mock` |
@@ -1854,7 +1898,8 @@ These use the web server variables, plus `DEMO_SEED_SECRET` (salts Person 4's in
 | Flag | Value | Effect |
 | --- | --- | --- |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` (dev mode) | seeded-user login picker; dev toolbar; test card attached automatically for claimers; `VOICE_TO_NUMBER_OVERRIDE` required; `/api/demo/*` enabled |
-| `LLM_PROVIDER` | `mock` | recorded tool decisions and fixture captions; no Grok calls |
+| `LLM_PROVIDER` | `mock` | recorded tool decisions and fixture captions; no Model API calls |
+| `TRANSCRIBE_PROVIDER`, `SEGMENT_PROVIDER`, `IMAGE_PROVIDER`, `GROUNDING_PROVIDER` | `mock` (default) | fixture transcripts, boxes, covers, and venue facts; each switches to Meta on its own |
 | `PAYMENTS_PROVIDER` | `mock` | no Stripe calls; holds authorize and capture at once; `pm_mock_declined` declines |
 | `VOICE_PROVIDER` | `mock` | no phone call; the mock plays `VOICE_MOCK_SCENARIO` against the real tool route and the post-call webhook (by default, a confirmation at 19:45 after 4 s, then a post-call event after 8 s) |
 | `PLACES_PROVIDER` | `mock` | fixture venues only |
@@ -1898,7 +1943,7 @@ Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, 
   - Dinner isn't planned. It's the fourth slot, so it stays a TBD block for everyone until the restaurant call books it (§2.1 `plan_day`). Until then, the map shows a provisional "Dinner, TBD" pin in Midtown with dashed routes merging there, and the lanes show the same stop (§8.3).
 
   `test_seeded_trip_plan` pins the plan above, so fixture changes can't silently change it. `test_seeded_replan` checks the restaurant call's re-plan. With the aquarium booked and dinner confirmed at 19:45, the re-plan's computed output moves the afternoon to 15:00–18:00, and no shifted item falls outside its venue's opening hours. The shift is computed from the confirmed time; no code or hand-written fixture contains it.
-- **Aquarium tickets:** sold by the mock merchant at $42 per person. With the 110% cap, each share shows "Approve up to $47". Person 1's card shows "Approve up to $94, including Person 4's $47 until they join".
+- **Aquarium tickets:** sold by the mock merchant at $42 per person. With the 110% cap and fees, each share shows "Approve up to $48". Person 1's card shows "Approve up to $96, including Person 4's $48 until they join".
 - **Restaurant:** one restaurant in the cache is the call target. Its fixture `phone` is a fictional 555-01xx number, and in dev mode calls go to `VOICE_TO_NUMBER_OVERRIDE` (§9.1).
 - **Routes:** geometry for every pair of consecutive stops in the top 3 plans, walking and driving, can be cached into a fixture so seeding makes no routing calls.
 
@@ -2030,3 +2075,6 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 1. **Planning docs are public.** The repo is public on GitHub. `planning/` and `task_plan.md` are tracked, except `planning/adr/` and `planning/master-plan.docx` (which predates the Person 1–4 labels). `skills/` and every `AGENTS.md` are gitignored.
 2. **Magic links replace anonymous and password auth** ([ADR 0016](adr/0016-magic-link-auth.md), superseding 0013). Members, the dev-mode picker, invite claims, and the database test helper all sign in by magic link. `DEMO_SEED_PASSWORD` is renamed `DEMO_SEED_SECRET`.
 3. **Milestone 1 audit.** VO-101, VO-102, VO-104, CO-101, CO-102, and CO-103 went back to not done: no hosted project is linked, the migrations were only applied to a local stack, and the session-survives-reload check never ran. FE-103 was re-verified. `/` is a static page until FE-202, and a route test fails on any link to a missing route.
+4. **Meta's Model API replaces xAI** ([ADR 0017](adr/0017-meta-model-api.md)). `LLM_PROVIDER` is `meta` (default) | `google` | `mock`, with model IDs from env: `muse-spark-1.3` for planning, tool calls, captions, and best-shot scoring. Voice notes (`muse-voice-transcribe-1.0`), subject segmentation (`sam-3.1`), the recap cover (`muse-image-1.0`), and search grounding are Should features, each with its own flag and mock (§2.5). ElevenLabs keeps the outbound restaurant call. `agent_runs.provider` now allows `meta` instead of `xai`.
+5. **Possible later adapters, not built.** xAI (Grok) could return as another `LLM_PROVIDER` value through `@ai-sdk/xai`. Muse Glimmer, Meta's open-weights model, has no hosted Model API endpoint: it would run self-hosted (vLLM, SGLang, llama.cpp) or through a third party such as Together AI, behind an OpenAI-compatible base URL. Either needs its own ADR first.
+6. **Money surfaces** ([ADR 0019](adr/0019-fee-pass-through.md)). Every approval card itemizes the share, the processor fee (passed through, 2.9% + 30¢, grossed up), a $0 platform fee, and the cap, from one function (`holdFees` in `@agp/shared`). Caps now include fees, so the seeded caps are $48 per member and $96 for the organizer's hold. Every money surface says "Agent proposed · You approve", and a copy test keeps "paid" away from the agent.

@@ -117,7 +117,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 **Pass when all of these are true:**
 
 - [ ] Person 1's browser session sends "@agent plan Saturday, $80 each, Person 2's vegetarian, Person 4 joins later." Within 20 s, and without a reload, Person 2's session shows the plan card.
-- [ ] That run went through a real model (`LLM_PROVIDER=xai`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
+- [ ] That run went through a real model (`LLM_PROVIDER=meta`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
 - [ ] The same prompt with `LLM_PROVIDER=mock` produces the same card, and `agent_runs.replayed = true`.
 - [ ] `GET https://<vercel-url>/api/health` returns `{ web: ok, db: ok, optimizer: ok }`.
 - [ ] All 7 tool input modules and all 11 card modules exist in `@agp/shared`. `registry.ts` lists 7 tools, and `cards.tsx` maps 11 card types.
@@ -174,12 +174,14 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/env/env.test.ts` passes:
     - `fails boot with a list of every missing required variable`
-    - `requires XAI_API_KEY only when LLM_PROVIDER=xai, and GOOGLE_GENERATIVE_AI_API_KEY only when google`
+    - `LLM_PROVIDER defaults to meta and needs META_MODEL_API_KEY; google needs its key and explicit model IDs`
+    - `each Meta capability has its own flag, mock by default, and needs META_MODEL_API_KEY only when real`
+    - `model IDs come from env, with the verified Meta defaults`
     - `rejects a live Stripe key (sk_live_)`
     - `requires VOICE_TO_NUMBER_OVERRIDE in E.164 when NEXT_PUBLIC_DEMO_MODE=true`
     - `accepts the build profile: every provider mock and no provider keys`
   - [ ] Check: `web/.env.example` contains `VOICE_TO_NUMBER_OVERRIDE=+15555550100` and no other phone number.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
+- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
 - **Commit:** `feat(env): validated server and client env with examples`
 
 #### VO-104 · Supabase clients and session proxy · Must
@@ -339,6 +341,17 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - [ ] Check: a message sent in one member's session appears in another's within 2 s, with no reload.
 - **Commit:** `feat(realtime): trip channel with coalesced query invalidation`
 
+#### FE-108 · Human-in-the-loop copy rule · Must
+
+- **Files:** `packages/shared/src/copy/{human-in-loop.ts,human-in-loop.test.ts}`, `web/src/lib/copy/human-in-loop-copy.test.ts`
+- **Depends on:** AI-102
+- **Produces:** `HUMAN_IN_LOOP_LABEL` ("Agent proposed · You approve"), `MONEY_CARD_TYPES` (`plan`, `approval`, `booking_confirmed`, `price_change`), and `pairsAgentWithPaid(text, { speaker? })`. The web test scans every non-test file in `web/src`, `web/scripts/demo/fixtures`, and `packages/shared/src`.
+- **Done when:**
+  - [x] `pnpm --filter @agp/shared test -- src/copy` passes: the exact label, the money card types, five agent-as-payer phrasings flagged, first-person claims flagged only with `speaker: "agent"`, and six person-pays phrasings allowed.
+  - [x] `pnpm --filter web test -- src/lib/copy` passes: `no copy, prompt, or fixture makes the agent the one who paid`, and a planted "Tickets paid by the agent" fails it.
+- **Status:** done (2026-09-25). 16 shared tests and 2 web tests pass (RED first: "Cannot find module ./human-in-loop").
+- **Commit:** `feat(shared): fee breakdown and human-in-the-loop copy rules`
+
 ### M1 · AI
 
 #### AI-101 · FastAPI skeleton with the plan stub · Must
@@ -396,7 +409,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Files:** `web/src/lib/providers/llm/{types.ts,real.ts,mock.ts,index.ts,mock.test.ts}`, `web/src/lib/agent/{recording-key.ts,recording-key.test.ts}`, `web/scripts/demo/fixtures/agent-recordings/plan-saturday-80-each-person-2s-vegetarian-person-4-joins-later.json` (hand-written: one `plan_day` step)
 - **Depends on:** AI-103, VO-103
 - **Produces:**
-  - `getLlmProvider()`, picking `xai`, `google`, or `mock` from `LLM_PROVIDER`.
+  - `getLlmProvider()`, picking `meta`, `google`, or `mock` from `LLM_PROVIDER`. `meta` is `@ai-sdk/openai-compatible` at `META_MODEL_API_BASE_URL` with `supportsStructuredOutputs: true` (ADR 0017).
   - `runAgent` per design §2.3: AI SDK 7 tool loop, 6 steps at most, 25 s per step, 90 s per run.
   - `recordingKey(prompt | { trigger, slotKey })` and `recordingFileName(key)`.
 - **Done when:**
@@ -405,7 +418,9 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `recordingFileName("call_completed:dinner") is "call_completed-dinner.json"`
     - `mock runAgent returns the recorded steps in order and replayed = true`
     - `mock runAgent without a recording throws a named error`
-- **Commit:** `feat(agent): llm provider with xai, google, and replay mock`
+    - `the meta provider never sends a tool_choice other than auto` (Meta returns 400 otherwise)
+    - `meta generateObject sends response_format json_schema, not a forced tool call`
+- **Commit:** `feat(agent): llm provider with meta, google, and replay mock`
 
 #### AI-105 · Agent context and handles · Must
 
@@ -423,7 +438,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 #### AI-106 · Agent runner · Must
 
 - **Files:** `web/src/lib/agent/{runner.ts,run-tool.ts,broadcast.ts}`, `web/src/lib/agent/index.ts`, `web/tests/db/runner.test.ts`
-- **Depends on:** AI-104, AI-105, CO-102
+- **Depends on:** AI-104, AI-105, CO-102, FE-108
 - **Produces:**
   - `startAgentRun(runId)`: claims the run (`queued → running`, 120 s lease), runs the loop, and writes the final agent text message.
   - `runTool(ctx, toolName, input)`: returns a stored `succeeded` output without re-running the handler.
@@ -434,6 +449,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `a succeeded tool_calls row is returned without calling the handler again`
     - `a handler that throws writes one error card and marks the run failed`
     - `a successful run ends succeeded with exactly one agent text message`
+    - `a final text that makes the agent the payer (pairsAgentWithPaid, speaker agent) is replaced with "I proposed it. Each of you approves your own share."` (HumanInLoopLabel)
 - **Commit:** `feat(agent): runner with leases, idempotent tool calls, and status broadcasts`
 
 #### AI-107 · Optimizer client and the `plan_day` slice · Must
@@ -578,6 +594,23 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `a client component importing lib/providers is an error`
   - [ ] Check: a push to `main` runs all three jobs green.
 - **Commit:** `ci: lint, typecheck, tests, pytest, and contracts drift`
+
+#### CO-107 · Fee breakdown function · Must
+
+- **Files:** `packages/shared/src/money/{fees.ts,fees.test.ts}`, `packages/shared/src/index.ts`
+- **Depends on:** AI-102
+- **Produces:** `holdFees({ sharesCents, capPercent }) → { shareCents, processorFeeCents, platformFeeCents, totalCents, capCents }`, `shareCapCents(shareCents, capPercent)`, `frontedShareRefundCents({ ownSharesCents, frontedShareCents })`, and `FEE_SCHEDULE` (2.9% + 30¢, and a $0 platform fee). The only fee math in the repo (ADR 0019).
+- **Done when:**
+  - [x] `pnpm --filter @agp/shared test -- src/money` passes:
+    - `a $42 share: processor fee $1.57, platform fee $0, total $43.57, cap $48 at 110%`
+    - `itemizes the platform fee even when it's $0`
+    - `a hold paying two shares (the organizer fronting Person 4) pays one fixed fee; its cap is the sum of the share caps`
+    - `after the processor's fee, the platform always nets at least the shares` (every 7th cent up to $500)
+    - `the cap covers the capped price plus its fees, and is never below the total`
+    - `rejects fractional or negative cents, no shares, and a cap percent outside 100–125`
+    - `refunds the fronted share plus the fee it added, so the organizer ends up paying what any member pays`
+- **Status:** done (2026-09-25). 7 tests pass (RED first: "Cannot find module ./fees").
+- **Commit:** `feat(shared): fee breakdown and human-in-the-loop copy rules`
 
 ---
 
@@ -865,6 +898,18 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] Check: after planning the seeded trip, the plan and map pages show the same stops, including the Midtown pin with four dashed legs. After the restaurant call books dinner, both show the restaurant, with solid legs.
 - **Commit:** `feat(trip-view): build the view model from itinerary rows`
 
+#### FE-219 · The human-in-the-loop label on every money surface · Must
+
+- **Files:** `web/src/components/human-in-loop-label.tsx`, `web/src/components/card-frame/{card-frame.tsx,card-frame.test.tsx}`, `web/src/lib/tools/{cards.tsx,cards.test.tsx}`, `web/src/features/itinerary/components/lanes-header.tsx`
+- **Depends on:** FE-104, FE-108, FE-206
+- **Produces:** `HumanInLoopLabel`, which `CardFrame` renders in the header of every `MONEY_CARD_TYPES` card, so card owners get it without code of their own. The lanes header shows it whenever a share amount is visible.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/components/card-frame src/lib/tools/cards.test.tsx` passes:
+    - `renderCard shows "Agent proposed · You approve" on every MONEY_CARD_TYPES card, and on no other card type`
+    - `the label is read before the amounts (it precedes them in the DOM)`
+  - [ ] `pnpm --filter web test -- src/features/itinerary` passes: `the lanes header shows the label when a share amount is visible`.
+- **Commit:** `feat(ui): human-in-the-loop label on money surfaces`
+
 ### M2 · AI
 
 #### AI-201 · Optimizer test double and fixture plan · Must
@@ -1106,19 +1151,20 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `propose_purchase has no amount field and strips unknown keys`
     - `cap_percent must be 100–125`
     - `an approval share's cap_cents is at least its share_cents`
+    - `each approval hold carries share, processor fee, platform fee, total, and cap cents, and the platform fee is present even at 0`
     - `booking_confirmed allows a null total for pay at venue`
 - **Commit:** `feat(shared): commerce tool, card, and route schemas`
 
 #### CO-202 · Money helpers · Must
 
 - **Files:** `web/src/lib/money/{split.ts,cap.ts,format.ts,index.ts,money.test.ts}`
-- **Depends on:** FE-102
-- **Produces:** `splitEvenly(totalCents, count, organizerIndex)`, `capFor(shareCents, percent)`, and `formatUsd(cents)`.
+- **Depends on:** FE-102, CO-107
+- **Produces:** `splitEvenly(totalCents, count, organizerIndex)`, `capFor(shareCents, percent)` (a thin wrapper over `shareCapCents` from `@agp/shared`, so caps include fees), and `formatUsd(cents)`.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/money` passes:
     - `splitEvenly(16800, 4) gives 4200 each`
     - `splitEvenly(10001, 3, 0) gives the organizer the extra cent`
-    - `capFor(4200, 110) is 4700`
+    - `capFor(4200, 110) is 4800`
     - `formatUsd(9400) is "$94" and formatUsd(4250) is "$42.50"`
 - **Commit:** `feat(money): even split, caps, and formatting`
 
@@ -1170,7 +1216,8 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/create-mandate.test.ts` passes:
     - `four attendees with Person 4 as a placeholder give own rows pending for Persons 1–3, Person 4's own row awaiting_member, and a fronted row for Person 4's share whose payer is Person 1`
-    - `quote 16800, shares 4200, share caps 4700, total cap 18800, and Person 1's hold cap 9400`
+    - `quote 16800, shares 4200, share caps 4800, total cap 19200, and Person 1's hold cap 9600`
+    - `the card's holds come from holdFees: 4357 for each member's hold, 8682 for Person 1's with Person 4's share`
     - `rejects a non-member actor with not_permitted`
     - `the same idempotency key returns the same mandate`
     - `a second live mandate for the item is rejected`
@@ -1200,7 +1247,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/approve-hold.test.ts` passes:
     - `a member's approval authorizes one PaymentIntent for their cap, with key pi-auth:{mandate_id}:{payer_member_id}`
-    - `the organizer's approval authorizes one PaymentIntent up to 9400 and moves both their own and fronted rows to authorized`
+    - `the organizer's approval authorizes one PaymentIntent up to 9600 and moves both their own and fronted rows to authorized`
     - `two concurrent approvals call authorize once` (review focus 1)
     - `a declined card moves the hold to declined and the mandate to partially_declined`
   - [ ] `pnpm --filter web test -- src/app/api/mandates` passes: `403 for a non-member`.
@@ -1238,12 +1285,12 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/features/payments/lib/plan-captures.test.ts` passes (review focus 5):
-    - `Person 4's own row authorized: pi_person4 captures 4200, pi_person1 captures 4200, and the fronted row is released`
-    - `Person 4's own row awaiting_member: pi_person1 captures 8400 for its own and fronted rows`
+    - `Person 4's own row authorized: pi_person4 captures 4357, pi_person1 captures 4357, and the fronted row is released`
+    - `Person 4's own row awaiting_member: pi_person1 captures 8682 for its own and fronted rows`
     - `every share has exactly one paying row`
   - [ ] `pnpm --filter web test:db -- tests/db/finalize-mandate.test.ts` passes:
     - `two concurrent finalizers produce one booking and one capture per PaymentIntent` (review focus 1)
-    - `each PaymentIntent is captured once, with amount_to_capture equal to the sum of the rows it pays`
+    - `each PaymentIntent is captured once, with amount_to_capture equal to holdFees' total for the rows it pays`
     - `a book() failure releases every hold and cancels the mandate with booking_failed`
     - `the item ends booked and pinned, with exactly one booking_confirmed card`
     - `complete_mandate rejects a non-member actor with not_permitted`
@@ -1261,9 +1308,9 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - **Produces:** `onPlaceholderClaimed(memberId) → { pendingMandateIds }`, and `settleFrontedShare({ mandateId, memberId })`. `approveHold` calls `settleFrontedShare` when the mandate is already captured. Refunds carry `mandate_id` and `share_member_id` metadata. The `charge.refunded` handler (added here) marks that share's `fronted` row refunded, with the same conditional update as the synchronous path.
 - **Done when**, covering design §11.1 item 3 and §11.3 item 4. Each order in the design §4.2 table is one test:
   - [ ] `pnpm --filter web test:db -- tests/db/fronting.test.ts` passes (mock payments; review focus 5):
-    - `claim before capture: Person 4's PaymentIntent captures 4200, Person 1's captures 4200 of 9400, the fronted row is released, and nothing is refunded`
-    - `claim after capture: Person 1's PaymentIntent captured 8400; Person 4's approval captures 4200, then refunds Person 1 4200 once, with key cover-refund:{mandate_id}:{member_id}`
-    - `never claims: Person 1's PaymentIntent captured 8400, Person 4's own row stays awaiting_member, and nothing is refunded`
+    - `claim before capture: Person 4's PaymentIntent captures 4357, Person 1's captures 4357 of 9600, the fronted row is released, and nothing is refunded`
+    - `claim after capture: Person 1's PaymentIntent captured 8682; Person 4's approval captures 4357, then refunds Person 1 4325 (frontedShareRefundCents) once, with key cover-refund:{mandate_id}:{member_id}`
+    - `never claims: Person 1's PaymentIntent captured 8682, Person 4's own row stays awaiting_member, and nothing is refunded`
     - `claims then declines after capture: the fronted row stays captured, and nothing is refunded`
     - `running the settlement twice refunds once`
     - `claiming moves only that member's awaiting_member rows to pending and returns their mandate ids`
@@ -1283,7 +1330,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web test -- src/features/payments/components/share-status-badge.test.tsx` passes:
     - `a captured fronted row with an uncaptured own row reads "Fronted by the organizer"`
     - `a captured own row reads "Paid"`
-    - `a pending own row reads "Approve up to $47"`
+    - `a pending own row reads "Approve up to $48"`
     - `no mandate renders nothing`
     - `the badge states its status in text, not color alone`
 - **Commit:** `feat(payments): share status badge for lanes`
@@ -1484,12 +1531,15 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 #### VO-214 · Approval card · Must
 
 - **Files:** `web/src/lib/tools/propose-purchase/card.tsx`, `web/src/features/payments/components/{approval-card.tsx,approval-card.test.tsx}`, `web/src/features/payments/hooks/use-mandates.ts`, `web/src/features/payments/lib/{approval-copy.ts,approval-copy.test.ts}`
-- **Depends on:** CO-202, CO-209, FE-104
+- **Depends on:** CO-202, CO-209, FE-104, CO-107, FE-219
 - **Produces:** `ApprovalCard` and `useMandates(tripId)` (key `['mandates', tripId]`). Moved from CO: CO-211 became VO-214. The files sit in the payments feature and the `propose-purchase` tool folder, but VO owns them. CO-213's badge reads `useMandates`.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/features/payments` passes:
-    - `a member's button reads "Approve up to $47"`
-    - `Person 1's button reads "Approve up to $94, including Person 4's $47 until they join"`
+    - `a member's button reads "Approve up to $48"`
+    - `Person 1's button reads "Approve up to $96, including Person 4's $48 until they join"`
+    - `above the button, a member's card itemizes "Your share $42.00", "Processor fee $1.57", "Platform fee $0.00", "Total $43.57", and "Up to $48"; Person 1's also lists Person 4's $42.00 share, until they join, with a $2.82 fee and an $86.82 total` (TransparentFeeDisclosure)
+    - `every amount comes from the card's holds; the card computes no fees`
+    - `the card header reads "Agent proposed · You approve"` (HumanInLoopLabel)
     - `Person 4's row reads "Fronted by the organizer" until their own hold is captured, then "Paid"`
     - `the button shows pending with aria-busy, and is disabled after approval`
     - `a captured mandate shows "Booked"`
@@ -1552,7 +1602,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 
 | Order | Switch | Owner | Flows to run after the switch | Done |
 | --- | --- | --- | --- | --- |
-| 1 | `LLM_PROVIDER=xai` (Grok) | AI | plan a day, book, restaurant call | [ ] |
+| 1 | `LLM_PROVIDER=meta` (Muse Spark 1.3) | AI | plan a day, book, restaurant call | [ ] |
 | 2 | `ROUTING_PROVIDER=real` (OpenRouteService) | FE | plan a day (map) | [ ] |
 | 3 | `PAYMENTS_PROVIDER=real` (Stripe test mode) | CO | book with group approval, then placeholder claims | [ ] |
 | 4 | `VOICE_PROVIDER=real` (ElevenLabs) | VO | restaurant call | [ ] |
@@ -1561,9 +1611,9 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 
 - [ ] All four switches are ticked above.
 - [ ] With all four real on the deployed app, starting from freshly seeded data:
-  - The plan prompt produces a plan card from real Grok within 20 s, with `cp_sat` from Railway.
+  - The plan prompt produces a plan card from real Muse Spark within 20 s, with `cp_sat` from Railway.
   - The map draws OpenRouteService street geometry to confirmed stops, and a dashed provisional leg to "Dinner, TBD".
-  - The book prompt creates Stripe test-mode PaymentIntents with manual capture, one per payer: three, with Person 1's authorized up to $94. They're captured after the last approval, and their metadata includes `mandate_id`, `payer_member_id`, and `trip_id`.
+  - The book prompt creates Stripe test-mode PaymentIntents with manual capture, one per payer: three, with Person 1's authorized up to $96. They're captured after the last approval, and their metadata includes `mandate_id`, `payer_member_id`, and `trip_id`.
   - The dinner prompt calls `VOICE_TO_NUMBER_OVERRIDE`. "Booked 7:45 PM" appears before hang-up, the pin moves to the restaurant, and the re-plan card follows.
   - Person 4 claims and approves. Stripe shows one capture on Person 4's PaymentIntent and one partial refund on Person 1's.
 - [ ] For every call, `calls.to_number` equals `VOICE_TO_NUMBER_OVERRIDE`.
@@ -1573,7 +1623,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 
 ### M3 · AI
 
-#### AI-301 · Switch the agent to Grok · Must
+#### AI-301 · Switch the agent to Meta's Model API · Must
 
 - **Files:** `web/src/lib/agent/{prompt.ts,prompt.test.ts}`
 - **Depends on:** AI-212
@@ -1581,8 +1631,8 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
   - [ ] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
     - `the system prompt lists the 7 tools, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
-  - [ ] Check: on the deployed app with `LLM_PROVIDER=xai`, each of the three prompts calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
-- **Commit:** `feat(agent): tune the system prompt for grok`
+  - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
+- **Commit:** `feat(agent): tune the system prompt for muse spark`
 
 #### AI-302 · Plan a day on real providers · Must
 
@@ -1591,12 +1641,12 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Done when:**
   - [ ] Check: from freshly seeded data on the deployed app, the plan card reaches every member within 20 s with `cp_sat` and `solve_ms` under 2000, and the lanes branch at the afternoon.
 
-#### AI-303 · Follow-up re-plan on real Grok · Must
+#### AI-303 · Follow-up re-plan on real Muse Spark · Must
 
 - **Files:** `web/src/lib/agent/prompt.ts` (only if the check fails)
 - **Depends on:** AI-301, VO-212
 - **Done when:**
-  - [ ] Check: with the mock voice, the follow-up run (real Grok) calls `plan_day` in replan mode, and the re-plan card shows the afternoon at 3:00–6:00 PM.
+  - [ ] Check: with the mock voice, the follow-up run (real Muse Spark) calls `plan_day` in replan mode, and the re-plan card shows the afternoon at 3:00–6:00 PM.
 - **Commit (if the prompt changed):** `fix(agent): follow-up re-plan prompt`
 
 #### AI-304 · Model failure check · Should
@@ -1604,7 +1654,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** none
 - **Depends on:** AI-301
 - **Done when:**
-  - [ ] Check: with an invalid `XAI_API_KEY`, the plan prompt ends in an error card with Try again, and the run is `failed`. With `LLM_PROVIDER=google`, the same prompt succeeds.
+  - [ ] Check: with an invalid `META_MODEL_API_KEY`, the plan prompt ends in an error card with Try again, and the run is `failed`. With `LLM_PROVIDER=google` and a Gemini `AGENT_MODEL` and `VISION_MODEL`, the same prompt succeeds.
 
 ### M3 · FE
 
@@ -1683,7 +1733,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** none
 - **Depends on:** CO-301, CO-302
 - **Done when:**
-  - [ ] Check: on the deployed app, the booking flow leaves 3 PaymentIntents (Persons 1–3; Person 1's up to $94) in `requires_capture` after the approvals, then captured for $42, $42, and $84. Each carries `mandate_id`, `payer_member_id`, and `trip_id` metadata, Stripe's logs show the idempotency keys, and a repeated approve creates no second PaymentIntent.
+  - [ ] Check: on the deployed app, the booking flow leaves 3 PaymentIntents (Persons 1–3; Person 1's up to $96) in `requires_capture` after the approvals, then captured for $43.57, $43.57, and $86.82. Each carries `mandate_id`, `payer_member_id`, and `trip_id` metadata, Stripe's logs show the idempotency keys, and a repeated approve creates no second PaymentIntent.
 
 #### CO-304 · Fronting on Stripe · Must
 
@@ -1767,7 +1817,7 @@ The recap flow is built here, then all six core flows run end to end on real pro
     - `mock describeImage returns the fixture caption (120 characters or fewer) and an aesthetic score in 0..1`
     - `generateObject rejects output that fails the schema`
     - `real describeImage sends the image URL with a 20 s timeout and 1 retry`
-- **Commit:** `feat(agent): grok vision captions and structured output`
+- **Commit:** `feat(agent): muse spark vision captions and structured output`
 
 #### AI-402 · Recap generation · Must
 
@@ -2081,6 +2131,81 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 ---
 
+#### VO-S03 · Voice notes: transcription provider and route · Should
+
+- **Files:** `web/src/lib/providers/transcription/{real.ts,mock.ts,index.ts,real.test.ts,mock.test.ts}`, `web/src/lib/audio/{to-wav.ts,to-wav.test.ts}`, `web/src/app/api/voice-notes/{route.ts,route.test.ts}`, `packages/shared/src/api/voice-notes.ts`
+- **Depends on:** FE-105, VO-103
+- **Produces:** the transcription provider (`TRANSCRIBE_PROVIDER`; `muse-voice-transcribe-1.0` at `POST /v1/asr/transcribe`), `toWav(audioBuffer)` (16 kHz mono 16-bit PCM), and `POST /api/voice-notes` (design §2.5, ADR 0018).
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` passes:
+    - `toWav writes a 44-byte header for 16 kHz, mono, 16-bit, and a 1 kHz sine round-trips within one sample`
+    - `the route rejects a non-WAV, stereo, 44.1 kHz, or over-2-minute upload with 400 before calling the provider`
+    - `the real provider sends multipart request JSON (model, keywords) and the WAV, and parses the transcript` (fetch mocked)
+    - `the transcript posts through sendMessage with the upload's client_id, so a retried upload posts once`
+    - `a transcript with "@agent" starts one agent run`
+  - [ ] Check: with `TRANSCRIBE_PROVIDER=real`, a 10-second voice note appears as the member's message within 5 s.
+- **Commit:** `feat(voice): voice notes through meta speech to text`
+
+#### FE-S07 · Voice-note button in the composer · Should
+
+- **Files:** `web/src/features/chat/components/{voice-note-button.tsx,voice-note-button.test.tsx,composer.tsx}`
+- **Depends on:** VO-S03, FE-106
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/features/chat/components/voice-note-button.test.tsx` passes:
+    - `the button is hidden when MediaRecorder or OfflineAudioContext is missing`
+    - `recording shows an elapsed timer, and stops at 2 minutes`
+    - `uploading shows pending with aria-busy; a failure keeps the recording and offers Try again`
+    - `the button is at least 44 px and has an accessible name that changes with its state`
+- **Commit:** `feat(chat): voice-note button`
+
+#### AI-S06 · Subject segmentation for best shots and recap crops · Should
+
+- **Files:** `web/src/lib/providers/segmentation/{real.ts,mock.ts,index.ts,real.test.ts}`, `supabase/migrations/<timestamp>_photo_subject_box.sql`, `web/src/features/gallery/server/{subject-score.ts,subject-score.test.ts}`
+- **Depends on:** VO-401
+- **Produces:** the segmentation provider (`SEGMENT_PROVIDER`; `sam-3.1` on the Responses API through the `openai` SDK), `photos.subject_box`, and a subject term in best-shot scoring (design §2.5).
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/lib/providers/segmentation src/features/gallery/server/subject-score.test.ts` passes:
+    - `the real provider sends input_text "person" with the input_image and parses boxes and scores` (SDK mocked)
+    - `a large subject near a thirds line scores above a small one in a corner`
+    - `a photo with no match scores the same as before segmentation`
+- **Commit:** `feat(gallery): sam subject boxes for best shots`
+
+#### AI-S07 · Recap cover with Muse Image · Should
+
+- **Files:** `web/src/lib/providers/image/{real.ts,mock.ts,index.ts,real.test.ts}`, `supabase/migrations/<timestamp>_recap_cover.sql`, `web/src/features/recap/server/{generate-cover.ts,generate-cover.test.ts}`
+- **Depends on:** AI-402
+- **Produces:** the image provider (`IMAGE_PROVIDER`; `muse-image-1.0` through the `openai` SDK) and `recaps.cover_path`.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/lib/providers/image src/features/recap/server/generate-cover.test.ts` passes:
+    - `the cover uses the three best photos as references at 1792x1024 webp`
+    - `a failed generation keeps the previous cover`
+    - `regenerating uploads the new cover before switching cover_path`
+- **Commit:** `feat(recap): generated cover`
+
+#### AI-S08 · Search grounding behind the places adapter · Should
+
+- **Files:** `web/src/lib/providers/grounding/{real.ts,mock.ts,index.ts,real.test.ts}`, `web/src/lib/providers/places/{real.ts,mock.ts}`, `supabase/migrations/<timestamp>_places_facts.sql`
+- **Depends on:** AI-S04
+- **Produces:** the grounding provider (`GROUNDING_PROVIDER`; the `web_search` tool on the Responses API through the `openai` SDK), `PlacesProvider.groundFacts`, and `places.facts` with citations (design §2.5, ADR 0017).
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/lib/providers/grounding src/lib/providers/places` passes:
+    - `the real provider calls responses.create with tools [{ type: "web_search" }] and maps url_citation annotations to citations` (SDK mocked)
+    - `a response with no annotations stores facts with no citations, and nothing is invented`
+    - `groundFacts caches for 7 days and refreshes older facts`
+  - [ ] Check: with `GROUNDING_PROVIDER=real`, the aquarium's facts list its hours with at least one source URL.
+- **Commit:** `feat(places): search-grounded venue facts with citations`
+
+#### FE-S08 · Venue facts with sources in stop details · Should
+
+- **Files:** `web/src/features/itinerary/components/{venue-facts.tsx,venue-facts.test.tsx}`
+- **Depends on:** AI-S08, FE-210
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/features/itinerary/components/venue-facts.test.tsx` passes:
+    - `hours and prices show with numbered source links that open in a new tab`
+    - `facts older than 7 days say when they were checked`
+    - `no facts renders nothing`
+- **Commit:** `feat(ui): venue facts with sources`
+
 ## Parallelization
 
 **What each engineer works on, per milestone.** Each cell lists that person's tasks, Must first. No two people edit the same file within a milestone. Files that change hands between milestones are listed in the next table.
@@ -2089,7 +2214,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 | --- | --- | --- | --- | --- |
 | **M1** | App, tokens, card frame, send route, chat, Realtime: FE-101–107 | FastAPI stub, contracts, web skeleton, LLM, context, runner, `plan_day` slice: AI-101–107 | Schema files 2–4, `apply_plan` and the function audit, `withPolicy`: CO-101–105. Should: CI and lint rules (CO-106) | Repo, schema file 1, env, clients, seed, sign-in, deploy: VO-101–107 |
 | **M2** | Trip view model first (FE-204), then three tracks in parallel. Lanes: FE-205, FE-206. Map: FE-210, FE-211. Data: FE-209, FE-218. Also shell, trip list, votes, and recovery: FE-201–203, FE-214. Should: FE-207, FE-208, FE-212, FE-213, FE-215–217 | Test double; scoring interface first (AI-202), then scoring, both engines, and the request builder in parallel; `plan_day`, re-plan with the seeded test, plan card, queue, photo API: AI-201–207, AI-209–212, AI-215. Should: AI-208, AI-213, AI-214 | Contracts, money, payments mock, booking, `record_reservation`, mandates, tool, approvals with the Stripe webhook route, finalize, fronting, badge; concurrency suites on mocks: CO-201–205, CO-207–210, CO-212, CO-213. Should: CO-214 | Schema file 5, webhooks, voice provider, call tool, confirm, post-call, call card, claim, invite page, joined card, mock voice (VO-212), booking and approval cards (VO-213, VO-214, moved from CO): VO-202–214. Should: VO-201 (do it early), VO-215–219 |
-| **M3** | ORS switch, badge in lanes, lanes and map check: FE-301–303. Should: FE-304, FE-305 | Grok switch, plan check, follow-up re-plan: AI-301–303. Should: AI-304 | Stripe provider, customers, Stripe switch, fronting on Stripe, concurrency suites on Stripe test mode: CO-301–305 | Callback URLs, ElevenLabs switch, run limits: VO-301, VO-302, VO-304. Should: VO-303 |
+| **M3** | ORS switch, badge in lanes, lanes and map check: FE-301–303. Should: FE-304, FE-305 | Meta switch, plan check, follow-up re-plan: AI-301–303. Should: AI-304 | Stripe provider, customers, Stripe switch, fronting on Stripe, concurrency suites on Stripe test mode: CO-301–305 | Callback URLs, ElevenLabs switch, run limits: VO-301, VO-302, VO-304. Should: VO-303 |
 | **M4** | Should: FE-401–403. Takes VO-403 if VO falls behind. | Vision, recap generation, recap view: AI-401–403. Should: AI-404, AI-405 | Should: CO-401, then the Should queue | Photo pipeline, past-trip seed, gallery: VO-401–403. Should: VO-404, VO-406 |
 | **Should queue** | FE-S01–S06 | AI-S01–S05 | CO-S01, CO-S02, CO-S04, CO-S05 | VO-S01, VO-S02 |
 
@@ -2142,10 +2267,10 @@ This map shows that every Must task sits under a core user flow (design §5), or
 
 | Core flow | Must tasks |
 | --- | --- |
-| Foundation and enablers (every flow) | FE-101–107, FE-201, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
+| Foundation and enablers (every flow) | FE-101–108, FE-201, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
 | 5.1 Plan a day | FE-204, FE-206, FE-209–211, FE-214, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-301, AI-302 |
 | 5.2 Vote | FE-203, FE-205 |
-| 5.3 Book with group approval | CO-201–204, CO-207–210, CO-213, CO-301–303, CO-305, VO-213, VO-214, FE-302 |
+| 5.3 Book with group approval | CO-107, CO-201–204, CO-207–210, CO-213, CO-301–303, CO-305, VO-213, VO-214, FE-219, FE-302 |
 | 5.4 Restaurant call | VO-203–208, VO-212, VO-301, VO-302, CO-205, AI-210, AI-303 |
 | 5.5 Placeholder claims their lane | VO-209–211, CO-212, CO-304 |
 | 5.6 Recap | FE-202, VO-202, VO-401–403, AI-215, AI-401–403 |
@@ -2180,7 +2305,7 @@ Removed dependencies that were only for convenience:
 | Before (15 Must tasks) | VO-101 → FE-101 → FE-102 → VO-103 → VO-104 → FE-103 → FE-104 → FE-106 → FE-107 → FE-204 → FE-205 → FE-206 → FE-218 → FE-301 → FE-303 |
 | After (13 Must tasks) | VO-101 → FE-101 → FE-102 → VO-102 → CO-101 → CO-102 → CO-103 → CO-207 → CO-209 → CO-210 → CO-212 → VO-211 → CO-304 |
 
-The longest chains within Frontend's own work are now 8 (lanes, through FE-203's vote contract), 6 (map), and 6 (data). FE-303 reaches 12, but only because it checks a real Grok plan (AI-302).
+The longest chains within Frontend's own work are now 8 (lanes, through FE-203's vote contract), 6 (map), and 6 (data). FE-303 reaches 12, but only because it checks a real Muse Spark plan (AI-302).
 
 A second chain ties at 13 and ends at the recap gallery: … AI-106 → AI-107 → AI-215 → VO-401 → VO-402 → VO-403. So in Milestone 2, protect CO's money chain (CO-207 → CO-209 → CO-210 → CO-212) and AI's photo endpoint (AI-215) from interruptions.
 
@@ -2196,4 +2321,4 @@ A second chain ties at 13 and ends at the recap gallery: … AI-106 → AI-107 �
    - The same concurrency and webhook suites run on mocks in M2 and on Stripe test mode in CO-305.
 3. **AI-210, re-planning through `apply_plan`.** It's plpgsql that supersedes items and shifts times, it joins both the engines chain and the `plan_day` chain, and the restaurant call flow depends on it. Mitigations: AI-207 computes the shift in a pure, tested function first, and `test_seeded_replan` fails loudly if the seed or the hours drift.
 
-Next in line: AI-301. If Grok picks the wrong tool, the user sees the wrong card, so the prompt checks run 5 of 5 before the switch counts.
+Next in line: AI-301. If Muse Spark picks the wrong tool, the user sees the wrong card, so the prompt checks run 5 of 5 before the switch counts.

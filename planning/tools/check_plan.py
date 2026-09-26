@@ -29,7 +29,8 @@ LOGISTICS = [
     for p, flags in [
         (r"hackathon|HackGT|HexLabs|SpaceXAI|Sponsor Fair|sponsor", re.I),
         (r"\bjudg(e|es|ing)\b|\bExpo\b|rehears|hotspot|venue Wi-?Fi|demo video|backup video", re.I),
-        (r"\b(Oracle|Visa|Meta)\b", 0),
+        # "Meta" left this list on 2026-09-25: Meta's Model API is now the model provider.
+        (r"\b(Oracle|Visa)\b", 0),
         (r"\bhour 0\b|\bhours \d+[–-]\d+\b|\bh\d{1,2}\b", 0),
         (r"\bon stage\b|\bdemo (beat|path|script)\b", re.I),
     ]

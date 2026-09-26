@@ -6,7 +6,7 @@ Two lists: accounts and keys (section A), then the scaffold, in order (section B
 
 Keep keys in a shared password manager, never in the repo. Each line names the variable it fills (see [design §9](design.md#9-environment-variables)).
 
-- [ ] **xAI:** console account and a test call to Grok 4.7 in the Playground → `XAI_API_KEY`
+- [ ] **Meta Model API:** account on dev.meta.ai, an API key, and a test call to `muse-spark-1.3` → `META_MODEL_API_KEY` (ADR 0017)
 - [ ] **Google AI Studio:** Gemini key → `GOOGLE_GENERATIVE_AI_API_KEY`
 - [ ] **Twilio:** account upgraded (no trial notice), and a voice-capable US number bought
 - [ ] **ElevenLabs Agents:**
@@ -41,7 +41,7 @@ Commands are for bash (macOS, Linux, or Git Bash on Windows). Run them from the 
 
 ```bash
 for p in next@16.3.5 react@19.3.0 react-dom@19.3.0 typescript@6.0.3 tailwindcss@4.3.3 shadcn@4.21.0 \
-  maplibre-gl@6.10.0 ai@7.0.109 @ai-sdk/xai@5.0.5 @ai-sdk/google@4.0.76 zod@4.6.5 \
+  maplibre-gl@6.10.0 ai@7.0.109 @ai-sdk/openai-compatible@3.0.53 openai@7.23.0 @ai-sdk/google@4.0.76 zod@4.6.5 \
   @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 @elevenlabs/elevenlabs-js@2.68.0 \
   @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 exifr@7.1.3 @duffel/api@4.30.0; do
   npm view "$p" version >/dev/null 2>&1 && echo "ok       $p" || echo "MISSING  $p"
@@ -95,7 +95,7 @@ cd ..
 ### B4. Runtime and tooling dependencies
 
 ```bash
-pnpm --filter web add --save-exact ai@7.0.109 @ai-sdk/xai@5.0.5 @ai-sdk/google@4.0.76 zod@4.6.5 \
+pnpm --filter web add --save-exact ai@7.0.109 @ai-sdk/openai-compatible@3.0.53 openai@7.23.0 @ai-sdk/google@4.0.76 zod@4.6.5 \
   @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 @elevenlabs/elevenlabs-js@2.68.0 \
   @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 exifr@7.1.3 server-only @sentry/nextjs@10
 pnpm --filter web add -D --save-exact prettier@3 vitest@4 @playwright/test @axe-core/playwright tsx
@@ -191,7 +191,7 @@ ngrok http 3000                                                     # temporary 
 The full pass/fail list is Milestone 1 in [`plan.md`](plan.md#milestone-1-scaffold-and-vertical-slice).
 
 - [ ] In Person 1's browser session, the "@agent" mention starts a run.
-- [ ] Grok calls `plan_day`, and FastAPI `/v1/plan` returns a stub.
+- [ ] Muse Spark calls `plan_day`, and FastAPI `/v1/plan` returns a stub.
 - [ ] The Supabase write lands in one transaction (`apply_plan`).
 - [ ] The Realtime refetch runs, and **the plan card renders in Person 2's session** without a reload.
 - [ ] The same slice passes with `LLM_PROVIDER=mock`.
