@@ -32,6 +32,8 @@ describe("GET /api/cron/expire-mandates", () => {
 
   it("401 for a wrong token, a token without Bearer, or when CRON_SECRET isn't set", async () => {
     expect((await call("Bearer not-the-secret")).status).toBe(401);
+    // Same length as the real header, so only the comparison itself can refuse it.
+    expect((await call(`Bearer ${"y".repeat(24)}`)).status).toBe(401);
     expect((await call(TOKEN)).status).toBe(401);
     env.CRON_SECRET = undefined;
     expect((await call("Bearer ")).status).toBe(401);
@@ -44,6 +46,16 @@ describe("GET /api/cron/expire-mandates", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ expired: ["00000000-0000-4000-8000-0000000000e1"], failed: [] });
     expect(expireMandates).toHaveBeenCalledTimes(1);
+  });
+
+  it("a run where some releases failed answers 500 with both lists, so the cron log shows a failure", async () => {
+    expireMandates.mockResolvedValue({ expired: ["00000000-0000-4000-8000-0000000000e1"], failed: ["00000000-0000-4000-8000-0000000000e2"] });
+    const response = await call(`Bearer ${TOKEN}`);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      expired: ["00000000-0000-4000-8000-0000000000e1"],
+      failed: ["00000000-0000-4000-8000-0000000000e2"],
+    });
   });
 
   it("a failed run returns the error body, so the cron log shows it", async () => {

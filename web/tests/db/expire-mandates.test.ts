@@ -53,14 +53,19 @@ describe("expireMandates", () => {
     const [a, b] = await Promise.all([expireMandates(), expireMandates()]);
 
     expect([...a.expired, ...b.expired].filter((id) => id === s.mandateId)).toHaveLength(1);
+    expect([...a.failed, ...b.failed]).not.toContain(s.mandateId);
     const statuses = [...(await shareRows(s.mandateId)).values()].map((r) => r.status);
     expect(statuses.every((st) => st === "released")).toBe(true);
     expect((await kit.eventsFor(pi1)).filter((e) => e.type === "payment_intent.canceled")).toHaveLength(1);
   });
 
   it("a release that fails on one mandate still releases the others, and the next run retries it", async () => {
-    const stuck = await mandateScenario(batch, payers);
-    const other = await mandateScenario(batch, payers);
+    // Mandates are processed in id order, so the failing one goes first and would stop a loop that didn't isolate it.
+    const sorted = [await mandateScenario(batch, payers), await mandateScenario(batch, payers)].sort((x, y) =>
+      x.mandateId.localeCompare(y.mandateId),
+    );
+    const stuck = sorted[0]!;
+    const other = sorted[1]!;
     for (const s of [stuck, other]) await approveHold({ mandateId: s.mandateId, memberId: s.person[0] });
     const stuckPi = (await shareRows(stuck.mandateId)).get(`${stuck.person[0]}:own`)!.stripe_payment_intent_id!;
     await backdate(stuck.mandateId);
@@ -69,7 +74,8 @@ describe("expireMandates", () => {
     const failing: PaymentsProvider = {
       ...real,
       release: async (input) => {
-        if (input.paymentIntentId === stuckPi) throw new AppError("provider_unavailable", "Stripe did not release the hold.");
+        // A decline-shaped failure, not an outage, so the run carries on to the next mandate.
+        if (input.paymentIntentId === stuckPi) throw new AppError("invalid_input", "This PaymentIntent can't be released.");
         return real.release(input);
       },
     };
@@ -86,6 +92,34 @@ describe("expireMandates", () => {
 
     expect(second.failed).not.toContain(stuck.mandateId);
     expect([...(await shareRows(stuck.mandateId)).values()].every((r) => r.status === "released")).toBe(true);
+    expect((await kit.eventsFor(stuckPi)).map((e) => e.type)).toContain("payment_intent.canceled");
+  });
+
+  it("a provider outage stops the run at the first failure; the rest wait for the next run", async () => {
+    const both = [await mandateScenario(batch, payers), await mandateScenario(batch, payers)];
+    for (const s of both) {
+      await approveHold({ mandateId: s.mandateId, memberId: s.person[0] });
+      await backdate(s.mandateId);
+    }
+    const real = getPaymentsProvider();
+    let releases = 0;
+    const down: PaymentsProvider = {
+      ...real,
+      release: async () => {
+        releases += 1;
+        throw new AppError("provider_unavailable", "Stripe is unavailable.");
+      },
+    };
+
+    const first = await expireMandates({ payments: down });
+
+    expect(releases).toBe(1);
+    expect(first.failed).toEqual(expect.arrayContaining(both.map((s) => s.mandateId)));
+
+    const second = await expireMandates();
+
+    expect(second.failed).toEqual([]);
+    for (const s of both) expect([...(await shareRows(s.mandateId)).values()].every((r) => r.status === "released")).toBe(true);
   });
 
   it("a mandate that hasn't expired is left open", async () => {

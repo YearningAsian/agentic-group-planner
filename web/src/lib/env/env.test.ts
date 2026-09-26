@@ -101,6 +101,12 @@ describe("server env", () => {
     expect(parseServerEnv({ ...buildProfile, CRON_SECRET: "a-long-enough-cron-secret" }).CRON_SECRET).toBe("a-long-enough-cron-secret");
   });
 
+  it("a production deploy on Vercel needs CRON_SECRET, so the expiry cron can't silently 401", () => {
+    expect(problems({ ...buildProfile, VERCEL_ENV: "production" })).toEqual(["CRON_SECRET"]);
+    expect(problems({ ...buildProfile, VERCEL_ENV: "preview" })).toEqual([]);
+    expect(problems({ ...buildProfile, VERCEL_ENV: "production", CRON_SECRET: "a-long-enough-cron-secret" })).toEqual([]);
+  });
+
   it("requires DEMO_ADMIN_TOKEN only in dev mode", () => {
     expect(problems({ ...buildProfile, DEMO_ADMIN_TOKEN: undefined })).toEqual(["DEMO_ADMIN_TOKEN"]);
     const production = { ...buildProfile, NEXT_PUBLIC_DEMO_MODE: "false", DEMO_ADMIN_TOKEN: undefined };
