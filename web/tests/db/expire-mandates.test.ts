@@ -52,6 +52,9 @@ describe("expireMandates", () => {
     const s = await mandateScenario(batch, payers);
     await backdate(s.mandateId);
     await expireMandates();
-    await expect(approveHold({ mandateId: s.mandateId, memberId: s.person[1] })).rejects.toMatchObject({ code: "conflict" });
+    await expect(approveHold({ mandateId: s.mandateId, memberId: s.person[1] })).rejects.toMatchObject({
+      code: "conflict",
+      message: "The time to approve this purchase has run out.",
+    });
   });
 });
