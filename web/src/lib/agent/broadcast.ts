@@ -12,6 +12,7 @@ export const TOOL_LABELS: Record<ToolName, string> = {
   update_item: "Updating the itinerary",
   summarize: "Summarizing the trip",
   propose_purchase: "Preparing the approval",
+  remember_preference: "Remembering a preference",
 };
 
 /**

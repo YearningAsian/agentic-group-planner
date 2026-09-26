@@ -86,6 +86,37 @@ describe("person_preferences", () => {
     });
   });
 
+  it("remember_preference saves only for the requester and shows up in the next context", async () => {
+    const trip = await createTrip(batch, {
+      members: [
+        { displayName: "Person 2", profileId: remembered.userId },
+        { displayName: "Person 3", profileId: stranger.userId },
+      ],
+    });
+    // The tool path: write via the same admin client the runner uses.
+    const { rememberPreferenceTool } = await import("@/lib/tools/remember-preference/tool");
+    const ctx = {
+      tripId: trip.tripId,
+      runId: "00000000-0000-4000-8000-0000000000f1",
+      toolCallId: "call_pref",
+      requesterMemberId: trip.memberIds[0]!,
+      actorMemberId: trip.memberIds[0]!,
+      handles: { M1: trip.memberIds[0]! },
+      admin: admin as never,
+    };
+    const result = await rememberPreferenceTool.handler(
+      rememberPreferenceTool.input.parse({ note: "prefers museums" }),
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+
+    const snapshot = await loadTripSnapshot(admin as never, trip.tripId);
+    expect(snapshot.members.find((m) => m.id === trip.memberIds[0])?.remembered).toEqual([
+      "hates early starts",
+      "prefers museums",
+    ]);
+  });
+
   it("the agent's context quotes what it remembers about each joined member", async () => {
     const trip = await createTrip(batch, {
       members: [

@@ -25,7 +25,7 @@ const snapshot: TripSnapshot = {
 };
 
 describe("the agent's system prompt", () => {
-  it("the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts", () => {
+  it("the system prompt lists every tool, says to use handles only, and forbids stating charged amounts", () => {
     expect(Object.keys(TOOL_GUIDE).sort()).toEqual([...ToolName.options].sort());
     for (const tool of ToolName.options) expect(AGENT_INSTRUCTIONS).toContain(`${tool}:`);
     expect(AGENT_INSTRUCTIONS).toMatch(/only by the handles/i);
