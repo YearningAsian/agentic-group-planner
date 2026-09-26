@@ -35,6 +35,9 @@ function claimError(error: { message: string; code?: string }): AppError {
  * @throws AppError `unauthenticated`, `not_found`, or `conflict` (used, or already a member).
  */
 export async function claimInvite(client: ServerClient, token: string): Promise<ClaimInviteResult> {
+  if (token.trim() === "") {
+    throw new AppError("not_found", "Invite not found.");
+  }
   const { data, error } = await client.rpc("claim_invite", { p_token: token });
   if (error) throw claimError(error);
   const result = data as { trip_slug: string; member_id: string };

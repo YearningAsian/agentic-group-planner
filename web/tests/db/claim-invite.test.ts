@@ -109,7 +109,10 @@ describe("claimInvite", () => {
     const membersBefore = await admin.from("trip_members").select("*").eq("trip_id", tripId).order("sort_order");
     const profileBefore = await profile(claimer.userId);
 
-    for (const bad of ["", "   ", newToken(), `${token.slice(0, 20)}x`]) {
+    // nearMiss must never equal `token`: tokens are 21 chars, so slice(0,20)+"x" collides when
+    // the real token already ends in "x" (~1/64 of runs) and claimInvite would succeed.
+    const nearMiss = `${token.slice(0, -1)}${token.endsWith("x") ? "y" : "x"}`;
+    for (const bad of ["", "   ", newToken(), nearMiss]) {
       await expect(claimInvite(as(claimer), bad), JSON.stringify(bad)).rejects.toMatchObject({
         code: "not_found",
         message: "Invite not found.",
