@@ -1366,7 +1366,7 @@ Query defaults: `staleTime` 30 s, `refetchOnWindowFocus` true, `retry` 2. Known 
 | Start a run from a message | `agent_runs.trigger_message_id` | unique |
 | Execute a tool | `(run_id, tool_call_id)` | unique on `tool_calls`; a succeeded row returns its stored output |
 | Create a mandate | `mandate:{run_id}:{tool_call_id}` | `mandates.idempotency_key` unique; one live mandate per item |
-| Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's rows |
+| Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's main-hold rows (a cover hold's rows are separate, below) |
 | Capture, release | `pi-capture:{mandate_id}:{payer_member_id}`, `pi-release:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional updates |
 | Cover a declined share (the organizer's cover hold) | `pi-auth:`, `pi-capture:`, and `pi-release:{mandate_id}:{organizer_member_id}:cover:{share_member_id}`; the row's own key is `cover:{mandate_id}:{share_member_id}` | Stripe, `payment_holds.idempotency_key` unique, and the conditional updates on that row only (§11.7 item 8) |
 | Refund a fronted share after the placeholder pays | `cover-refund:{mandate_id}:{share_member_id}` | Stripe, plus the conditional update `captured → refunded` on the `fronted` row |

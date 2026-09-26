@@ -2,35 +2,33 @@ import "server-only";
 import type { HoldStatus, MandateStatus } from "@agp/shared";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
+import { mandateAndMember, notCollecting } from "./mandate-actor";
 import { readError } from "./rpc-error";
 
 /** Rows that can still pay a share: a placeholder's, a pending or authorized one, or one already paid. */
 const LIVE = ["awaiting_member", "pending", "authorized", "captured"];
 
-/** The mandate and the acting member, or `not_found` / `not_permitted`. Shared by decline, cover, and cancel. */
-export async function mandateAndMember(admin: AdminClient, mandateId: string, memberId: string) {
-  const { data: mandate, error } = await admin
-    .from("mandates")
-    .select("id, trip_id, status, currency, expires_at, cancel_reason")
-    .eq("id", mandateId)
-    .maybeSingle();
-  if (error) throw readError(error, "the purchase");
-  if (!mandate) throw new AppError("not_found", "That purchase doesn't exist.");
-  const { data: member, error: memberError } = await admin
-    .from("trip_members")
-    .select("id, profile_id, display_name, role, status")
-    .eq("id", memberId)
-    .eq("trip_id", mandate.trip_id)
-    .maybeSingle();
-  if (memberError) throw readError(memberError, "the trip's members");
-  if (!member || member.status !== "joined") throw new AppError("not_permitted", "Only members of this trip can act on its purchases.");
-  return { mandate, member };
-}
-
 async function mandateStatus(admin: AdminClient, mandateId: string): Promise<MandateStatus> {
   const { data, error } = await admin.from("mandates").select("status").eq("id", mandateId).single();
   if (error) throw readError(error, "the purchase");
   return data.status as MandateStatus;
+}
+
+/**
+ * Moves the mandate `open → partially_declined` if nothing can pay this member's share any more.
+ * Conditional, so running it again, or after the payment_failed webhook declined the row, is safe.
+ */
+async function markShortfall(admin: AdminClient, mandateId: string, memberId: string): Promise<void> {
+  const { data: live, error } = await admin
+    .from("payment_holds")
+    .select("id")
+    .eq("mandate_id", mandateId)
+    .eq("share_member_id", memberId)
+    .in("status", LIVE);
+  if (error) throw readError(error, "the holds");
+  if (live.length > 0) return;
+  const moved = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandateId).eq("status", "open");
+  if (moved.error) throw readError(moved.error, "the purchase");
 }
 
 /**
@@ -56,10 +54,12 @@ export async function declineHold(input: { mandateId: string; memberId: string }
     .maybeSingle();
   if (error) throw readError(error, "the holds");
   if (!own) throw new AppError("not_permitted", "You don't have a share of this purchase.");
-  if (own.status === "declined") return { hold_status: "declined", mandate_status: mandate.status as MandateStatus };
-  if (mandate.status === "cancelled" || mandate.status === "failed") {
-    throw new AppError("conflict", "This purchase isn't waiting for approvals any more.");
+  if (own.status === "declined") {
+    // A retry, or a row the webhook declined: finish moving the mandate if that step never ran.
+    await markShortfall(admin, mandate.id, member.id);
+    return { hold_status: "declined", mandate_status: await mandateStatus(admin, mandate.id) };
   }
+  if (mandate.status === "cancelled" || mandate.status === "failed") throw notCollecting(mandate);
   if (own.status === "authorized" || own.status === "captured") {
     throw new AppError("conflict", "You've already approved this purchase. Ask the organizer if it needs cancelling.");
   }
@@ -79,19 +79,7 @@ export async function declineHold(input: { mandateId: string; memberId: string }
     const { data: current, error: currentError } = await admin.from("payment_holds").select("status").eq("id", own.id).single();
     if (currentError) throw readError(currentError, "the holds");
     if (current.status !== "declined") throw new AppError("conflict", "Your approval is still in progress. Try again in a moment.", { retryable: true });
-    return { hold_status: "declined", mandate_status: await mandateStatus(admin, mandate.id) };
   }
-
-  const { data: others, error: othersError } = await admin
-    .from("payment_holds")
-    .select("id")
-    .eq("mandate_id", mandate.id)
-    .eq("share_member_id", member.id)
-    .in("status", LIVE);
-  if (othersError) throw readError(othersError, "the holds");
-  if (others.length === 0) {
-    const moved = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandate.id).eq("status", "open");
-    if (moved.error) throw readError(moved.error, "the purchase");
-  }
+  await markShortfall(admin, mandate.id, member.id);
   return { hold_status: "declined", mandate_status: await mandateStatus(admin, mandate.id) };
 }

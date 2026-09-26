@@ -122,6 +122,22 @@ describe("expireMandates", () => {
     for (const s of both) expect([...(await shareRows(s.mandateId)).values()].every((r) => r.status === "released")).toBe(true);
   });
 
+  it("it also finishes releasing the holds of a mandate the organizer cancelled", async () => {
+    const s = await mandateScenario(batch, payers);
+    await approveHold({ mandateId: s.mandateId, memberId: s.person[0] });
+    const pi1 = (await shareRows(s.mandateId)).get(`${s.person[0]}:own`)!.stripe_payment_intent_id!;
+    // A cancel whose release failed: the mandate is cancelled, the hold still authorized.
+    const { error } = await admin.from("mandates").update({ status: "cancelled", cancel_reason: "organizer" }).eq("id", s.mandateId);
+    if (error) throw error;
+
+    const run = await expireMandates();
+
+    expect(run.expired).not.toContain(s.mandateId);
+    expect(run.failed).not.toContain(s.mandateId);
+    expect([...(await shareRows(s.mandateId)).values()].every((r) => r.status === "released")).toBe(true);
+    expect((await kit.eventsFor(pi1)).map((e) => e.type)).toContain("payment_intent.canceled");
+  });
+
   it("a mandate that hasn't expired is left open", async () => {
     const s = await mandateScenario(batch, payers);
     await expireMandates();

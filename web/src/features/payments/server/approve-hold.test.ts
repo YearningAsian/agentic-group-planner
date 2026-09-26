@@ -16,6 +16,7 @@ type Hold = {
   pays_share: boolean | null;
   stripe_payment_intent_id: string | null;
   lease_expires_at: string | null;
+  idempotency_key?: string;
 };
 
 function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; holds: Hold[] }) => void) {
@@ -28,6 +29,7 @@ function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; hold
   const holds: Hold[] = [{
     id: "own", mandate_id: "mandate", payer_member_id: "person1", share_member_id: "person1", kind: "own",
     status: "pending", cap_cents: 4800, pays_share: null, stripe_payment_intent_id: null, lease_expires_at: null,
+    idempotency_key: "share:mandate:person1:own",
   }];
   const releases: { paymentIntentId: string; idempotencyKey: string }[] = [];
   const payments = {
@@ -58,7 +60,9 @@ function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; hold
       filter(column: string, op: string, value: string) {
         filters.push((row) => {
           const actual = String(row[column] ?? "");
-          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
         });
         return builder;
       },
@@ -140,7 +144,9 @@ describe("approveHold after a late authorization", () => {
       filter(column: string, op: string, value: string) {
         filters.push((row) => {
           const actual = String(row[column] ?? "");
-          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
         });
         return builder;
       },
@@ -187,7 +193,9 @@ describe("approveHold after a late authorization", () => {
       filter(column: string, op: string, value: string) {
         filters.push((row) => {
           const actual = String(row[column] ?? "");
-          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+          if (op === "eq") return actual === value;
+          if (op === "not.like" && value.endsWith("%") && !value.slice(0, -1).includes("%")) return !actual.startsWith(value.slice(0, -1));
+          throw new Error(`the fake builder doesn't support filter ${op} ${value}`);
         });
         return builder;
       },

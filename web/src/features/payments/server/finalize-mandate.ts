@@ -191,7 +191,7 @@ async function cancelMandate(
  * Books and pays for an authorized mandate (design §4.2): exactly one finalizer claims it, stores
  * which row pays each share (a share's own authorized hold wins over the organizer's fronted
  * row), re-quotes and books with key `booking:{mandate_id}`, captures each PaymentIntent once for
- * `holdFees`' total of the rows it pays (`pi-capture:{mandate_id}:{payer}`), and records it all
+ * `holdFees`' total of the rows it pays (`pi-capture:{mandate_id}:{payer}`, or a cover hold's own key), and records it all
  * with `complete_mandate`. A failed booking releases every hold and cancels the mandate
  * (`booking_failed`). Returns the mandate's status; a mandate that isn't authorized, or that
  * another finalizer holds, is left as it is.

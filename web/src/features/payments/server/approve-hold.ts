@@ -222,6 +222,7 @@ export async function authorizeHold(
         .eq("status", "pending");
       if (released.error) throw readError(released.error, "the holds");
     }
+    if (phase === "approving" && paysAnyShare) await releaseIfCancelled(admin, payments, mandate.id, member.id, hold, result.paymentIntentId);
   } catch (error) {
     await release();
     throw error;
@@ -242,6 +243,33 @@ export async function finalizeIfWon(admin: AdminClient, mandateId: string, deps:
     .select("id");
   if (error) throw readError(error, "the purchase");
   if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandateId);
+}
+
+/**
+ * A cancel or an expiry flips the mandate before it reads the rows. If this hold authorized after
+ * that read, the cancel will mark the rows released without ever seeing this PaymentIntent, so the
+ * hold would stay on the card. The flip happened first, so reading the mandate here always sees it.
+ */
+async function releaseIfCancelled(
+  admin: AdminClient,
+  payments: PaymentsProvider,
+  mandateId: string,
+  memberId: string,
+  hold: Hold,
+  paymentIntentId: string,
+): Promise<void> {
+  const { data, error } = await admin.from("mandates").select("status").eq("id", mandateId).single();
+  if (error) throw readError(error, "the purchase");
+  if (data.status !== "cancelled") return;
+  await payments.release({ paymentIntentId, idempotencyKey: `pi-release:${mandateId}:${holdSuffix(memberId, hold)}` });
+  const released = await admin
+    .from("payment_holds")
+    .update({ status: "released", lease_expires_at: null })
+    .eq("mandate_id", mandateId)
+    .eq("payer_member_id", memberId)
+    .filter(...holdFilter(mandateId, hold))
+    .eq("status", "authorized");
+  if (released.error) throw readError(released.error, "the holds");
 }
 
 function finalizing(): AppError {

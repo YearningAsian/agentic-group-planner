@@ -12,8 +12,9 @@ const LIVE_HOLDS = ["awaiting_member", "pending", "authorized"];
  * Cancels every open mandate past `expires_at` with reason `expired` and releases its holds
  * (design §4.2). The status flips in one conditional update, so an approval racing the expiry
  * either wins open → authorized first or finds the mandate cancelled. An authorization still in
- * flight sees its rows released and releases its own PaymentIntent. Expired mandates whose release
- * failed earlier are retried, so running this twice changes nothing more. One mandate's failed
+ * flight sees its rows released and releases its own PaymentIntent. Any cancelled mandate whose
+ * release failed earlier (expired or cancelled by the organizer) is retried, so running this twice
+ * changes nothing more. One mandate's failed
  * release is logged, reported in `failed`, and doesn't stop the others; a provider outage stops the
  * run instead of waiting out a timeout per mandate. Either way the rows stay live, so the next run
  * finds them again.
@@ -35,10 +36,10 @@ export async function expireMandates(
 
   const { data: unreleased, error: leftoverError } = await admin
     .from("payment_holds")
-    .select("mandate_id, mandates!inner(status, cancel_reason)")
+    .select("mandate_id, mandates!inner(status)")
     .in("status", LIVE_HOLDS)
-    .eq("mandates.status", "cancelled")
-    .eq("mandates.cancel_reason", "expired");
+    // Any cancel, not only expiry: an organizer's cancel whose release failed is swept up here too.
+    .eq("mandates.status", "cancelled");
   if (leftoverError) throw readError(leftoverError, "the holds");
 
   // In id order, so a run is repeatable and its log reads the same way twice.

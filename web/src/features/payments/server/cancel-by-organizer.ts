@@ -3,7 +3,7 @@ import type { MandateStatus } from "@agp/shared";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { getAdminClient } from "@/lib/supabase/admin";
-import { mandateAndMember } from "./decline-hold";
+import { mandateAndMember } from "./mandate-actor";
 import { HOLD_COLUMNS, releaseCancelledHolds } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 
