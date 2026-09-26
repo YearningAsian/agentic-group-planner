@@ -53,6 +53,10 @@ const serverSchema = z.object({
     .refine((token) => token.startsWith("duffel_test_"), "must be a test token (duffel_test_)")
     .optional(),
 
+  // Vercel sends it as `Authorization: Bearer <CRON_SECRET>` on scheduled calls. Unset, the cron
+  // routes refuse every call.
+  CRON_SECRET: z.string().min(16, "must be at least 16 characters").optional(),
+
   NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
   SENTRY_DSN: z.url().optional(),
   SENTRY_AUTH_TOKEN: secret,
@@ -73,6 +77,8 @@ function conditionalProblems(source: Source): EnvProblem[] {
     [source.ROUTING_PROVIDER === "real", "ROUTING_PROVIDER=real", ["ORS_API_KEY"]],
     [source.STAYS_PROVIDER === "real", "STAYS_PROVIDER=real", ["DUFFEL_ACCESS_TOKEN"]],
     [source.NEXT_PUBLIC_DEMO_MODE === "true", "dev mode", ["DEMO_ADMIN_TOKEN"]],
+    // Without it the expiry cron gets a 401 every day and holds are never released.
+    [source.VERCEL_ENV === "production", "VERCEL_ENV=production", ["CRON_SECRET"]],
   ];
   return rules.flatMap(([condition, reason, variables]) =>
     condition ? variables.filter((v) => !source[v]).map((v) => ({ variable: v, message: `missing (required with ${reason})` })) : [],
