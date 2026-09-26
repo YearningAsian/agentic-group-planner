@@ -3,7 +3,7 @@ import { adminClient } from "./helpers";
 
 // The only security definer functions a signed-in client may call. Everything else is called by
 // the server with the admin client.
-const CLIENT_CALLABLE = ["cast_vote", "claim_invite", "create_trip", "is_trip_member", "is_trip_organizer"];
+const CLIENT_CALLABLE = ["claim_invite", "create_trip", "is_trip_member", "is_trip_organizer"];
 
 async function audit() {
   const { data, error } = await adminClient().rpc("audit_definer_functions");
@@ -18,7 +18,7 @@ describe("function hardening", () => {
     expect(functions.filter((f) => !f.search_path_pinned).map((f) => f.name)).toEqual([]);
   });
 
-  it("only cast_vote, claim_invite, create_trip, is_trip_member, and is_trip_organizer are executable by clients", async () => {
+  it("only claim_invite, create_trip, is_trip_member, and is_trip_organizer are executable by clients", async () => {
     const executable = (await audit()).filter((f) => f.client_can_execute).map((f) => f.name);
     expect(executable.filter((name) => !CLIENT_CALLABLE.includes(name))).toEqual([]);
   });
