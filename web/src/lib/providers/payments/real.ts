@@ -72,7 +72,6 @@ function asRecord(metadata: Stripe.Metadata | null | undefined): Record<string, 
 }
 
 function normalizeEvent(event: Stripe.Event): PaymentsEvent {
-  const object = event.data.object as unknown as Record<string, unknown>;
   const isIntent = event.type.startsWith("payment_intent.");
   const isCharge = event.type.startsWith("charge.");
   const isRefund = event.type.startsWith("refund.");
