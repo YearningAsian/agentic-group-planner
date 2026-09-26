@@ -97,3 +97,17 @@ The batch 2 review (`f1885fb..b79eb46`) found the range **mergeable as is**, wit
 - the webhook ledger, the mock webhook secret, and create_mandate's tests and hardening went to the commerce worker;
 - `plan_day`'s $0 fallback, the rounded summary prices, and a slice-test assertion went to the AI worker;
 - the seed's constraint revert I fixed myself.
+
+### Round 3 (lead and workers): voice, prompt, summarize, and the VO backend
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(agent): record real runs for tests` | AI-213 | unit recorder tests (RED first) |
+| `feat(voice): voice notes through meta speech to text` | VO-S03 | unit and route tests |
+| `feat(agent): tune the system prompt for muse spark` | AI-301 (prompt; the real-model check needs `META_MODEL_API_KEY`) | `prompt.test.ts` |
+| `feat(agent): summarize tool` | AI-S02 | unit 4 (RED first: no `buildSummary`), db 2 |
+| Merge VO backend | VO-107 health, VO-106 confirm and `demoSignIn`, VO-209 `claim_invite`, VO-220 profile update | after `supabase db reset`: typecheck and lint clean; shared 46, web unit 163, db 20 files / 96 passed |
+| `fix(auth): land failed magic links on / until the login page exists` | the dead-link check (`routes.test.ts`) failed on `/login?error=link` | unit route tests |
+| `chore(db): regenerate types from this branch's migrations` | the VO branch's types held another worker's column | `pnpm db:types` after a clean reset |
+
+The integration reset wiped the other workers' psql-applied migrations from the shared local stack; the lead re-applied their pending files (commerce: `payment_holds_lease`, `create_mandate_hardening`, `complete_mandate`; AI: `apply_plan_splits`) right after, and told both workers.

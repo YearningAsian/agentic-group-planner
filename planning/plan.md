@@ -219,6 +219,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `the picker renders only in dev mode, listing Person 1, Person 2, and Person 3 as buttons at least 44 px tall`
     - `demoSignIn rejects when NEXT_PUBLIC_DEMO_MODE is not true`
   - [ ] Check: one browser signs in through a magic link (Mailpit locally, the inbox on a hosted project), another as Person 2 through the picker, and both stay signed in after a reload. This also closes VO-104's check.
+- **Status:** backend done; UI is FE scope (2026-09-26). Proof: `pnpm --filter web test src/app/auth src/features/demo` → 6 passed (RED first: no confirm route or `demo-sign-in` module); a mutant without the same-origin check failed the open-redirect test. `demoSignIn` lives in `features/demo/server/demo-sign-in.ts` (its test beside it, not under `components`) and accepts only `DEMO_EMAIL_DOMAIN` addresses, because `generateLink` creates a user for an unknown email. Until `/login` exists, a failed link lands on `/?error=link` (`FAILED_LINK` in the route), so `src/app/routes.test.ts` has no dead link; the login page switches it to `/login?error=link`. Open: the login page, magic-link form, picker, and the reload check (browser).
 - **Commit:** `feat(auth): magic-link sign-in and a dev-mode picker for seeded users`
 
 #### VO-107 · Deploy the web app, plus the health route · Must
@@ -227,10 +228,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** VO-103, AI-101
 - **Produces:** `GET /api/health` returning `{ web, db, optimizer }`. Also the Vercel project (web), with every web env var set (checklist B9). The optimizer stays on localhost for all testing; its Vultr deploy is VO-S02 (Should, last). The Dockerfile is built but not pushed here. It's Must because the Stripe webhooks and the Milestone 3 switches need a public web URL.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/app/api/health/route.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/app/api/health/route.test.ts` passes:
     - `returns 200 with optimizer "error" when FastAPI is unreachable`
     - `returns all "ok" when the db and optimizer respond`
   - [ ] Check: `docker build ./optimizer` succeeds, and `curl http://localhost:3000/api/health` (optimizer on `localhost:8000`) returns all `ok`.
+- **Status:** backend done; deploy blocked (2026-09-26). Proof: `pnpm --filter web test src/app/api/health/route.test.ts` → 3 passed (RED first: no route module). Check: `docker build` of the optimizer succeeded from a copy of the Dockerfile that only trusts this sandbox's egress-proxy CA (the committed Dockerfile is unchanged; the sandbox's build container can't verify PyPI without it); with that container on :8000 and `next dev`, `curl /api/health` → `{"web":"ok","db":"ok","optimizer":"ok"}`, and with it stopped → `optimizer:"error"`, still 200. **Blocked:** the Vercel project needs an account (checklist B9).
 - **Commit:** `chore(deploy): vercel web with a health route`
 
 #### VO-108 · Database test target · Should
@@ -1372,13 +1374,14 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-102, CO-101
 - **Produces:** `claimInvite(token) → { tripSlug, memberId }`, and `previewInvite(token)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/claim-invite.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/claim-invite.test.ts` passes:
     - `a claim sets joined, profile_id, and claimed_at, clears the token, and returns the slug and member id`
     - `a second claim of the same token returns "already used"` (review focus 4)
     - `an unknown or empty token is rejected and changes nothing`
     - `a caller who's already a member gets an error`
     - `the trip's seed_batch is copied to the claimer's profile`
     - `previewInvite returns only the trip title, date, and that member's lane`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/claim-invite.test.ts` → 8 passed (the 6 above, a signed-out caller, and the seeded Person 4 link previewing and claiming once; RED first: `claimInvite isn't built yet`); `pnpm --filter web test src/app/api/invites` → 3 passed. A mutant without the row lock double-claimed in 1 of 3 runs of the concurrent-claim test. Migration `20260926075435_claim_invite.sql` adds `claim_invite` (security definer, `search_path = ''`, `authenticated` only) and `trip_members.claimed_token_hash`, so a used link reads "already used" rather than unknown.
 - **Commit:** `feat(invite): claim_invite and preview`
 
 #### VO-210 · Invite page · Must
@@ -1481,11 +1484,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-102
 - **Produces:** `updateProfile({ displayName?, avatarUrl? }) → { profile }` with the user's session, and `PATCH /api/profile`. It updates the member's own profile row and copies the name onto their joined `trip_members` rows.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/update-profile.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/update-profile.test.ts` passes:
     - `sets the display name and copies it onto the member's joined rows`
     - `a caller with no session is rejected`
     - `one member's update changes no other member's rows`
-  - [ ] `pnpm --filter web test -- src/app/api/profile/route.test.ts` passes: `a name over 80 characters returns 400`.
+  - [x] `pnpm --filter web test -- src/app/api/profile/route.test.ts` passes: `a name over 80 characters returns 400`.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/update-profile.test.ts` → 4 passed and `pnpm --filter web test src/app/api/profile` → 3 passed (RED first: `updateProfile` was a stub, a session could write `stripe_customer_id`, and the route was missing). Migration `20260926080031_profile_update.sql` grants update on `display_name` and `avatar_url` only, with an own-row policy, and a definer trigger copies the name onto the user's joined `trip_members` rows.
 - **Commit:** `feat(profile): profile update route`
 
 ---
