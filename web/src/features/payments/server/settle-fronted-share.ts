@@ -1,6 +1,7 @@
 import "server-only";
-import { frontedShareRefundCents, holdFees } from "@agp/shared";
+import { holdFees } from "@agp/shared";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
+import { AppError } from "@/lib/reliability";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { readError } from "./rpc-error";
 
@@ -10,7 +11,7 @@ const SETTLE_LEASE_MS = 60_000;
 /**
  * Settles a share the organizer fronted, once its member has paid (design §4.2, "After
  * capture"): captures the member's own authorized hold, then refunds the organizer
- * `frontedShareRefundCents` (the share plus the fee it added to their hold) with key
+ * that fronted row's recorded part of the original capture (share plus its allocated fee) with key
  * `cover-refund:{mandate_id}:{share_member_id}`, and marks the fronted row `refunded`. The refund
  * happens only when the organizer's hold actually paid the share, and only after the member's
  * capture. A claim on the member's own row makes concurrent settlements run it once. Returns what
@@ -30,7 +31,7 @@ export async function settleFrontedShare(
 
   const { data: rows, error: rowsError } = await admin
     .from("payment_holds")
-    .select("id, kind, status, share_cents, payer_member_id, share_member_id, stripe_payment_intent_id, pays_share")
+    .select("id, kind, status, share_cents, captured_cents, share_member_id, stripe_payment_intent_id")
     .eq("mandate_id", input.mandateId);
   if (rowsError) throw readError(rowsError, "the holds");
   const own = rows.find((r) => r.share_member_id === input.memberId && r.kind === "own");
@@ -77,11 +78,12 @@ export async function settleFrontedShare(
       if (captured.error) throw readError(captured.error, "the holds");
     }
 
-    // The organizer ends up paying what any member pays: their own shares on that hold, plus fees.
-    const organizerShares = rows
-      .filter((r) => r.stripe_payment_intent_id === fronted.stripe_payment_intent_id && r.kind === "own" && r.pays_share === true)
-      .map((r) => r.share_cents);
-    const refundedCents = frontedShareRefundCents({ ownSharesCents: organizerShares, frontedShareCents: fronted.share_cents });
+    // The capture plan allocated the hold's one fixed fee across its paying rows. Using that
+    // stored allocation makes each refund independent of other placeholders' settlement order.
+    const refundedCents = fronted.captured_cents;
+    if (typeof refundedCents !== "number" || !Number.isSafeInteger(refundedCents) || refundedCents <= 0) {
+      throw new AppError("internal", "The fronted share has no recorded capture amount.");
+    }
     await payments.refund({
       paymentIntentId: fronted.stripe_payment_intent_id!,
       amountCents: refundedCents,
