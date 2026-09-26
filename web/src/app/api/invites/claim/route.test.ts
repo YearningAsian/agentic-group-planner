@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/lib/reliability";
 
 const claimInvite = vi.fn();
+const afterClaim = vi.fn();
 const getUser = vi.fn();
 const client = { auth: { getUser } };
 
-vi.mock("@/features/invite/server", () => ({ claimInvite }));
+vi.mock("@/features/invite/server", () => ({ claimInvite, afterClaim }));
 vi.mock("@/lib/supabase/server", () => ({ getServerClient: async () => client }));
 
 const { POST } = await import("./route");
@@ -24,6 +25,7 @@ function post(body: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   getUser.mockResolvedValue({ data: { user: { id: "user-4" } }, error: null });
+  afterClaim.mockResolvedValue({ cardMessageId: "card", pendingMandateIds: [] });
 });
 
 describe("POST /api/invites/claim", () => {
@@ -35,6 +37,19 @@ describe("POST /api/invites/claim", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ trip_slug: "abcdefghijk", member_id: "00000000-0000-4000-8000-000000000004" });
     expect(claimInvite).toHaveBeenCalledWith(client, token);
+    expect(afterClaim).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000004");
+  });
+
+  it("a failed after-claim step still returns the committed claim", async () => {
+    claimInvite.mockResolvedValue({ tripSlug: "abcdefghijk", memberId: "00000000-0000-4000-8000-000000000004" });
+    afterClaim.mockRejectedValue(new Error("db down"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await post({ token });
+
+    expect(response.status).toBe(200);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
   });
 
   it("a malformed body or token is a 400 with the error shape", async () => {
@@ -44,6 +59,7 @@ describe("POST /api/invites/claim", () => {
       expect((await response.json()).error).toMatchObject({ code: "invalid_input", retryable: false });
     }
     expect(claimInvite).not.toHaveBeenCalled();
+    expect(afterClaim).not.toHaveBeenCalled();
   });
 
   it("without a session it returns 401, and a used invite returns 409 with its message", async () => {
