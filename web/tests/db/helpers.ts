@@ -1,14 +1,15 @@
 /**
- * Database test harness. Tests run against the local Supabase stack (`supabase start`), and every
- * row they create carries a unique `seed_batch`, so parallel files never see each other's data
- * and `cleanup(batch)` removes exactly what a file made.
+ * Database test harness. Tests run against the Supabase project that `DB_TEST_TARGET` picks (the
+ * local stack by default; see src/test/db-target.ts). Every row they create carries a unique
+ * `seed_batch`, so parallel files never see each other's data, and `cleanup(batch)` removes
+ * exactly what a file made.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function env(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set. Run \`supabase start\` and fill in web/.env.local.`);
+  if (!value) throw new Error(`${name} is not set. Run \`supabase start\` and fill in web/.env.local, or set DB_TEST_TARGET=dev.`);
   return value;
 }
 
@@ -24,7 +25,7 @@ export function adminClient(): SupabaseClient {
   return createClient(env("NEXT_PUBLIC_SUPABASE_URL"), env("SUPABASE_SECRET_KEY"), noSession);
 }
 
-/** A client with the publishable key and no session: what an anonymous browser starts with. */
+/** A client with the publishable key and no session: what a signed-out browser starts with. */
 export function publicClient(): SupabaseClient {
   return createClient(env("NEXT_PUBLIC_SUPABASE_URL"), env("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"), noSession);
 }
@@ -38,32 +39,25 @@ export interface TestUser {
 
 /**
  * Creates an auth user (the `handle_new_user` trigger makes its profile) and returns a client
- * signed in as them. The batch goes in user_metadata, so the profile carries it and
+ * signed in as them through a generated magic link, the way every member signs in. There are no
+ * passwords or anonymous users. The batch goes in user_metadata, so the profile carries it and
  * `cleanup(batch)` deletes the user.
  */
-export async function createUser(opts: { batch: string; displayName?: string; anonymous?: boolean }): Promise<TestUser> {
-  const client = publicClient();
+export async function createUser(opts: { batch: string; displayName?: string }): Promise<TestUser> {
   const metadata: Record<string, string> = { seed_batch: opts.batch };
   if (opts.displayName) metadata.display_name = opts.displayName;
 
-  if (opts.anonymous) {
-    const { data, error } = await client.auth.signInAnonymously({ options: { data: metadata } });
-    if (error || !data.user) throw error ?? new Error("anonymous sign-in returned no user");
-    return { userId: data.user.id, email: null, client };
-  }
-
+  const admin = adminClient();
   const email = `${randomUUID()}@test.agp.test`;
-  const password = randomBytes(18).toString("base64url");
-  const { data, error } = await adminClient().auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: metadata,
-  });
-  if (error || !data.user) throw error ?? new Error("createUser returned no user");
-  const signIn = await client.auth.signInWithPassword({ email, password });
-  if (signIn.error) throw signIn.error;
-  return { userId: data.user.id, email, client };
+  const created = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: metadata });
+  if (created.error || !created.data.user) throw created.error ?? new Error("createUser returned no user");
+
+  const link = await admin.auth.admin.generateLink({ type: "magiclink", email });
+  if (link.error) throw link.error;
+  const client = publicClient();
+  const verified = await client.auth.verifyOtp({ token_hash: link.data.properties.hashed_token, type: "email" });
+  if (verified.error) throw verified.error;
+  return { userId: created.data.user.id, email, client };
 }
 
 export interface TestMember {

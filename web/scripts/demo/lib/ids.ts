@@ -38,10 +38,10 @@ export function slugFor(batch: string, name: string): string {
 
 /**
  * Person 4's invite token: stable across resets, so a saved invite link keeps working, but keyed
- * by DEMO_SEED_PASSWORD, so it can't be derived from the repo.
+ * by DEMO_SEED_SECRET, so it can't be derived from the repo.
  */
 export function inviteTokenFor(batch: string, member = "person4"): string {
-  const password = process.env.DEMO_SEED_PASSWORD;
-  if (!password) throw new Error("DEMO_SEED_PASSWORD is not set; see web/.env.example.");
-  return createHmac("sha256", password).update(`invite:${batch}:${member}`).digest("base64url").slice(0, 21);
+  const secret = process.env.DEMO_SEED_SECRET;
+  if (!secret) throw new Error("DEMO_SEED_SECRET is not set; see web/.env.example.");
+  return createHmac("sha256", secret).update(`invite:${batch}:${member}`).digest("base64url").slice(0, 21);
 }

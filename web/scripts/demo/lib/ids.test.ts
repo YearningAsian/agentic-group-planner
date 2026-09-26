@@ -20,16 +20,16 @@ describe("seed ids", () => {
     );
   });
 
-  it("inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_PASSWORD", () => {
-    vi.stubEnv("DEMO_SEED_PASSWORD", "first-password");
+  it("inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_SECRET", () => {
+    vi.stubEnv("DEMO_SEED_SECRET", "first-secret");
     const token = inviteTokenFor("demo");
     expect(token).toMatch(/^[A-Za-z0-9_-]{21}$/);
     expect(inviteTokenFor("demo")).toBe(token);
     expect(inviteTokenFor("dev-vo")).not.toBe(token);
-    vi.stubEnv("DEMO_SEED_PASSWORD", "second-password");
+    vi.stubEnv("DEMO_SEED_SECRET", "second-secret");
     expect(inviteTokenFor("demo")).not.toBe(token);
-    vi.stubEnv("DEMO_SEED_PASSWORD", "");
-    expect(() => inviteTokenFor("demo")).toThrow(/DEMO_SEED_PASSWORD/);
+    vi.stubEnv("DEMO_SEED_SECRET", "");
+    expect(() => inviteTokenFor("demo")).toThrow(/DEMO_SEED_SECRET/);
   });
 
   it("slugFor returns a stable 11-character URL-safe slug", () => {

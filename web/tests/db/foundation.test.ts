@@ -22,13 +22,13 @@ beforeAll(async () => {
 afterAll(() => cleanup(batch));
 
 describe("foundation migration", () => {
-  it('handle_new_user creates a profile from display_name metadata, and "Guest" for an anonymous user', async () => {
+  it('handle_new_user creates a profile from display_name metadata, and "Guest" when there is none', async () => {
     const { data: named } = await admin.from("profiles").select("display_name, seed_batch").eq("id", organizer.userId).single();
     expect(named).toEqual({ display_name: "Person 1", seed_batch: batch });
 
-    const guest = await createUser({ batch, anonymous: true });
-    const { data: anonymous } = await admin.from("profiles").select("display_name").eq("id", guest.userId).single();
-    expect(anonymous?.display_name).toBe("Guest");
+    const guest = await createUser({ batch });
+    const { data: unnamed } = await admin.from("profiles").select("display_name").eq("id", guest.userId).single();
+    expect(unnamed?.display_name).toBe("Guest");
   });
 
   it("is_trip_member is true for a joined member and false for a placeholder row", async () => {
