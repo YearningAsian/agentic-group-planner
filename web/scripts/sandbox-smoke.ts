@@ -10,6 +10,7 @@
  * secret in web/.env.local to exercise Stripe test mode. The script never writes credentials.
  */
 import { randomUUID } from "node:crypto";
+import Stripe from "stripe";
 import type { components } from "@agp/shared/optimizer";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { applyPlan } from "@/features/itinerary/server";
@@ -28,6 +29,8 @@ import { reset } from "./demo/reset";
 import { claimPlaceholder, paymentsKit, shareRows, mandateRow, type PaymentsKit } from "../tests/payments/kit";
 import { cleanup } from "../tests/db/helpers";
 import { assertSandboxSmokeEnv } from "./sandbox-smoke-env";
+import { frontingRefundProblems, type IntentView, payerIntentProblems } from "./sandbox-smoke-stripe";
+import { STRIPE_OPTIONS } from "@/lib/providers/payments/real";
 
 type PlanRequest = components["schemas"]["PlanRequest"];
 type PlanResponse = components["schemas"]["PlanResponse"];
@@ -49,6 +52,13 @@ function record(name: string, mode: StepMode, ok: boolean, reason: string): void
   results.push({ name, mode, ok, reason });
   const mark = ok ? "PASS" : "FAIL";
   console.log(`[${mark}] ${name} (${mode}): ${reason}`);
+}
+
+/** Reads a PaymentIntent straight from Stripe; only real payments get here, so the key is a test key. */
+async function intentView(paymentIntentId: string): Promise<IntentView> {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, STRIPE_OPTIONS);
+  const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  return { id: pi.id, status: pi.status, amount: pi.amount, amountReceived: pi.amount_received, metadata: pi.metadata };
 }
 
 async function step(name: string, mode: StepMode, run: () => Promise<string>): Promise<void> {
@@ -289,6 +299,33 @@ describe("sandbox smoke", () => {
       return `mandate captured with 1 booking`;
     });
 
+    await step("Stripe holds and captures match the share rows", "real", async () => {
+      if (!kit.stripe) return "skipped: mock payments";
+      const members = await admin.from("trip_members").select("id, profile_id").in("id", memberIds.slice(0, 3));
+      if (members.error) throw members.error;
+      const profileOf = new Map(members.data.map((m) => [m.id, m.profile_id!]));
+      const rows = [...(await shareRows(mandateId)).values()];
+      const payers = [];
+      for (const memberId of memberIds.slice(0, 3)) {
+        const listed = await kit.stripe.intentsFor(profileOf.get(memberId)!, mandateId);
+        payers.push({
+          memberId,
+          intents: await Promise.all(listed.map((intent) => intentView(intent.id))),
+          rows: rows.filter((row) => row.payer_member_id === memberId),
+        });
+      }
+      // Approving again after the capture must not create another hold.
+      await approveHold({ mandateId, memberId: memberIds[1]! });
+      const again = await kit.stripe.intentsFor(profileOf.get(memberIds[1]!)!, mandateId);
+      const problems = [
+        ...payerIntentProblems({ tripId, mandateId, payers }),
+        ...(again.length === 1 ? [] : [`a repeated approval left ${again.length} PaymentIntents`]),
+      ];
+      expect(problems).toEqual([]);
+      const organizer = payers[0]!.intents[0]!;
+      return `3 PaymentIntents with mandate, payer, and trip metadata; organizer held ${organizer.amount}¢ and received ${organizer.amountReceived}¢; a repeat approval added none`;
+    });
+
     await step("webhook confirms captures", "real", async () => {
       const rows = await shareRows(mandateId);
       const intentIds = new Set([...rows.values()].map((row) => row.stripe_payment_intent_id).filter((id): id is string => !!id));
@@ -322,7 +359,20 @@ describe("sandbox smoke", () => {
       expect(settled.refundedCents).toBeGreaterThan(0);
       const again = await settleFrontedShare({ mandateId, memberId: memberIds[3]! });
       expect(again.refundedCents).toBe(0);
-      return `refunded ${settled.refundedCents}¢ once; second settle is a no-op`;
+      if (!kit.stripe) return `refunded ${settled.refundedCents}¢ once; second settle is a no-op`;
+      // Stripe's side (CO-304): Person 4's own capture, and one partial refund on the organizer's hold.
+      const rows = await shareRows(mandateId);
+      const [person4Intent, ...extra] = await kit.stripe.intentsFor(person4UserId, mandateId);
+      expect(extra).toEqual([]);
+      const organizerPi = rows.get(`${memberIds[0]}:own`)!.stripe_payment_intent_id!;
+      const problems = frontingRefundProblems({
+        person4Intent: await intentView(person4Intent!.id),
+        own: rows.get(`${memberIds[3]}:own`)!,
+        fronted: rows.get(`${memberIds[3]}:fronted`)!,
+        organizerRefunds: (await kit.stripe.refundsFor(organizerPi)).map((refund) => refund.amountCents),
+      });
+      expect(problems).toEqual([]);
+      return `refunded ${settled.refundedCents}¢ once on Stripe; Person 4 captured ${person4Intent!.amountReceivedCents}¢; second settle is a no-op`;
     });
 
     await step("replan after booking time change", "mocked", async () => {
