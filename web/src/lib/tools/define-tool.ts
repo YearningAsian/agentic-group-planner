@@ -1,10 +1,10 @@
 import "server-only";
 import type { ToolName, ToolResult } from "@agp/shared";
 import type { z } from "zod";
+import type { HandleTable } from "@/lib/agent/handles";
 import type { AdminClient } from "@/lib/supabase/admin";
 
-/** Handle → UUID for one run, e.g. `{ M1: "…", I2: "…" }`. Built once per run, in a stable order. */
-export type HandleTable = Readonly<Record<string, string>>;
+export type { HandleTable } from "@/lib/agent/handles";
 
 /**
  * What every tool handler receives. The trip, run, and requester come from the server, never from
