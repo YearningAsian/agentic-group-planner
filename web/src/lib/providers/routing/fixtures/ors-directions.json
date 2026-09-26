@@ -1,0 +1,55 @@
+{
+  "type": "FeatureCollection",
+  "bbox": [-84.395163, 33.763412, -84.389371, 33.771702],
+  "features": [
+    {
+      "bbox": [-84.395163, 33.763412, -84.389371, 33.771702],
+      "type": "Feature",
+      "properties": {
+        "segments": [
+          {
+            "distance": 1342.6,
+            "duration": 966.7,
+            "steps": [
+              { "distance": 187.4, "duration": 134.9, "type": 11, "instruction": "Head north on Baker Street Northwest", "name": "Baker Street Northwest", "way_points": [0, 2] },
+              { "distance": 812.9, "duration": 585.3, "type": 1, "instruction": "Turn right onto Luckie Street Northwest", "name": "Luckie Street Northwest", "way_points": [2, 6] },
+              { "distance": 342.3, "duration": 246.5, "type": 0, "instruction": "Turn left onto North Avenue Northwest", "name": "North Avenue Northwest", "way_points": [6, 8] },
+              { "distance": 0.0, "duration": 0.0, "type": 10, "instruction": "Arrive at North Avenue Northwest, on the left", "name": "-", "way_points": [8, 8] }
+            ]
+          }
+        ],
+        "way_points": [0, 8],
+        "summary": { "distance": 1342.6, "duration": 966.7 }
+      },
+      "geometry": {
+        "coordinates": [
+          [-84.395163, 33.763412],
+          [-84.395051, 33.764198],
+          [-84.394902, 33.765088],
+          [-84.393677, 33.766421],
+          [-84.392545, 33.767702],
+          [-84.391468, 33.768915],
+          [-84.390603, 33.770144],
+          [-84.389972, 33.770986],
+          [-84.389371, 33.771702]
+        ],
+        "type": "LineString"
+      }
+    }
+  ],
+  "metadata": {
+    "attribution": "openrouteservice.org | OpenStreetMap contributors",
+    "service": "routing",
+    "timestamp": 1790380800000,
+    "query": {
+      "coordinates": [
+        [-84.3951, 33.7634],
+        [-84.3894, 33.7717]
+      ],
+      "profile": "foot-walking",
+      "profileName": "foot-walking",
+      "format": "geojson"
+    },
+    "engine": { "version": "9.3.0", "build_date": "2025-06-17T12:30:15Z", "graph_date": "2025-09-14T08:12:44Z" }
+  }
+}

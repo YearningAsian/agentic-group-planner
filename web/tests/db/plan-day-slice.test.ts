@@ -48,10 +48,12 @@ beforeAll(async () => {
     if (error) throw error;
     items[s.slot_key] = data.id;
   }
-  // Rated 5.0, so they lead the category in the shared cache; the price lives in the payload.
+  // Rated 5.0, so they lead the category for members with no interests; the price lives in the
+  // payload. The cache is shared, so their tags are ones no seeded member likes: in a parallel test
+  // file, they never outrank the seeded trip's places for its group.
   const cache = [
-    ["aquarium", "activity", 4200, ["animals"]],
-    ["museum", "activity", 1850, ["art", "museums"]],
+    ["aquarium", "activity", 4200, ["sea-life"]],
+    ["museum", "activity", 1850, ["galleries"]],
     ["cafe", "food", 1600, []],
     ["diner", "food", 2200, []],
   ] as const;
@@ -61,7 +63,7 @@ beforeAll(async () => {
     ).placeId;
   }
   // A place with no known price is never a candidate.
-  await createPlace(batch, { name: "unpriced", category: "activity", rating: 5.0 });
+  places.unpriced = (await createPlace(batch, { name: "unpriced", category: "activity", rating: 5.0 })).placeId;
 });
 
 afterAll(() => cleanup(batch));
@@ -173,8 +175,9 @@ describe("the plan_day slice", () => {
     expect(request!.members.find((m) => m.id === memberIds[1])!.dietary).toEqual(["vegetarian"]);
     const morning = request!.slots[0]!.candidates;
     expect(morning.map((c) => c.place_id)).toEqual(expect.arrayContaining([places.aquarium, places.museum]));
-    expect(morning.find((c) => c.place_id === places.aquarium)).toMatchObject({ price_cents: 4200, tags: ["animals"], duration_min: 90 });
+    expect(morning.find((c) => c.place_id === places.aquarium)).toMatchObject({ price_cents: 4200, tags: ["sea-life"], duration_min: 90 });
     expect(request!.slots.flatMap((s) => s.candidates).every((c) => Number.isInteger(c.price_cents))).toBe(true);
+    expect(request!.slots.flatMap((s) => s.candidates.map((c) => c.place_id))).not.toContain(places.unpriced);
     expect(request!.slots[1]!.candidates.map((c) => c.place_id)).toEqual(expect.arrayContaining([places.cafe, places.diner]));
 
     // Constraints were saved before planning.
