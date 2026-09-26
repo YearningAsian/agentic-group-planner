@@ -439,6 +439,7 @@ export type Database = {
           id: string
           idempotency_key: string
           item_id: string
+          lease_expires_at: string | null
           merchant: string
           option_id: string
           proposed_by_run_id: string | null
@@ -461,6 +462,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           item_id: string
+          lease_expires_at?: string | null
           merchant: string
           option_id: string
           proposed_by_run_id?: string | null
@@ -483,6 +485,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           item_id?: string
+          lease_expires_at?: string | null
           merchant?: string
           option_id?: string
           proposed_by_run_id?: string | null
@@ -701,6 +704,7 @@ export type Database = {
           id: string
           idempotency_key: string
           kind: string
+          lease_expires_at: string | null
           mandate_id: string
           payer_member_id: string | null
           pays_share: boolean | null
@@ -723,6 +727,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           kind: string
+          lease_expires_at?: string | null
           mandate_id: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -745,6 +750,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           kind?: string
+          lease_expires_at?: string | null
           mandate_id?: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -1283,6 +1289,7 @@ export type Database = {
         }[]
       }
       claim_invite: { Args: { p_token: string }; Returns: Json }
+      complete_mandate: { Args: { payload: Json }; Returns: Json }
       create_mandate: { Args: { payload: Json }; Returns: Json }
       finish_agent_run: { Args: { payload: Json }; Returns: Json }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }

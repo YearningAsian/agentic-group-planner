@@ -7,10 +7,11 @@ import type { PaymentsProvider } from "./types";
 export type * from "./types";
 
 /** Picks the implementation from `PAYMENTS_PROVIDER`. Pure, so tests can pass any env. */
-export function selectPaymentsProvider(env: Pick<ServerEnv, "PAYMENTS_PROVIDER">): PaymentsProvider {
+export function selectPaymentsProvider(env: Pick<ServerEnv, "PAYMENTS_PROVIDER" | "NEXT_PUBLIC_DEMO_MODE">): PaymentsProvider {
   switch (env.PAYMENTS_PROVIDER) {
     case "mock":
-      return createMockPaymentsProvider();
+      // The mock's signing secret is public, so only dev mode trusts its webhooks.
+      return createMockPaymentsProvider({ acceptWebhooks: env.NEXT_PUBLIC_DEMO_MODE });
     case "real":
       throw new NotBuiltError("The Stripe payments adapter (CO-301)");
   }

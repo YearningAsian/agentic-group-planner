@@ -90,13 +90,13 @@ describe("webhook recorder", () => {
     await insertStale(received, "received");
     expect(await recordWebhook(delivery(received))).toBe("process");
     expect(await row(received)).toMatchObject({ status: "received", attempts: 2 });
+    // The retry touched the row, so a third delivery right now waits for it.
+    expect(await recordWebhook(delivery(received))).toBe("skip");
 
     const failed = eventId();
     await insertStale(failed, "failed");
     expect(await recordWebhook(delivery(failed))).toBe("process");
     expect((await row(failed)).attempts).toBe(2);
-    // The retry touched the row, so a third delivery right now waits for it.
-    expect(await recordWebhook(delivery(failed))).toBe("skip");
     await finishWebhook("stripe", failed, "processed");
     expect(await row(failed)).toMatchObject({ status: "processed", attempts: 2 });
 
@@ -122,5 +122,16 @@ describe("webhook recorder", () => {
     await recordWebhook(delivery(id));
     await finishWebhook("stripe", id, "failed", "database unavailable");
     expect(await row(id)).toMatchObject({ status: "failed", error: "database unavailable", processed_at: null });
+
+    // The handler answered 500, so the provider retries at once; nothing is running, so it's processed.
+    expect(await recordWebhook(delivery(id))).toBe("process");
+    expect(await row(id)).toMatchObject({ status: "failed", attempts: 2 });
+    // Of two simultaneous retries of a failed event, one claims it.
+    await finishWebhook("stripe", id, "failed", "still unavailable");
+    const retries = await Promise.all([recordWebhook(delivery(id)), recordWebhook(delivery(id))]);
+    expect(retries.sort()).toEqual(["process", "skip"]);
+    expect((await row(id)).attempts).toBe(3);
+    await finishWebhook("stripe", id, "processed");
+    expect(await recordWebhook(delivery(id))).toBe("skip");
   });
 });
