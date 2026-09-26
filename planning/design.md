@@ -82,7 +82,8 @@ web/
 ├── src/
 │   ├── app/                         routes only: parse input with @agp/shared, call a feature or lib, return
 │   │   ├── layout.tsx, globals.css  root layout, design tokens                                    FE
-│   │   ├── login/                   email sign-in; seeded-user picker in dev mode                 VO
+│   │   ├── login/                   magic-link sign-in; seeded-user picker in dev mode            VO
+│   │   ├── auth/confirm/            magic-link landing: verifyOtp, then redirect to next          VO
 │   │   ├── trips/                   trip list                                                     FE
 │   │   ├── trip/[slug]/             chat (default), plan/, map/                                   FE
 │   │   ├── trip/[slug]/gallery/                                                                   VO
@@ -601,13 +602,14 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 
 | Method | Path | Auth | Body | Response | Owner |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/trips` | signed in (not anonymous) | `{ title ≤ 80, city ≤ 80, trip_date, timezone? }` | `{ slug }` | FE (Should: create trip) |
+| POST | `/api/trips` | signed in | `{ title ≤ 80, city ≤ 80, trip_date, timezone? }` | `{ slug }` | FE (Should: create trip) |
 | POST | `/api/messages` | member | `{ client_id: uuid, trip_id, body ≤ 2000, item_id? }` | `{ message_id, agent_run_id \| null }` | FE (agent start: AI) |
 | POST | `/api/votes` | member | `{ item_id, option_id }` | `{ item_status, tallies: [{option_id, count}] }` | FE |
 | POST | `/api/mandates/:id/approve` | member | `{}` (the organizer's approval always includes their fronted shares) | `{ holds: [{hold_id, status}] }` | CO |
 | POST | `/api/mandates/:id/decline` | member | `{}` | `{ hold_status, mandate_status }` | CO |
 | POST | `/api/mandates/:id/cover` | organizer | `{}` | `{ mandate_status }` | CO |
-| POST | `/api/invites/claim` | any session (anonymous is fine) | `{ token }` | `{ trip_slug, member_id }` | VO |
+| POST | `/api/invites/claim` | signed in | `{ token }` | `{ trip_slug, member_id }` | VO |
+| GET | `/auth/confirm` | the link's token | query `token_hash`, `type=email`, `next` (same-origin path) | redirect to `next`, or `/login?error=link` | VO |
 | POST | `/api/photos` | member | `{ trip_id, storage_path, taken_at?, lat?, lng? }` | `{ photo_id }` | VO (Should) |
 | POST | `/api/recaps/:tripId/regenerate` | member | `{ tone? }` | `{ recap_id }` | AI |
 | POST | `/api/webhooks/stripe` | Stripe signature | raw | `200` | CO |
@@ -682,7 +684,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | stripe_customer_id | text | yes | unique |
 | default_payment_method_id | text | yes | Stripe ID only; no card data |
 
-- Created by trigger `handle_new_user` on insert into `auth.users`, using `raw_user_meta_data.display_name`, or "Guest" for anonymous users.
+- Created by trigger `handle_new_user` on insert into `auth.users`, using `raw_user_meta_data.display_name`, or "Guest" when it's empty.
 - RLS: a user selects only their own row. There are no user writes; server code updates Stripe fields and names. Other members' names come from `trip_members.display_name`.
 
 #### trips
@@ -1141,7 +1143,7 @@ revoke execute on function public.apply_plan(jsonb) from public, anon, authentic
 | `record_reservation(payload jsonb)` | `recordReservation` (confirm route, post-call webhook) | the call outcome (once) and status, the `voice_reservation` booking, the dinner item booked, pinned, and moved to the confirmed time, the `booking_confirmed` card, and the follow-up `agent_runs` row. It returns the run ID, or null when the outcome was already written. | CO |
 | `save_recap(payload jsonb)` | `generateRecap` | the recap row (keeping `share_slug`) and the `recap` card | AI |
 | `apply_item_change(payload jsonb)` | `update_item` (Should) | the item change and the `itinerary_change` card | AI |
-| `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer) and rejects anonymous users. | FE |
+| `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer). | FE |
 
 ---
 
@@ -1448,7 +1450,7 @@ If the offered time is outside the window, the tool returns `ok: false` with "Th
 
 ### 5.5 Placeholder claims their lane
 
-Person 4 opens the invite link. They see the trip and the lane already planned for them, join with one tap (anonymous sign-in), and approve their share with one more. Everyone sees a member-joined card. If the organizer's hold paid Person 4's share, the organizer is refunded that amount, once, and Person 4's lane changes to "Paid" (§4.2).
+Person 4 opens the invite link. They see the trip and the lane already planned for them. Join asks for their email and sends a magic link back to the invite page; there, signed in, Join claims the lane, and one more tap approves their share. In dev mode, Join signs in a fresh claimer through a server-generated link and skips the email ([ADR 0016](adr/0016-magic-link-auth.md)). Everyone sees a member-joined card. If the organizer's hold paid Person 4's share, the organizer is refunded that amount, once, and Person 4's lane changes to "Paid" (§4.2).
 
 ```mermaid
 sequenceDiagram
@@ -1463,7 +1465,10 @@ sequenceDiagram
     P4->>Page: open invite link
     Page->>DB: previewInvite(token), admin client, limited fields
     Page-->>P4: trip, their planned lane, "Join as Person 4"
-    P4->>P4: supabase.auth.signInAnonymously()
+    P4->>Page: Join with email
+    Page->>DB: auth.signInWithOtp(email, next = invite page)
+    DB-->>P4: magic link email
+    P4->>Page: open link, /auth/confirm verifies it, back on the invite page signed in
     P4->>API: POST token
     API->>DB: rpc claim_invite(token) as Person 4
     DB-->>API: trip_slug and member_id
@@ -1646,8 +1651,9 @@ Recordings let tests, CI, and offline development run the agent without a model.
 
 | Route | View | Notes |
 | --- | --- | --- |
-| `/` | redirect | `/trips` if signed in, otherwise `/login` |
-| `/login` | email sign-in, plus `DemoLoginPicker` in dev mode | members get an email one-time code; in dev mode, the picker also lists the seeded users ([ADR 0013](adr/0013-demo-auth-picker-and-anonymous-claim.md)) |
+| `/` | static page, then redirect | links nowhere until `/trips` and `/login` exist; then `/trips` if signed in, otherwise `/login` (FE-202) |
+| `/login` | magic-link sign-in, plus `DemoLoginPicker` in dev mode | members get an email with a sign-in link; in dev mode, the picker also lists the seeded users and signs in through a server-generated link ([ADR 0016](adr/0016-magic-link-auth.md)) |
+| `/auth/confirm` | route handler | verifies the magic link's `token_hash`, sets the session cookie, and redirects to `next` |
 | `/trips` | trip list | active trips first, then past |
 | `/trip/[slug]` | Chat | default tab |
 | `/trip/[slug]/plan` | Lanes | `?member=<id>` or `?member=me` filters to one lane ("My plan") |
@@ -1841,7 +1847,7 @@ Card catalog:
 
 ### 9.3 scripts (`web/scripts/demo`)
 
-These use the web server variables, plus `DEMO_SEED_PASSWORD` (the seeded users' password) and `DEMO_EMAIL_DOMAIN` (default `demo.agp.test`).
+These use the web server variables, plus `DEMO_SEED_SECRET` (salts Person 4's invite token) and `DEMO_EMAIL_DOMAIN` (default `demo.agp.test`).
 
 ### 9.4 What the flags switch
 
@@ -1872,7 +1878,7 @@ Seed data gives development, tests, and CI a known trip to run every core flow a
 | Person 3 | member | joined | $80; none; animals, outdoors, shopping |
 | Person 4 | member | **placeholder** (has an invite token) | $80; none; art, museums |
 
-Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, prompts, recordings, card copy, and diagrams. The repo contains no personal names for the cast. In dev mode, seeded users sign in through the picker, with email and password (`person1@demo.agp.test` through `person3@demo.agp.test`, and `DEMO_SEED_PASSWORD`). Person 4 joins by anonymous sign-in, through the invite link.
+Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, prompts, recordings, card copy, and diagrams. The repo contains no personal names for the cast. In dev mode, seeded users sign in through the picker (`person1@demo.agp.test` through `person3@demo.agp.test`), which verifies a server-generated magic link; they have no passwords. Person 4 joins through the invite link, by magic link.
 
 ### 10.2 Trips
 
@@ -1918,7 +1924,7 @@ Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, 
 1. Upsert auth users (admin API) and their profiles.
 2. Ensure Stripe customers and test cards. Skipped when `PAYMENTS_PROVIDER=mock`.
 3. Upsert places, and routes from the routes fixture if it exists.
-4. Upsert both trips, their members, constraints, and items, including dinner's area. Person 4 is a placeholder whose invite token is derived from `DEMO_SEED_PASSWORD` and the batch. It's the same after every reset, so Person 4's saved invite link keeps working, but it can't be guessed from the repo.
+4. Upsert both trips, their members, constraints, and items, including dinner's area. Person 4 is a placeholder whose invite token is derived from `DEMO_SEED_SECRET` and the batch. It's the same after every reset, so Person 4's saved invite link keeps working, but it can't be guessed from the repo.
 5. Past trip: upload the photos to `demo/` if they're missing, then insert the photo rows, and the recap if a fixture exists.
 6. Run the requested `--stage`, if any.
 7. Print Person 4's invite link and the trip URLs.
@@ -1927,7 +1933,7 @@ Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, 
 
 1. Broadcast `demo.reset` on each of the batch's trip channels.
 2. Delete trips where `seed_batch` is the batch. Everything trip-scoped cascades: members, items, options, votes, mandates, holds, bookings, calls, messages, runs, photos rows, and recaps.
-3. Delete auth users whose profile has the batch's `seed_batch` and who aren't seeded fixture users. These are the claimers, like Person 4's anonymous user. That browser's session becomes invalid, and it returns to the saved invite link, which still works.
+3. Delete auth users whose profile has the batch's `seed_batch` and who aren't seeded fixture users. These are the claimers, like the user who claimed Person 4's lane. That browser's session becomes invalid, and it returns to the saved invite link, which still works.
 4. Run `seed:demo` steps 4–7.
 
    Seeded users, places, routes, Stripe customers, and storage objects are kept, so seeded users stay signed in.
@@ -2009,7 +2015,7 @@ These are the gaps that writing the plan exposed, each with its ruling. The task
 Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each entry gives the reason.
 
 1. **Local Supabase instead of a linked project.** There's no hosted project yet, so `supabase start` runs the stack in Docker, and `pnpm db:types` uses `--local` instead of `--linked` (VO-101, B7). Switch it back to `--linked` once a hosted project exists. The local ports are 553xx (API 55321, DB 55322, Studio 55323, Mailpit 55324), so the stack runs beside other local Supabase projects.
-2. **Local Auth settings** (`supabase/config.toml`): anonymous sign-ins are on, for the placeholder's claim (§10.1). Rate limits are raised for local development, because the database tests sign in many users. The SQL seed is off, because seed data comes from `seed:demo`.
+2. **Local Auth settings** (`supabase/config.toml`): anonymous sign-ins were on, for the placeholder's claim (§10.1); turned off on 2026-09-25 ([ADR 0016](adr/0016-magic-link-auth.md)). Rate limits are raised for local development, because the database tests sign in many users. The SQL seed is off, because seed data comes from `seed:demo`.
 3. **No Storage container in Milestone 1.** The local `storage-api` container failed its health check twice on first boot, and nothing in Milestone 1 uses Storage, so the stack starts with `-x storage-api` (along with edge-runtime, logflare, vector, imgproxy, and supavisor). Photos (Milestone 2, VO-202) need it back.
 4. **pnpm on Windows on Arm.** pnpm ships as an x64 binary, so it resolves native packages for x64 while Node runs as arm64. `pnpm-workspace.yaml` sets `supportedArchitectures.cpu: [current, arm64]`, and `savePrefix: ""` keeps every version exact.
 5. **MapLibre worker is self-hosted.** mapcn's `map.tsx` loads the worker from unpkg. It should load `/maplibre/maplibre-gl-worker.mjs` instead, which is copied from `maplibre-gl` (B3). mapcn installs `maplibre-gl@^6.11`, but the pin stays at 6.10.0 (stack.md).
@@ -2018,3 +2024,9 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 8. **§2.2 corrected: an unreachable optimizer gives an error card.** §2.2 said Next.js would fall back to a mock optimizer, which contradicted §7.4 and the provider list in §2.3 (the optimizer isn't a provider). §7.4 wins: `plan_day` retries once, then the run writes an `error` card with Try again.
 9. **Function migrations after file 5's slot.** `apply_plan` and `audit_definer_functions` use `20260925200600` and `20260925200700`. `supabase migration new` would stamp today's date, which sorts before file 1. File 5 (media, Milestone 2) keeps its fixed `20260925200500` name, so applying it to an existing local database needs `supabase db reset` or `supabase migration up --include-all`.
 10. **`applyPlan` also takes the optimizer request.** Option prices exist only on the request's candidates, not in the response, so `applyPlan` takes `request` next to `response`.
+
+### 11.5 Changes on 2026-09-25
+
+1. **Planning docs are public.** The repo is public on GitHub. `planning/` and `task_plan.md` are tracked, except `planning/adr/` and `planning/master-plan.docx` (which predates the Person 1–4 labels). `skills/` and every `AGENTS.md` are gitignored.
+2. **Magic links replace anonymous and password auth** ([ADR 0016](adr/0016-magic-link-auth.md), superseding 0013). Members, the dev-mode picker, invite claims, and the database test helper all sign in by magic link. `DEMO_SEED_PASSWORD` is renamed `DEMO_SEED_SECRET`.
+3. **Milestone 1 audit.** VO-101, VO-102, VO-104, CO-101, CO-102, and CO-103 went back to not done: no hosted project is linked, the migrations were only applied to a local stack, and the session-survives-reload check never ran. FE-103 was re-verified. `/` is a static page until FE-202, and a route test fails on any link to a missing route.

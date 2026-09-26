@@ -154,10 +154,10 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `supabase/migrations/20260925200100_foundation.sql`, `web/tests/db/helpers.ts`, `web/tests/db/foundation.test.ts`
 - **Depends on:** VO-101. The tests need FE-102's Vitest config.
-- **Produces:** the design §3.3 file 1 tables and functions. `helpers.ts` exports `testBatch()` (returns `test:<uuid>`), `adminClient()`, `createUser({ displayName, anonymous? })` (returns `{ userId, client }` signed in as that user), `createTrip(batch, { members })` (returns `{ tripId, memberIds }`), and `cleanup(batch)`.
+- **Produces:** the design §3.3 file 1 tables and functions. `helpers.ts` exports `testBatch()` (returns `test:<uuid>`), `adminClient()`, `createUser({ batch, displayName? })` (returns `{ userId, email, client }`, signed in through a generated magic link; ADR 0016), `createTrip(batch, { members })` (returns `{ tripId, memberIds }`), and `cleanup(batch)`.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/foundation.test.ts` passes:
-    - `handle_new_user creates a profile from display_name metadata, and "Guest" for an anonymous user`
+    - `handle_new_user creates a profile from display_name metadata, and "Guest" when there is none`
     - `is_trip_member is true for a joined member and false for a placeholder row`
     - `a signed-in non-member selects no trips and no trip_members`
     - `trip_members rejects status joined with a null profile_id`
@@ -201,24 +201,26 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
     - `uuidFor is stable for the same batch and name, and differs across batches`
-    - `inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_PASSWORD`
+    - `inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_SECRET`
   - [ ] Check: running `pnpm seed:demo --batch dev-vo` twice prints identical row counts. The members are `Person 1` through `Person 4`, and Person 4 is a `placeholder` with an invite token. The script prints Person 4's invite link and the trip URL.
 - **Status:** in progress (2026-09-23). `pnpm --filter web test scripts/demo/lib` → ids tests 4 passed (RED first: "Cannot find module ./ids"). Remaining: fixtures/users.ts, fixtures/saturday-trip.json, lib/args.ts, seed.ts, and the seed-twice row-count check.
 - **Commit:** `feat(demo): idempotent seed with batches and a stable invite token`
 
-#### VO-106 · Sign-in: email one-time code, plus the dev-mode picker · Must
+#### VO-106 · Sign-in: magic link, plus the dev-mode picker · Must
 
-- **Files:** `web/src/app/login/page.tsx`, `web/src/app/login/email-sign-in.tsx`, `web/src/app/login/email-sign-in.test.tsx`, `web/src/features/demo/components/demo-login-picker.tsx`, `web/src/features/demo/components/demo-login-picker.test.tsx`, `web/src/features/demo/server/demo-sign-in.ts`
+- **Files:** `web/src/app/login/page.tsx`, `web/src/app/login/magic-link-form.tsx`, `web/src/app/login/magic-link-form.test.tsx`, `web/src/app/auth/confirm/route.ts`, `web/src/app/auth/confirm/route.test.ts`, `web/src/features/demo/components/demo-login-picker.tsx`, `web/src/features/demo/components/demo-login-picker.test.tsx`, `web/src/features/demo/server/demo-sign-in.ts`, `supabase/templates/magic-link.html`, `supabase/config.toml`
 - **Depends on:** VO-104, VO-105, AI-103
-- **Produces:** the email one-time-code form, which is how members sign in ([ADR 0013](adr/0013-demo-auth-picker-and-anonymous-claim.md)). In dev mode only, `DemoLoginPicker` and the server action `demoSignIn(email)` let you sign in as a seeded user; the password stays on the server.
+- **Produces:** the magic-link form, which is how members sign in ([ADR 0016](adr/0016-magic-link-auth.md)), and `/auth/confirm`, which verifies the link's `token_hash` with the server client and redirects to a same-origin `next`. The local magic-link email template links to `/auth/confirm` with `{{ .TokenHash }}`. In dev mode only, `DemoLoginPicker` and the server action `demoSignIn(email)` sign in as a seeded user through `auth.admin.generateLink`; no passwords exist.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/app/login src/features/demo/components` passes:
-    - `the email form sends a one-time code, then verifies it and goes to /trips` (Supabase client mocked)
-    - `the code field shows pending while verifying, and an error for a wrong code`
+  - [ ] `pnpm --filter web test -- src/app/login src/app/auth src/features/demo/components` passes:
+    - `the form sends a magic link with emailRedirectTo /auth/confirm?next=/trips, then shows "Check your email"` (Supabase client mocked)
+    - `Send shows pending while sending, and an error when Supabase rejects the email`
+    - `/auth/confirm verifies token_hash and redirects to next; a bad or used link goes to /login?error=link`
+    - `/auth/confirm ignores a next that isn't a same-origin path` (no open redirect)
     - `the picker renders only in dev mode, listing Person 1, Person 2, and Person 3 as buttons at least 44 px tall`
     - `demoSignIn rejects when NEXT_PUBLIC_DEMO_MODE is not true`
-  - [ ] Check: one browser signs in with an email code, another as Person 2 through the picker, and both stay signed in after a reload.
-- **Commit:** `feat(auth): email sign-in and a dev-mode picker for seeded users`
+  - [ ] Check: one browser signs in through a magic link (Mailpit locally, the inbox on a hosted project), another as Person 2 through the picker, and both stay signed in after a reload. This also closes VO-104's check.
+- **Commit:** `feat(auth): magic-link sign-in and a dev-mode picker for seeded users`
 
 #### VO-107 · Deploy both services, plus the health route · Must
 
@@ -231,6 +233,23 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `returns all "ok" when the db and optimizer respond`
   - [ ] Check: `curl https://<vercel-url>/api/health` returns all `ok`.
 - **Commit:** `chore(deploy): vercel and railway with a health route`
+
+#### VO-108 · Database test target · Should
+
+- **Files:** `web/src/test/{db-target.ts,db-target.test.ts}`, `web/vitest.config.ts`, `web/tests/db/helpers.ts`, `CONTRIBUTING.md`
+- **Depends on:** VO-102
+- **Produces:** `DB_TEST_TARGET`. `local` (the default) runs the `db` and `stripe` projects against `supabase start` with `web/.env.local`. `dev` overlays the three Supabase keys from a gitignored `web/.env.test.local`, which points at a separate hosted project, for machines without Docker. Both projects also collect `tests/payments/**`, where the CO-209, CO-210, and CO-212 suites live.
+- **Done when:**
+  - [x] `pnpm --filter web test -- src/test/db-target.test.ts` passes:
+    - `defaults to the local stack and uses web/.env.local as is`
+    - `rejects an unknown target`
+    - `dev overlays the three Supabase keys from .env.test.local on the local env`
+    - `dev without .env.test.local names the file`
+    - `dev names every missing key, and never prints a value`
+    - `dev refuses a project that web/.env.local also points at`
+  - [ ] Check: with a dev project's keys in `web/.env.test.local` and the migrations pushed there, `DB_TEST_TARGET=dev pnpm --filter web test:db` passes.
+- **Status:** in progress (2026-09-25). The unit tests pass (RED first: "Cannot find module ./db-target"). Without the file, `DB_TEST_TARGET=dev` stops with the named error; the default target still runs against the local stack. A probe file under `tests/payments/` was listed by both the `db` and `stripe` projects. The Check needs a dev project's keys.
+- **Commit:** `feat(test): DB_TEST_TARGET for a hosted dev project`
 
 ### M1 · FE
 
@@ -572,7 +591,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - [ ] **Vote:** two members voting for one option lock the slot, and every member's view updates.
 - [ ] **Book with group approval:** on a trip whose morning is decided, the book prompt creates approval cards with the design §2.1 copy. Three approvals produce one booking and one capture per PaymentIntent. The CO-212 tests pass for all three Person 4 orders, and the payments concurrency suites pass on mocks.
 - [ ] **Restaurant call:** on a trip with the aquarium booked, the dinner prompt with the mock voice books 7:45 PM, the provisional pin becomes the restaurant, and the re-plan card follows. Every VO-212 scenario ends in its expected state.
-- [ ] **Placeholder claims their lane:** Person 4 joins anonymously from the invite link and approves in one tap, and a second claim of the same link says it was already used.
+- [ ] **Placeholder claims their lane:** Person 4 joins from the invite link by magic link (a generated one in dev mode) and approves in one tap, and a second claim of the same link says it was already used.
 - [ ] Every Must task's unit and database tests pass locally.
 
 **If it fails:** anyone whose flows passed pairs with the failing workstream, and Should work waits. Milestone 3 switches start with the flows that passed.
@@ -1406,12 +1425,14 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - **Depends on:** VO-209, FE-103
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/features/invite/components` passes:
-    - `Join signs in anonymously, claims, and goes to the trip`
+    - `signed out, Join asks for an email and sends a magic link back to this invite page`
+    - `signed in, Join claims and goes to the trip`
+    - `in dev mode, Join signs in a fresh claimer through a generated link, then claims`
     - `a second tap while joining does nothing` (review focus 1)
     - `a used invite reads "This invite was already used."` (review focus 4)
     - `an unknown token reads "Invite not found."`
     - `the invite URL is saved to localStorage`
-- **Commit:** `feat(invite): invite page with anonymous join`
+- **Commit:** `feat(invite): invite page with magic-link join`
 
 #### VO-211 · Member joined, and holds released to the joiner · Must
 
@@ -1501,10 +1522,10 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 #### VO-217 · e2e harness · Should
 
 - **Files:** `web/playwright.config.ts`, `web/e2e/{global-setup.ts,global-teardown.ts,fixtures.ts,smoke.spec.ts}`
-- **Depends on:** VO-201, VO-106
-- **Produces:** the fixtures `asPerson(1 | 2 | 3)` (a signed-in page), `asPerson4()` (a signed-out page on the invite link), and `seededTrip({ stage })`. Each spec file gets its own `e2e-<random>` batch.
+- **Depends on:** VO-201, VO-106, FE-106
+- **Produces:** the fixtures `asPerson(1 | 2 | 3)` (a page signed in by visiting a generated magic link at `/auth/confirm`), `asPerson4()` (a signed-out page on the invite link), and `seededTrip({ stage })`. Each spec file gets its own `e2e-<random>` batch.
 - **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/smoke.spec.ts` passes: `Person 1 and Person 2 open the trip in two contexts and see the same chat`.
+  - [ ] `pnpm --filter web e2e -- e2e/smoke.spec.ts` passes: `Person 1 signs in through a magic link, opens the seeded trip, and sees the chat; Person 2, in a second context, sees the same chat`.
 - **Commit:** `test(e2e): harness with per-file batches and cast fixtures`
 
 #### VO-218 · e2e 04-dinner-call · Should
@@ -1979,7 +2000,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/create-trip.test.ts` passes:
     - `create_trip makes the caller the organizer and returns an 11-character slug`
-    - `anonymous callers are rejected`
+    - `a caller with no session is rejected`
   - [ ] Check: the form validates the title, city, and date, with disabled and pending states on Create.
 - **Commit:** `feat(trips): create a trip`
 

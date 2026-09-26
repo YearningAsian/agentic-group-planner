@@ -25,7 +25,7 @@ Keep keys in a shared password manager, never in the repo. Each line names the v
 - [ ] **OpenRouteService** key → `ORS_API_KEY`
 - [ ] **Supabase:**
   - Project created → `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and the project ref
-  - Email one-time codes and anonymous sign-ins enabled
+  - Magic-link email template pointing at `/auth/confirm` (`{{ .TokenHash }}`), anonymous sign-ins off, and custom SMTP before real use (ADR 0016)
   - Private bucket `trip-photos` created
 - [ ] **Vercel, Railway, Sentry, and ngrok** accounts; Vercel and Railway CLIs installed; `vercel login` and `railway login` done
 - [ ] **UI reference:** Muse screenshots saved

@@ -92,7 +92,7 @@
 | --- | --- | --- |
 | Vercel | Hobby or Pro | Next.js; routes that start agent runs set `maxDuration = 300` |
 | Railway | always on | FastAPI |
-| Supabase | Free or Pro | Postgres, Auth (anonymous sign-ins on), Realtime, Storage (`trip-photos`, private) |
+| Supabase | Free or Pro | Postgres, Auth (magic links; anonymous sign-ins off), Realtime, Storage (`trip-photos`, private) |
 | Stripe | test mode | holds, captures, refunds |
 | ElevenLabs Agents | account with calling | voice agent and server tool |
 | Twilio | **upgraded** (no trial notice) | phone number, imported into ElevenLabs |
