@@ -1825,10 +1825,11 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Files:** `packages/shared/src/tools/summarize.ts`, `packages/shared/src/cards/summary.ts`, `web/src/lib/tools/summarize/{tool.ts,card.tsx,tool.test.ts}`
 - **Depends on:** AI-106, CO-213
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/summarize` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/summarize` passes:
     - `every number is computed on the server`
     - `Person 4's share shows fronted until they pay`
     - `logistics has 5 lines or fewer`
+- **Status:** done, backend (2026-09-26). Proof: `pnpm --filter web test src/lib/tools/summarize` → 4 passed (RED first: `buildSummary` didn't exist); `pnpm --filter web test:db tests/db/summarize.test.ts` → 2 passed (a scripted run posts one `summary` card with committed $84 from the seeded holds; an unknown `M9` returns a correctable `unknown_handle` and no card). `SummarizeInput` and `SummaryCard` are final in `@agp/shared`; `formatUsd` is exported for server text. The card renderer (`summarize/card.tsx`) stays a stub for FE, and CO-213's badge reads the same `shareStatus` labels.
 - **Commit:** `feat(agent): summarize tool`
 
 #### FE-S02 · Create-trip flow · Should

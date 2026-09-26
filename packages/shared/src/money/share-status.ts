@@ -19,7 +19,7 @@ export interface ShareStatusView {
 }
 
 /** "$48", or "$48.50" when there are cents. Integer math only. */
-function usd(cents: number): string {
+export function formatUsd(cents: number): string {
   const rest = cents % 100;
   return `$${Math.trunc(cents / 100)}${rest === 0 ? "" : `.${String(rest).padStart(2, "0")}`}`;
 }
@@ -42,9 +42,9 @@ export function shareStatus(rows: readonly ShareRow[]): ShareStatusView {
   }
   switch (own.status) {
     case "authorized":
-      return view("authorized", `Approved, up to ${usd(own.cap_cents)}`);
+      return view("authorized", `Approved, up to ${formatUsd(own.cap_cents)}`);
     case "pending":
-      return view("pending", `Approve up to ${usd(own.cap_cents)}`);
+      return view("pending", `Approve up to ${formatUsd(own.cap_cents)}`);
     case "awaiting_member":
       return view("awaiting_member", "Joins later");
     case "declined":

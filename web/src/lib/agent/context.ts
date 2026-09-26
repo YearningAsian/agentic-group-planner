@@ -1,5 +1,5 @@
 import "server-only";
-import type { CardType, ItemStatus, MemberRole, MemberStatus, MessageKind, SenderType } from "@agp/shared";
+import { type CardType, formatUsd as usd, type ItemStatus, type MemberRole, type MemberStatus, type MessageKind, type SenderType } from "@agp/shared";
 import type { ModelMessage } from "ai";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
@@ -54,12 +54,6 @@ export interface AgentContext {
   system: string;
   messages: ModelMessage[];
   handles: HandleTable;
-}
-
-/** Whole dollars when there are no cents, like "$80" or "$18.50". Integer math only. */
-function usd(cents: number): string {
-  const rest = cents % 100;
-  return `$${Math.trunc(cents / 100)}${rest === 0 ? "" : `.${String(rest).padStart(2, "0")}`}`;
 }
 
 function clock(iso: string, timeZone: string): string {
