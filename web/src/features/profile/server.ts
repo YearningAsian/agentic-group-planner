@@ -1,6 +1,4 @@
 import "server-only";
-import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
-
-export const updateProfile = notBuilt("updateProfile");
+// Server entry point for the profile feature.
+export { type UpdateProfileInput, updateProfile } from "./server/update-profile";
