@@ -111,10 +111,20 @@
 
   /* Trip-draft palette. Values are set on `.trip-draft` so they don't replace the app tokens. */
   --color-ink: var(--ink);
+  --color-ink-faint: var(--ink-faint);
   --color-bg-muted: var(--bg-muted);
+  --color-surface-sunken: var(--surface-sunken);
   --color-line: var(--line);
   --color-line-soft: var(--line-soft);
   --color-tip: var(--tip);
+  --color-tip-line: var(--tip-line);
+  --color-accent-tint: var(--accent-tint);
+  --color-good-tint: var(--good-tint);
+  --color-warn-tint: var(--warn-tint);
+  --color-info-tint: var(--info-tint);
+  --color-map-bg: var(--map-bg);
+  --color-map-line: var(--map-line);
+  --color-map-accent: var(--map-accent);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -253,40 +263,55 @@
  * outside this class they stay the app tokens (shadcn surfaces, not the draft pink/gray).
  */
 .trip-draft {
-  --bg: #ffffff;
-  --ink: #222222;
-  --muted: #6a6a6a;
-  --accent: #ff385c;
-  --bg-muted: #f7f7f7;
-  --line: #dddddd;
-  --line-soft: #ebebeb;
+  color-scheme: light;
+  --bg: #fbf8f3;
+  --surface: #ffffff;
+  --surface-sunken: #f4efe6;
+  --ink: #221f1a;
+  --muted: #756e60;
+  --ink-faint: #a69e8d;
+  --line: #eae3d4;
+  --line-soft: #dcd3be;
+  --accent: #f0416a;
+  --accent-tint: #fde9ee;
+  --good: #2f7d5b;
+  --good-tint: #e7f3ec;
+  --warn: #a85b1c;
+  --warn-tint: #fbeee0;
+  --info: #3a6ea5;
+  --info-tint: #e9f0f8;
+  --map-bg: #0e211d;
+  --map-line: #1e3b34;
+  --map-accent: #63d3a6;
+  --bg-muted: var(--surface-sunken);
   --tip: #fff8f6;
   --tip-line: #ffd6de;
-  --shadow: 0 6px 16px rgb(0 0 0 / 0.08);
-  --shadow-lift: 0 12px 28px rgb(0 0 0 / 0.12);
+  --shadow: 0 1px 2px rgb(34 31 26 / 0.04), 0 8px 24px -12px rgb(34 31 26 / 0.1);
+  --shadow-lift: 0 1px 2px rgb(34 31 26 / 0.05), 0 14px 32px -14px rgb(34 31 26 / 0.18);
 
   /* Keep shadcn surfaces on this light palette even when the OS is in dark mode. */
   --text: var(--ink);
   --text-muted: var(--muted);
-  --surface: #ffffff;
   --surface-2: var(--bg-muted);
-  --card: #ffffff;
+  --card: var(--surface);
   --card-foreground: var(--ink);
-  --popover: #ffffff;
+  --popover: var(--surface);
   --popover-foreground: var(--ink);
   --primary: var(--accent);
   --primary-foreground: #ffffff;
   --accent-foreground: #ffffff;
-  --border: var(--line-soft);
+  --success: var(--good);
+  --warning: var(--warn);
+  --border: var(--line);
   --input: var(--line);
   --ring: var(--accent);
-  --sidebar: #ffffff;
+  --sidebar: var(--surface);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fff0f3;
+  --sidebar-accent: var(--accent-tint);
   --sidebar-accent-foreground: var(--accent);
-  --sidebar-border: var(--line-soft);
+  --sidebar-border: var(--line);
   --sidebar-ring: var(--accent);
 
   background: var(--bg);
@@ -306,7 +331,8 @@
 }
 
 .trip-draft ::selection {
-  background: #ffd6de;
+  background: var(--accent-tint);
+  color: var(--accent);
 }
 
 @keyframes step-forward {

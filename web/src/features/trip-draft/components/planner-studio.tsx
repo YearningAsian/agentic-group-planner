@@ -146,6 +146,7 @@ export function PlannerStudio() {
     const city = chatCityDestination(trimmed, state.destinationId);
     if (city) {
       trip.confirmDestination(city.id);
+      trip.commitDraft?.();
       push("agent", `Got it — flying the map to ${city.label}, ${city.country}. I'll keep planning around the stays already pinned.`);
     } else if (!destination || !featured) {
       push("agent", "Tell me a city name like Lisbon, Kyoto, or Mexico City and I'll move the map there.");
@@ -158,6 +159,7 @@ export function PlannerStudio() {
   function chooseStay() {
     if (!destination || !featured) return;
     trip.lockStay(featured.id);
+    trip.commitDraft?.();
     setSelectedId(featured.id);
     push("agent", `${featured.name} is saved for the group. The highlighted pin is the one to share.`);
   }

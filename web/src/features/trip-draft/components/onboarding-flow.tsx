@@ -91,6 +91,7 @@ export function OnboardingFlow() {
   function finish() {
     if (handingOff) return;
     setHandingOff(true);
+    trip.commitDraft();
     window.setTimeout(() => router.push("/studio"), 900);
   }
 

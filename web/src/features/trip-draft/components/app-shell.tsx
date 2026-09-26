@@ -53,20 +53,21 @@ function activeNav(pathname: string) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { state } = useTrip();
+  const trip = useTrip();
+  const { state } = trip;
   const profile = organizerProfile(state);
   const active = activeNav(pathname);
   const flush = pathname.startsWith("/studio");
 
   return (
     <SidebarProvider
-      className="h-dvh max-h-dvh overflow-hidden bg-white"
+      className="h-dvh max-h-dvh overflow-hidden bg-bg"
       style={{ "--sidebar-width": "260px" } as CSSProperties}
     >
       <Sidebar collapsible="offcanvas" className="border-sidebar-border">
         <SidebarHeader className="px-4 pt-5 pb-2">
           <Link href="/" className="flex items-center gap-2.5 px-2">
-            <span className="flex size-[30px] items-center justify-center rounded-[9px] bg-accent text-[15px] font-extrabold text-white">
+            <span className="flex size-[30px] items-center justify-center rounded-[9px] bg-linear-to-br from-accent to-[#ff7a93] text-[15px] font-extrabold text-white">
               G
             </span>
             <span className="text-[15px] font-bold tracking-tight text-ink">Group Trip Agent</span>
@@ -82,14 +83,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                       isActive={active === item.id}
                       aria-current={active === item.id ? "page" : undefined}
                       className="h-11 rounded-[11px] px-3 text-[14.5px] font-semibold text-muted hover:bg-bg-muted hover:text-ink data-active:bg-sidebar-accent data-active:text-accent"
-                      render={<Link href={item.href} />}
+                      render={
+                        <Link
+                          href={item.href}
+                          onClick={item.id === "new" ? () => trip.startNewTrip() : undefined}
+                        />
+                      }
                     >
                       <item.icon />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
-                    {item.id === "trips" ? (
+                    {item.id === "trips" && trip.trips.length > 0 ? (
                       <SidebarMenuBadge className="top-3 rounded-full bg-bg-muted px-2 text-[11.5px] font-bold text-muted peer-data-active/menu-button:bg-white peer-data-active/menu-button:text-accent">
-                        3
+                        {trip.trips.length}
                       </SidebarMenuBadge>
                     ) : null}
                   </SidebarMenuItem>
@@ -99,14 +105,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="gap-3 p-4">
-          <div className="rounded-[14px] bg-ink p-3.5 text-white">
+          <div className="rounded-[14px] bg-linear-to-br from-[#1c1a17] to-[#302a22] p-3.5 text-white">
             <p className="mb-2.5 text-[12.5px] leading-snug text-[#d9d2c4]">
-              Have a destination in mind but not much else? Just tell the agent — text, voice, or a quick
+              Have a destination in mind but not much else? Just tell the agent: text, voice, or a quick
               questionnaire.
             </p>
             <Button
               nativeButton={false}
-              render={<Link href="/onboarding" />}
+              render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}
               className="h-9 w-full rounded-lg bg-white text-[12.5px] font-bold text-ink hover:bg-white/90"
             >
               Start a new trip
@@ -114,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-2.5 border-t border-sidebar-border pt-3">
             <Avatar className="size-8">
-              <AvatarFallback className="bg-[#fff0f3] text-[13px] font-bold text-accent">
+              <AvatarFallback className="bg-[#efd9ce] text-[13px] font-bold text-[#8a4b31]">
                 {initials(profile.name)}
               </AvatarFallback>
             </Avatar>
@@ -130,14 +136,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="end" className="w-44">
-                <DropdownMenuItem render={<Link href="/onboarding" />}>New trip</DropdownMenuItem>
+                <DropdownMenuItem render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}>
+                  New trip
+                </DropdownMenuItem>
                 <DropdownMenuItem render={<Link href="/trips" />}>Your trips</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset className="min-h-0 overflow-hidden bg-white">
+      <SidebarInset className="min-h-0 overflow-hidden bg-bg">
         <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2 md:hidden">
           <SidebarTrigger className="size-11" />
           <span className="text-sm font-semibold text-ink">Group Trip Agent</span>

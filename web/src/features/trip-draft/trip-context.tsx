@@ -1,13 +1,19 @@
 "use client";
 
 /**
- * Client-only trip draft state (prototype port). Persists to sessionStorage and has no
- * Supabase wiring yet; the real trip-view + queries replace this when the backend lands.
- * TODO: replace with Supabase-backed trip-view and delete the sessionStorage draft.
+ * Client-only trip state backed by localStorage database.
  * Screen map: `app/(trip-draft)/layout.tsx`. Read and write only through `useTrip()`.
  */
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { destinationById } from "@/features/trip-draft/fixtures";
+import {
+  loadDatabase,
+  saveDatabase,
+  upsertTripRecord,
+  deleteTripRecord,
+  type TripRecord,
+  type TripsDatabase,
+} from "@/features/trip-draft/trips-db";
 
 export type Member = {
   id: string;
@@ -17,6 +23,7 @@ export type Member = {
 };
 
 export type TripState = {
+  id?: string | null;
   destinationId: string | null;
   destinationQuery: string;
   pinDropped: boolean;
@@ -37,7 +44,7 @@ export type TripState = {
   justJoinedName: string | null;
 };
 
-const STORAGE_KEY = "agp-trip-draft";
+export type { TripRecord, TripsDatabase };
 
 function initialMembers(): Member[] {
   return [
@@ -49,6 +56,7 @@ function initialMembers(): Member[] {
 
 function initialState(): TripState {
   return {
+    id: null,
     destinationId: null,
     destinationQuery: "",
     pinDropped: false,
@@ -70,36 +78,30 @@ function initialState(): TripState {
   };
 }
 
-function loadState(): TripState {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return emptySnapshot;
-    const parsed = JSON.parse(raw) as Partial<TripState>;
-    const base = initialState();
-    return {
-      ...base,
-      ...parsed,
-      members: Array.isArray(parsed.members) && parsed.members.length > 0 ? parsed.members : base.members,
-      dietary: Array.isArray(parsed.dietary) ? parsed.dietary : [],
-      vibes: Array.isArray(parsed.vibes) ? parsed.vibes : [],
-      compareFlightIds: Array.isArray(parsed.compareFlightIds) ? parsed.compareFlightIds : [],
-      compareStayIds: Array.isArray(parsed.compareStayIds) ? parsed.compareStayIds : [],
-    };
-  } catch {
-    return emptySnapshot;
-  }
-}
-
 const emptySnapshot = initialState();
+const emptyTrips: TripRecord[] = [];
+let dbSnapshot: TripsDatabase = { activeTripId: null, trips: [] };
 let snapshot: TripState = emptySnapshot;
 let didHydrate = false;
 const listeners = new Set<() => void>();
 
-/** Loads sessionStorage once, on the client, before the first draft snapshot is read. */
 function hydrate() {
   if (didHydrate) return;
   didHydrate = true;
-  snapshot = loadState();
+  dbSnapshot = loadDatabase();
+  if (dbSnapshot.trips.length > 0) {
+    const active =
+      dbSnapshot.trips.find((t) => t.id === dbSnapshot.activeTripId) ?? dbSnapshot.trips[0];
+    snapshot = active;
+    dbSnapshot.activeTripId = active.id;
+  } else {
+    snapshot = initialState();
+    dbSnapshot.activeTripId = null;
+  }
+}
+
+function notify() {
+  for (const listener of listeners) listener();
 }
 
 function subscribe(listener: () => void) {
@@ -112,12 +114,35 @@ function commit(recipe: (current: TripState) => TripState) {
   const next = recipe(snapshot);
   if (next === snapshot) return;
   snapshot = next;
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  } catch {
-    // The tab still keeps the draft in memory when storage is blocked.
+  if (snapshot.id) {
+    const now = Date.now();
+    const existing = dbSnapshot.trips.find((t) => t.id === snapshot.id);
+    const record: TripRecord = {
+      ...snapshot,
+      id: snapshot.id,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    dbSnapshot = upsertTripRecord(dbSnapshot, record);
   }
-  for (const listener of listeners) listener();
+  notify();
+}
+
+function commitDraft(): string | null {
+  if (!snapshot.destinationId && !snapshot.destinationQuery) return null;
+  const now = Date.now();
+  const id = snapshot.id ?? `trip-${now}-${Math.random().toString(36).slice(2, 6)}`;
+  const existing = dbSnapshot.trips.find((t) => t.id === id);
+  const record: TripRecord = {
+    ...snapshot,
+    id,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  snapshot = record;
+  dbSnapshot = upsertTripRecord(dbSnapshot, record);
+  notify();
+  return id;
 }
 
 function subscribeHydrated() {
@@ -146,15 +171,30 @@ type TripActions = {
   setComparingStays: (on: boolean) => void;
   markInviteShared: () => void;
   markFirstPendingJoined: () => void;
+  startNewTrip: () => void;
+  commitDraft: () => string | null;
+  selectTrip: (id: string) => void;
+  deleteTrip: (id: string) => void;
 };
 
-type TripContextValue = { state: TripState } & TripActions;
+type TripContextValue = {
+  state: TripState;
+  trips: TripRecord[];
+  activeTripId: string | null;
+  hasTrips: boolean;
+} & TripActions;
 
-const TripContext = createContext<TripContextValue | null>(null);
+export const TripContext = createContext<TripContextValue | null>(null);
 
 export function TripProvider({ children }: { children: React.ReactNode }) {
   const hydrated = useSyncExternalStore(subscribeHydrated, () => true, () => false);
   const state = useSyncExternalStore(subscribe, () => snapshot, () => emptySnapshot);
+  const trips = useSyncExternalStore(subscribe, () => dbSnapshot.trips, () => emptyTrips);
+  const activeTripId = useSyncExternalStore(
+    subscribe,
+    () => dbSnapshot.activeTripId,
+    () => null,
+  );
 
   const actions = useMemo<TripActions>(
     () => ({
@@ -190,6 +230,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             compareStayIds: samePlace ? current.compareStayIds : [],
           };
         });
+        if (snapshot.id) {
+          commitDraft();
+        }
       },
       setDates(start, end) {
         commit((current) => ({ ...current, startDate: start, endDate: end }));
@@ -322,11 +365,46 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           return { ...current, members, didSimulateJoin: true, justJoinedName: name };
         });
       },
+      startNewTrip() {
+        snapshot = initialState();
+        dbSnapshot = { ...dbSnapshot, activeTripId: null };
+        saveDatabase(dbSnapshot);
+        notify();
+      },
+      commitDraft() {
+        return commitDraft();
+      },
+      selectTrip(id) {
+        const found = dbSnapshot.trips.find((t) => t.id === id);
+        if (found) {
+          snapshot = found;
+          dbSnapshot = { ...dbSnapshot, activeTripId: id };
+          saveDatabase(dbSnapshot);
+          notify();
+        }
+      },
+      deleteTrip(id) {
+        dbSnapshot = deleteTripRecord(dbSnapshot, id);
+        if (snapshot.id === id) {
+          const nextActive = dbSnapshot.trips[0] ?? initialState();
+          snapshot = nextActive;
+        }
+        notify();
+      },
     }),
     [],
   );
 
-  const value = useMemo(() => ({ state, ...actions }), [state, actions]);
+  const value = useMemo(
+    () => ({
+      state,
+      trips,
+      activeTripId,
+      hasTrips: trips.length > 0,
+      ...actions,
+    }),
+    [state, trips, activeTripId, actions],
+  );
 
   return (
     <TripContext.Provider value={value}>

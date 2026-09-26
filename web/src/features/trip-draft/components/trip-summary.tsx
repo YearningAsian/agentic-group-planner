@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Current-trip dashboard (port of `Trip summary graph — Flights → Hotel → Invite.html`).
- * Reads the session draft from `useTrip` — destination, dates, locked flight/stay, and members —
+ * Current-trip dashboard (port of `Trip summary graph - Flights -> Hotel -> Invite.html`).
+ * Reads the session draft from `useTrip` - destination, dates, locked flight/stay, and members -
  * and writes picks back through the same actions, so Picks and Progress stay in sync.
  * Comments and the "someone just suggested a fare" beat are local to this screen.
  * TODO: replace the timed suggestion and simulated join with live trip-view events.
@@ -55,7 +55,7 @@ const TONES = [
   { bg: "#E6DCF0", color: "#6B3FA0" },
 ] as const;
 
-const CARD_SHADOW = "0 1px 2px rgba(34,31,26,.04), 0 8px 24px -12px rgba(34,31,26,.10)";
+const CARD_SHADOW = "var(--shadow)";
 
 export function TripSummary() {
   const { state } = useTrip();
@@ -67,16 +67,16 @@ export function TripSummary() {
 function EmptySummary() {
   return (
     <AppShell>
-      <div className="min-h-full bg-[#FBF8F3] text-[#221F1A]">
+      <div className="min-h-full bg-bg text-ink">
       <div className="mx-auto max-w-[760px] px-5 py-8">
-        <section className="rounded-[20px] border border-[#EAE3D4] bg-white p-6" style={{ boxShadow: CARD_SHADOW }}>
+        <section className="rounded-[20px] border border-line bg-surface p-6" style={{ boxShadow: CARD_SHADOW }}>
           <h2 className="text-[18px] font-bold tracking-tight">No trip selected</h2>
-          <p className="mt-2 text-[14px] leading-relaxed text-[#756E60]">
+          <p className="mt-2 text-[14px] leading-relaxed text-muted">
             Answer the questions and this page fills in with flights, a stay, and who has joined.
           </p>
           <Link
             href="/onboarding"
-            className="mt-5 inline-flex h-11 items-center rounded-[9px] bg-[#221F1A] px-4 text-[13px] font-bold text-white"
+            className="mt-5 inline-flex h-11 items-center rounded-[9px] bg-ink px-4 text-[13px] font-bold text-white hover:bg-[#302a22]"
           >
             Start the questionnaire
           </Link>
@@ -274,44 +274,44 @@ function SummaryBody() {
 
   return (
     <AppShell>
-      <div className="min-h-full bg-[#FBF8F3] text-[#221F1A]">
+      <div className="min-h-full bg-bg text-ink">
       <div className="mx-auto max-w-[760px] px-5 pt-6 pb-20">
         <div
-          className="flex flex-wrap items-center gap-3.5 rounded-[14px] border border-[#EAE3D4] bg-white px-[18px] py-3.5 sm:flex-nowrap"
+          className="flex flex-wrap items-center gap-3.5 rounded-[14px] border border-line bg-surface px-[18px] py-3.5 sm:flex-nowrap"
           style={{ boxShadow: CARD_SHADOW }}
         >
           <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <h2 className="truncate text-[16px] font-bold">
               {destination.label} · {formatRange(state.startDate, state.endDate)}
             </h2>
-            <p className="mt-0.5 truncate text-[12px] text-[#A69E8D]">Trip summary — updates as the group chats and answers questions</p>
+            <p className="mt-0.5 truncate text-[12px] text-ink-faint">Trip summary updates as the group chats and answers questions</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#E7F3EC] px-2.5 py-1 text-[11.5px] font-bold text-[#2F7D5B]">
-            <span className="trip-live-dot h-1.5 w-1.5 rounded-full bg-[#2F7D5B]" />
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-good-tint px-2.5 py-1 text-[11.5px] font-bold text-success">
+            <span className="trip-live-dot h-1.5 w-1.5 rounded-full bg-success" />
             Live
           </span>
           <AvatarStack members={state.members} />
           <button
             type="button"
             onClick={() => void shareLink()}
-            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[9px] bg-[#221F1A] px-3 text-[12.5px] font-bold text-white hover:bg-black"
+            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[9px] bg-ink px-3 text-[12.5px] font-bold text-white hover:bg-[#302a22]"
           >
             <PenIcon className="h-3.5 w-3.5" />
             Share
           </button>
         </div>
 
-        <p className="flex items-center gap-2 px-1 py-3.5 pb-5 text-[12px] text-[#A69E8D]" aria-live="polite">
+        <p className="flex items-center gap-2 px-1 py-3.5 pb-5 text-[12px] text-ink-faint" aria-live="polite">
           <ClockIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
           <span>
-            Updated {ago(stamp, now)} — <b className="font-bold text-[#756E60]">{detail}</b>
+            Updated {ago(stamp, now)}. <b className="font-bold text-muted">{detail}</b>
           </span>
         </p>
 
         <div className="relative">
           <div
             className="absolute top-3.5 bottom-3.5 left-[27px] w-0.5"
-            style={{ background: "repeating-linear-gradient(to bottom, #DCD3BE 0 6px, transparent 6px 12px)" }}
+            style={{ background: "repeating-linear-gradient(to bottom, var(--line-soft) 0 6px, transparent 6px 12px)" }}
             aria-hidden
           />
           <ol>
@@ -329,7 +329,7 @@ function SummaryBody() {
               current={flightMarker === "active"}
             >
               {flight ? (
-                <section className="overflow-hidden rounded-[20px] border border-[#EAE3D4] bg-white" style={{ boxShadow: CARD_SHADOW }}>
+                <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
                   <button
                     type="button"
                     aria-expanded={flightsOpen}
@@ -346,14 +346,14 @@ function SummaryBody() {
                             className={cn(
                               "absolute top-0 left-0 flex h-14 items-center rounded-xl border px-3.5 text-[12.5px] font-semibold",
                               front
-                                ? "right-[14%] z-30 border-[#DCD3BE] bg-white text-[#221F1A]"
-                                : "border-[#DCD3BE] bg-[#F4EFE6] text-[#756E60]",
+                                ? "right-[14%] z-30 border-line-soft bg-surface text-ink"
+                                : "border-line-soft bg-bg-muted text-muted",
                               depth === 1 && "right-[8%] z-20 translate-y-3 -rotate-[1.2deg] scale-[0.98]",
                               depth === 2 && "right-[2%] z-10 translate-y-[22px] rotate-[1.4deg] scale-[0.96]",
                             )}
                             style={front ? { boxShadow: CARD_SHADOW } : undefined}
                           >
-                            <span className="mr-2.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg bg-[#FDE9EE] text-[#F0416A]">
+                            <span className="mr-2.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg bg-accent-tint text-accent">
                               <PlaneIcon className="h-3.5 w-3.5" />
                             </span>
                             <span className="truncate">
@@ -361,7 +361,7 @@ function SummaryBody() {
                               {front && item.stops === "Nonstop" ? ", nonstop" : ""}
                             </span>
                             {front ? (
-                              <span className="ml-auto shrink-0 rounded-full bg-[#E7F3EC] px-2 py-0.5 text-[10.5px] font-extrabold text-[#2F7D5B]">
+                              <span className="ml-auto shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[10.5px] font-extrabold text-success">
                                 {lockedFlight ? "Locked" : "Leading"}
                               </span>
                             ) : null}
@@ -369,7 +369,7 @@ function SummaryBody() {
                         );
                       })}
                     </div>
-                    <span className="flex items-center justify-between text-[12px] text-[#A69E8D]">
+                    <span className="flex items-center justify-between text-[12px] text-ink-faint">
                       <span>
                         {flights.length} shortlisted, {joined.length} {joined.length === 1 ? "vote" : "votes"} cast
                       </span>
@@ -390,13 +390,13 @@ function SummaryBody() {
                             key={item.id}
                             className={cn(
                               "mb-2.5 flex items-center gap-3 rounded-xl border px-3 py-3",
-                              leading ? "border-[#CFE7DA] bg-[#E7F3EC]" : "border-[#EAE3D4] bg-white",
+                              leading ? "border-[#cfe7da] bg-good-tint" : "border-line bg-surface",
                             )}
                           >
                             <span
                               className={cn(
-                                "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border text-[#F0416A]",
-                                leading ? "border-[#CFE7DA] bg-white" : "border-[#EAE3D4] bg-white",
+                                "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border text-accent",
+                                leading ? "border-[#cfe7da] bg-surface" : "border-line bg-surface",
                               )}
                             >
                               <PlaneIcon className="h-4 w-4" />
@@ -406,7 +406,7 @@ function SummaryBody() {
                                 {item.airline}
                                 {item.stops === "Nonstop" ? " · nonstop" : ""}
                               </span>
-                              <span className="mt-px block truncate text-[11.5px] text-[#756E60]">
+                              <span className="mt-px block truncate text-[11.5px] text-muted">
                                 {item.from} → {item.to} · {item.duration}
                                 {item.stops !== "Nonstop" ? ` · ${item.stops}` : ""}
                               </span>
@@ -425,7 +425,7 @@ function SummaryBody() {
                               onClick={() => lockPickedFlight(item.id, item.airline)}
                               className={cn(
                                 "h-11 shrink-0 rounded-lg px-3 text-[11.5px] font-bold",
-                                picked ? "bg-[#2F7D5B] text-white" : "border border-[#DCD3BE] bg-white text-[#221F1A]",
+                                picked ? "bg-success text-white" : "border border-line-soft bg-surface text-ink",
                               )}
                             >
                               {picked ? "Picked" : "Pick this"}
@@ -462,7 +462,7 @@ function SummaryBody() {
                   </Discuss>
                 </section>
               ) : (
-                <p className="text-[14px] text-[#756E60]">Fares show up after a destination is confirmed.</p>
+                <p className="text-[14px] text-muted">Fares show up after a destination is confirmed.</p>
               )}
             </SummaryNode>
 
@@ -476,7 +476,7 @@ function SummaryBody() {
               current={stayMarker === "active"}
             >
               {stay ? (
-                <section className="overflow-hidden rounded-[20px] border border-[#EAE3D4] bg-white" style={{ boxShadow: CARD_SHADOW }}>
+                <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
                   <div className="px-5 pt-[18px]">
                     <div className="mb-3.5 flex h-[110px] gap-0.5 overflow-hidden rounded-xl">
                       {[stay.image, destination.photos.find((photo) => photo !== stay.image) ?? destination.photos[1]].map((src) => (
@@ -487,16 +487,16 @@ function SummaryBody() {
                     </div>
                     <div className="mb-1.5 flex items-start justify-between gap-2.5">
                       <h3 className="text-[15px] font-bold">{stay.name}</h3>
-                      <span className="shrink-0 rounded-full bg-[#E7F3EC] px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-[#2F7D5B]">
+                      <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-success">
                         {lockedStay ? "Locked in" : "Leading pick"}
                       </span>
                     </div>
-                    <p className="mb-3.5 text-[12.5px] text-[#756E60]">
+                    <p className="mb-3.5 text-[12.5px] text-muted">
                       {stay.neighborhood} · {state.members.length} guests · {formatRange(state.startDate, state.endDate)}
                     </p>
                     <div className="flex items-center justify-between pb-4">
                       <p className="text-[15px] font-extrabold">
-                        {money(stay.price)} <span className="text-[12px] font-medium text-[#A69E8D]">/ night</span>
+                        {money(stay.price)} <span className="text-[12px] font-medium text-ink-faint">/ night</span>
                       </p>
                       <span className="flex">
                         {voters.map((member, index) => (
@@ -508,19 +508,19 @@ function SummaryBody() {
                       <button
                         type="button"
                         onClick={() => lockPickedStay(stay.id, stay.name)}
-                        className="mb-4 h-11 rounded-lg bg-[#221F1A] px-3 text-[12px] font-bold text-white"
+                        className="mb-4 h-11 rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22]"
                       >
                         Lock this stay
                       </button>
                     ) : null}
                   </div>
                   {alternates.length > 0 ? (
-                    <div className="px-5 pb-4 text-[11.5px] text-[#A69E8D]">
+                    <div className="px-5 pb-4 text-[11.5px] text-ink-faint">
                       Also considering{" "}
                       {alternates.map((item, index) => (
                         <span key={item.id}>
                           {index > 0 ? (index === alternates.length - 1 ? " and " : ", ") : null}
-                          <button type="button" onClick={() => lockPickedStay(item.id, item.name)} className="font-bold text-[#756E60] underline">
+                          <button type="button" onClick={() => lockPickedStay(item.id, item.name)} className="font-bold text-muted underline">
                             {item.name} ({money(item.price)}/night)
                           </button>
                         </span>
@@ -551,7 +551,7 @@ function SummaryBody() {
                   </Discuss>
                 </section>
               ) : (
-                <p className="text-[14px] text-[#756E60]">Stays show up after a destination is confirmed.</p>
+                <p className="text-[14px] text-muted">Stays show up after a destination is confirmed.</p>
               )}
             </SummaryNode>
 
@@ -563,14 +563,14 @@ function SummaryBody() {
               current={inviteMarker === "active"}
               last
             >
-              <section className="rounded-[20px] border border-[#EAE3D4] bg-white" style={{ boxShadow: CARD_SHADOW }}>
+              <section className="rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
                 <div className="px-5 py-[18px]">
-                  <div className="mb-3.5 flex items-center gap-2.5 rounded-xl border border-dashed border-[#DCD3BE] bg-[#F4EFE6] py-2.5 pr-2.5 pl-3.5">
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[#756E60]">{link}</span>
+                  <div className="mb-3.5 flex items-center gap-2.5 rounded-xl border border-dashed border-line-soft bg-bg-muted py-2.5 pr-2.5 pl-3.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-muted">{link}</span>
                     <button
                       type="button"
                       onClick={() => void copyLink()}
-                      className="h-11 shrink-0 rounded-lg bg-[#221F1A] px-3 text-[11.5px] font-bold text-white hover:bg-black"
+                      className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[11.5px] font-bold text-white hover:bg-[#302a22]"
                     >
                       {copied ? "Copied" : "Copy link"}
                     </button>
@@ -587,7 +587,7 @@ function SummaryBody() {
                           <span
                             className={cn(
                               "ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold",
-                              on ? "bg-[#E7F3EC] text-[#2F7D5B]" : "bg-[#FBEEE0] text-[#A85B1C]",
+                              on ? "bg-good-tint text-success" : "bg-warn-tint text-warning",
                             )}
                           >
                             {badge}
@@ -601,7 +601,7 @@ function SummaryBody() {
                     {state.justJoinedName ? `${state.justJoinedName} joined the trip.` : ""}
                   </p>
                   {state.justJoinedName ? (
-                    <p className="mt-3 text-[13px] font-semibold text-[#2F7D5B]">{state.justJoinedName} just joined.</p>
+                    <p className="mt-3 text-[13px] font-semibold text-success">{state.justJoinedName} just joined.</p>
                   ) : null}
                 </div>
               </section>
@@ -636,10 +636,10 @@ function SummaryNode({
       <div className="w-14 shrink-0 pt-0.5">
         <div
           className={cn(
-            "relative z-[1] flex h-14 w-14 items-center justify-center rounded-2xl border bg-white",
-            marker === "done" && "border-[#CFE7DA] bg-[#E7F3EC] text-[#2F7D5B]",
-            marker === "active" && "border-[#F8C9D5] bg-[#FDE9EE] text-[#F0416A]",
-            marker === "pending" && "border-[#EAE3D4] text-[#A69E8D]",
+            "relative z-[1] flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface",
+            marker === "done" && "border-[#cfe7da] bg-good-tint text-success",
+            marker === "active" && "border-[#f8c9d5] bg-accent-tint text-accent",
+            marker === "pending" && "border-line text-ink-faint",
           )}
           style={{ boxShadow: CARD_SHADOW }}
         >
@@ -649,7 +649,7 @@ function SummaryNode({
       <div className={cn("min-w-0 flex-1", last ? "pb-1.5" : "pb-8")}>
         <div className="mb-2.5 flex items-center gap-2.5 pt-3">
           <h2 className="text-[15.5px] font-extrabold tracking-tight">{title}</h2>
-          <span className="ml-auto text-[12px] font-semibold text-[#A69E8D]">{status}</span>
+          <span className="ml-auto text-[12px] font-semibold text-ink-faint">{status}</span>
         </div>
         {children}
       </div>
@@ -674,7 +674,7 @@ function Discuss({
         type="button"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex min-h-11 w-full items-center gap-2 border-t border-[#EAE3D4] bg-[#F4EFE6] px-5 py-3 text-[12.5px] font-bold text-[#756E60]"
+        className="flex min-h-11 w-full items-center gap-2 border-t border-line bg-bg-muted px-5 py-3 text-[12.5px] font-bold text-muted"
       >
         <ChatIcon className="h-3.5 w-3.5" />
         {count} {count === 1 ? "comment" : "comments"}
@@ -703,7 +703,7 @@ function CommentList({
   onDismiss: (id: string) => void;
 }) {
   if (comments.length === 0) {
-    return <p className="mb-3 text-[12.5px] text-[#A69E8D]">No comments yet. The group thread shows up here.</p>;
+    return <p className="mb-3 text-[12.5px] text-ink-faint">No comments yet. The group thread shows up here.</p>;
   }
   return (
     <ul className="mb-1">
@@ -721,12 +721,12 @@ function CommentList({
             <div className="min-w-0 flex-1">
               <p className="mb-0.5 flex items-baseline gap-2">
                 <span className="text-[12.5px] font-bold">{comment.name}</span>
-                <span className="text-[11px] text-[#A69E8D]">{comment.at ? ago(comment.at, now) : comment.timeLabel}</span>
+                <span className="text-[11px] text-ink-faint">{comment.at ? ago(comment.at, now) : comment.timeLabel}</span>
               </p>
-              <p className="text-[12.5px] leading-relaxed text-[#756E60]">{comment.text}</p>
+              <p className="text-[12.5px] leading-relaxed text-muted">{comment.text}</p>
               {suggestion && !hidden ? (
-                <div className="mt-2 overflow-hidden rounded-xl border border-[#EAE3D4] bg-white">
-                  <p className="flex items-center gap-1.5 bg-[#E9F0F8] px-3 py-1.5 text-[11px] font-bold text-[#3A6EA5]">
+                <div className="mt-2 overflow-hidden rounded-xl border border-line bg-surface">
+                  <p className="flex items-center gap-1.5 bg-info-tint px-3 py-1.5 text-[11px] font-bold text-info">
                     {suggestion.kind === "flight" ? <PlaneIcon className="h-3 w-3" /> : <HouseIcon className="h-3 w-3" />}
                     Suggested {suggestion.kind === "flight" ? "flight" : "stay"}
                   </p>
@@ -736,7 +736,7 @@ function CommentList({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] font-bold">{suggestion.title}</span>
-                      <span className="block truncate text-[11.5px] text-[#A69E8D]">{suggestion.meta}</span>
+                      <span className="block truncate text-[11.5px] text-ink-faint">{suggestion.meta}</span>
                     </span>
                     <span className="shrink-0 text-[13px] font-extrabold">{suggestion.priceLabel}</span>
                   </div>
@@ -745,7 +745,7 @@ function CommentList({
                       type="button"
                       onClick={() => onAccept(suggestion)}
                       disabled={picked}
-                      className="h-11 rounded-lg bg-[#F0416A] px-3 text-[11.5px] font-bold text-white disabled:opacity-70"
+                      className="h-11 rounded-lg bg-accent px-3 text-[11.5px] font-bold text-white disabled:opacity-70"
                     >
                       {picked ? "On the shortlist" : "Add to shortlist"}
                     </button>
@@ -753,7 +753,7 @@ function CommentList({
                       <button
                         type="button"
                         onClick={() => onDismiss(suggestion.id)}
-                        className="h-11 rounded-lg border border-[#DCD3BE] bg-white px-3 text-[11.5px] font-bold"
+                        className="h-11 rounded-lg border border-line-soft bg-surface px-3 text-[11.5px] font-bold"
                       >
                         Dismiss
                       </button>
@@ -793,17 +793,17 @@ function Composer({
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="h-11 min-w-0 flex-1 rounded-[10px] border border-[#DCD3BE] px-3 text-[12.5px] outline-none focus:border-[#F0416A]"
+          className="h-11 min-w-0 flex-1 rounded-[10px] border border-line-soft bg-surface px-3 text-[12.5px] outline-none focus:border-accent"
         />
         <button
           type="submit"
           aria-label="Post comment"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[#DCD3BE] bg-white text-[#756E60] hover:bg-[#F4EFE6]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-line-soft bg-surface text-muted hover:bg-bg-muted"
         >
           <PlusIcon className="h-4 w-4" />
         </button>
       </div>
-      <p className="mt-1.5 text-[11px] text-[#A69E8D]">
+      <p className="mt-1.5 text-[11px] text-ink-faint">
         Attaching a link or photo turns your comment into a suggested option the group can vote on.
       </p>
     </form>
@@ -819,7 +819,7 @@ function AvatarStack({ members }: { members: Member[] }) {
         <Avatar key={member.id} name={memberLabel(member, index)} index={index} overlap={index > 0} />
       ))}
       {rest > 0 ? (
-        <span className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#EFE3D9] text-[11.5px] font-bold text-[#8A6A31]">
+        <span className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#efe3d9] text-[11.5px] font-bold text-[#8a6a31]">
           +{rest}
         </span>
       ) : null}
@@ -897,7 +897,7 @@ function seedStayComment(members: Member[], stay: StayOption, stays: StayOption[
     id: "seed-stay",
     memberIndex: authorIndex,
     name,
-    text: `${alternate.name} is closer to the neighborhood we keep coming back to — thoughts?`,
+    text: `${alternate.name} is closer to the neighborhood we keep coming back to. Thoughts?`,
     at: null,
     timeLabel: "18m ago",
     suggestion: {
@@ -930,7 +930,7 @@ function buildLiveFlightComment(state: TripState): { comment: Comment; activity:
       name,
       at,
       text: cheaper
-        ? `Found one that's ${money(leading.price - other.price)} less${other.stops === "Nonstop" ? " and still nonstop" : ""} — worth a look?`
+        ? `Found one that's ${money(leading.price - other.price)} less${other.stops === "Nonstop" ? " and still nonstop" : ""}. Worth a look?`
         : `What about ${other.airline}? ${other.stops}, ${other.duration}.`,
       suggestion: {
         id: `flight-${other.id}`,
