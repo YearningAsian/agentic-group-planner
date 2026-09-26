@@ -14,7 +14,7 @@
     "e2e": "playwright test",
     "seed:demo": "tsx --env-file-if-exists=.env.local scripts/demo/seed.ts",
     "reset:demo": "tsx --env-file-if-exists=.env.local scripts/demo/reset.ts",
-    "sandbox:smoke": "vitest run --project db scripts/sandbox-smoke.ts"
+    "sandbox:smoke": "vitest run --project smoke"
   },
   "dependencies": {
     "@agp/shared": "workspace:*",

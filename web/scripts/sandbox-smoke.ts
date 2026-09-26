@@ -5,7 +5,8 @@
  * and reports that as mocked; payments, booking, webhooks, claim, settle, expiry, and recap use
  * the real app code on whatever PAYMENTS_PROVIDER / STAYS_PROVIDER the env selects.
  *
- * Run: `pnpm --filter web sandbox:smoke` (vitest db project: server-only stub + .env.local).
+ * Run: `pnpm --filter web sandbox:smoke` (vitest smoke project: server-only stub + .env.local).
+ * Requires PAYMENTS_PROVIDER=mock (the script uses the mock payments kit for signed webhooks).
  * Stripe CLI: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then put the
  * printed `whsec_…` in web/.env.local as STRIPE_WEBHOOK_SECRET yourself — this script never writes it.
  */
@@ -26,6 +27,7 @@ import { summarizeTool } from "@/lib/tools/summarize/tool";
 import { assignHandles } from "@/lib/agent/handles";
 import { reset } from "./demo/reset";
 import { claimPlaceholder, paymentsKit, shareRows, mandateRow } from "../tests/payments/kit";
+import { cleanup } from "../tests/db/helpers";
 
 type PlanRequest = components["schemas"]["PlanRequest"];
 type PlanResponse = components["schemas"]["PlanResponse"];
@@ -47,7 +49,11 @@ function refuseLiveKeys(): void {
   const stripe = process.env.STRIPE_SECRET_KEY ?? "";
   const duffel = process.env.DUFFEL_ACCESS_TOKEN ?? "";
   if (stripe.startsWith("sk_live_")) throw new Error("sandbox:smoke refuses a live Stripe key (sk_live_).");
+  if (stripe && !stripe.startsWith("sk_test_")) throw new Error("sandbox:smoke needs a test Stripe key (sk_test_) when STRIPE_SECRET_KEY is set.");
   if (duffel && !duffel.startsWith("duffel_test_")) throw new Error("sandbox:smoke refuses a non-test Duffel token.");
+  if ((process.env.PAYMENTS_PROVIDER ?? "mock") !== "mock") {
+    throw new Error("sandbox:smoke uses the mock payments kit; set PAYMENTS_PROVIDER=mock.");
+  }
 }
 
 function record(name: string, mode: StepMode, ok: boolean, reason: string): void {
@@ -91,7 +97,7 @@ describe("sandbox smoke", () => {
     const passed = results.filter((r) => r.ok).length;
     console.log(`\nsandbox:smoke ${passed}/${results.length} steps passed`);
     for (const r of results) console.log(`  ${r.ok ? "ok" : "FAIL"}  ${r.name} [${r.mode}] — ${r.reason}`);
-    if (admin) await admin.from("trips").delete().eq("seed_batch", BATCH);
+    await cleanup(BATCH);
   });
 
   it("runs the sandbox happy path", async () => {
@@ -304,6 +310,7 @@ describe("sandbox smoke", () => {
           delivered += 1;
         }
       }
+      expect(delivered).toBeGreaterThan(0);
       return `delivered ${delivered} payment_intent.succeeded event(s)`;
     });
 
@@ -518,6 +525,12 @@ describe("sandbox smoke", () => {
       const past = new Date(Date.now() - 60_000).toISOString();
       const aged = await admin.from("mandates").update({ expires_at: past }).eq("id", openId);
       if (aged.error) throw aged.error;
+      // expireMandates is trip-wide: refuse if anything else is already past expiry.
+      const others = await admin.from("mandates").select("id").in("status", ["open", "partially_declined"]).lt("expires_at", new Date().toISOString()).neq("id", openId);
+      if (others.error) throw others.error;
+      if (others.data.length > 0) {
+        throw new Error(`refusing expireMandates: ${others.data.length} other open mandate(s) are past expiry on this project`);
+      }
       const { expired } = await expireMandates();
       expect(expired).toContain(openId);
       expect(await mandateRow(openId)).toMatchObject({ status: "cancelled", cancel_reason: "expired" });
