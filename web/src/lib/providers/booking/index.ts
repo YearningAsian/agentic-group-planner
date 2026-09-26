@@ -7,6 +7,7 @@ import type { BookingKind, BookingProvider } from "./types";
 
 export type * from "./types";
 export { MOCK_MERCHANT_NAME } from "./mock-merchant";
+export { getStaysSearch, type StayOffer, type StaysSearch } from "./stays-search";
 
 /** Picks the hotel adapter from `STAYS_PROVIDER`. Pure, so tests can pass any env. */
 export function selectStaysProvider(
