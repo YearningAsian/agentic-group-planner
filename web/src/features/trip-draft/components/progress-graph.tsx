@@ -177,7 +177,7 @@ export function ProgressGraph() {
                     {expanded && node.id === "flight" && node.status === "current" ? (
                       <button
                         type="button"
-                        onClick={() => router.push("/plan#flights")}
+                        onClick={() => router.push("/studio?browse=flights")}
                         className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
                       >
                         Browse flights
@@ -186,7 +186,7 @@ export function ProgressGraph() {
                     {expanded && node.id === "hotel" && node.status === "current" ? (
                       <button
                         type="button"
-                        onClick={() => router.push("/plan#stays")}
+                        onClick={() => router.push("/studio?browse=stays")}
                         className="mt-4 h-11 rounded-full bg-accent px-5 text-[14px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:scale-[0.98]"
                       >
                         Browse stays

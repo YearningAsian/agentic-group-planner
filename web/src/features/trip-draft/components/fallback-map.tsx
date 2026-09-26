@@ -20,6 +20,8 @@ export type MapMarker = {
   lat: number;
   selected?: boolean;
   variant?: "place" | "price";
+  /** Hover text. Pins keep their existing colors. */
+  title?: string;
 };
 
 export function PricePin({
@@ -32,6 +34,7 @@ export function PricePin({
   return (
     <button
       type="button"
+      title={marker.title}
       onClick={() => onSelect?.(marker.id)}
       className={
         marker.selected
@@ -88,6 +91,7 @@ export function FallbackMap({
               ) : (
                 <button
                   type="button"
+                  title={marker.title}
                   onClick={() => onSelectMarker?.(marker.id)}
                   className={
                     marker.selected

@@ -8,6 +8,8 @@ const POLICY = { timeoutMs: 4000, retries: 0 } as const;
 interface DuffelAirport {
   iata_code?: string;
   name?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface DuffelPlace {
@@ -57,14 +59,22 @@ function toSuggestion(place: DuffelPlace): PlaceSuggestion[] {
   if (!iataCode) return [];
   const kind = place.type === "airport" ? "airport" : "city";
   const name = place.name ?? place.city_name ?? iataCode;
+  const cityName = place.city_name?.trim() || undefined;
   const nested = (place.airports ?? [])
     .filter((airport): airport is DuffelAirport & { iata_code: string } => Boolean(airport.iata_code))
-    .map((airport) => ({ iataCode: airport.iata_code, name: airport.name ?? airport.iata_code }));
+    .map((airport) => ({
+      iataCode: airport.iata_code,
+      name: airport.name ?? airport.iata_code,
+      ...(airport.latitude != null && airport.longitude != null
+        ? { lat: airport.latitude, lng: airport.longitude }
+        : {}),
+    }));
   const airports: AirportCode[] = nested.length > 0 ? nested : [{ iataCode, name }];
   return [
     {
       kind,
       name,
+      ...(cityName ? { cityName } : {}),
       iataCode,
       lat: place.latitude ?? null,
       lng: place.longitude ?? null,

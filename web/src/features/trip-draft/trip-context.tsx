@@ -5,7 +5,10 @@
  * Screen map: `app/(trip-draft)/layout.tsx`. Read and write only through `useTrip()`.
  */
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
+import { chosenFlightFrom, type ChosenFlight, type ChosenStay } from "@/features/trip-draft/chosen-travel";
 import { DESTINATIONS, destinationById } from "@/features/trip-draft/fixtures";
+import type { FlightOffer } from "@/lib/providers/flights/types";
+import type { StayCard } from "@/lib/providers/stays/types";
 import {
   loadDatabase,
   saveDatabase,
@@ -42,15 +45,27 @@ export type TripState = {
   destinationAirportIatas?: string[];
   destinationLat?: number | null;
   destinationLng?: number | null;
+  originQuery?: string;
+  originLabel?: string;
+  originIata?: string | null;
+  originAirportIatas?: string[];
   pinDropped: boolean;
   startDate: string;
   endDate: string;
+  /** Checked by default. One-way trips keep a departure date and an empty end date. */
+  roundTrip?: boolean;
+  placesToVisit?: string;
+  stayPreference?: string;
   budget: number | null;
   dietary: string[];
   vibes: string[];
   members: Member[];
   lockedFlightId: string | null;
   lockedStayId: string | null;
+  /** Live Duffel flight shown on the summary. Wins over fixture lookup when its id matches the lock. */
+  chosenFlight?: ChosenFlight | null;
+  /** Live Duffel stay shown on the summary. Wins over fixture lookup when its id matches the lock. */
+  chosenStay?: ChosenStay | null;
   compareFlightIds: string[];
   compareStayIds: string[];
   comparingFlights: boolean;
@@ -80,15 +95,24 @@ function initialState(): TripState {
     destinationAirportIatas: [],
     destinationLat: null,
     destinationLng: null,
+    originQuery: "",
+    originLabel: "",
+    originIata: null,
+    originAirportIatas: [],
     pinDropped: false,
     startDate: "",
     endDate: "",
+    roundTrip: true,
+    placesToVisit: "",
+    stayPreference: "",
     budget: null,
     dietary: [],
     vibes: [],
     members: initialMembers(),
     lockedFlightId: null,
     lockedStayId: null,
+    chosenFlight: null,
+    chosenStay: null,
     compareFlightIds: [],
     compareStayIds: [],
     comparingFlights: false,
@@ -130,6 +154,8 @@ function applyPlace(current: TripState, place: ConfirmedPlace): TripState {
     pinDropped: true,
     lockedFlightId: samePlace ? current.lockedFlightId : null,
     lockedStayId: samePlace ? current.lockedStayId : null,
+    chosenFlight: samePlace ? current.chosenFlight ?? null : null,
+    chosenStay: samePlace ? current.chosenStay ?? null : null,
     members: samePlace ? current.members : clearMemberPicks(current.members),
     compareFlightIds: samePlace ? current.compareFlightIds : [],
     compareStayIds: samePlace ? current.compareStayIds : [],
@@ -145,6 +171,15 @@ function normalizeState<T extends TripState>(state: T): T {
     destinationAirportIatas: state.destinationAirportIatas ?? (fixture?.code ? [fixture.code] : []),
     destinationLat: state.destinationLat ?? fixture?.lat ?? null,
     destinationLng: state.destinationLng ?? fixture?.lng ?? null,
+    originQuery: state.originQuery ?? "",
+    originLabel: state.originLabel ?? "",
+    originIata: state.originIata ?? null,
+    originAirportIatas: state.originAirportIatas ?? [],
+    roundTrip: state.roundTrip ?? true,
+    placesToVisit: state.placesToVisit ?? "",
+    stayPreference: state.stayPreference ?? "",
+    chosenFlight: state.chosenFlight ?? null,
+    chosenStay: state.chosenStay ?? null,
     members: state.members.map((member, index) => ({
       ...member,
       flightId: member.flightId ?? (index === 0 ? state.lockedFlightId : null),
@@ -228,7 +263,12 @@ type TripActions = {
   setDestinationQuery: (query: string) => void;
   confirmDestination: (id: string) => void;
   confirmPlace: (place: ConfirmedPlace) => void;
+  setOriginQuery: (query: string) => void;
+  confirmOrigin: (place: Pick<ConfirmedPlace, "label" | "iataCode" | "airportIatas">) => void;
   setDates: (start: string, end: string) => void;
+  setRoundTrip: (roundTrip: boolean) => void;
+  setPlacesToVisit: (placesToVisit: string) => void;
+  setStayPreference: (stayPreference: string) => void;
   setBudget: (budget: number | null) => void;
   setDietary: (dietary: string[]) => void;
   toggleDietary: (value: string) => void;
@@ -242,6 +282,8 @@ type TripActions = {
   assignStay: (memberId: string, id: string) => void;
   lockFlight: (id: string) => void;
   lockStay: (id: string) => void;
+  chooseFlight: (flight: FlightOffer) => void;
+  chooseStay: (stay: StayCard | ChosenStay) => void;
   toggleCompareFlight: (id: string) => void;
   toggleCompareStay: (id: string) => void;
   setComparingFlights: (on: boolean) => void;
@@ -293,6 +335,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             pinDropped: stillConfirmed ? current.pinDropped : false,
             lockedFlightId: stillConfirmed ? current.lockedFlightId : null,
             lockedStayId: stillConfirmed ? current.lockedStayId : null,
+            chosenFlight: stillConfirmed ? current.chosenFlight ?? null : null,
+            chosenStay: stillConfirmed ? current.chosenStay ?? null : null,
             members: stillConfirmed ? current.members : clearMemberPicks(current.members),
           };
         });
@@ -320,8 +364,44 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           commitDraft();
         }
       },
+      setOriginQuery(query) {
+        commit((current) => {
+          const stillConfirmed = Boolean(
+            current.originLabel && query.trim().toLowerCase() === current.originLabel.toLowerCase(),
+          );
+          return {
+            ...current,
+            originQuery: query,
+            originLabel: stillConfirmed ? current.originLabel : "",
+            originIata: stillConfirmed ? current.originIata : null,
+            originAirportIatas: stillConfirmed ? current.originAirportIatas : [],
+          };
+        });
+      },
+      confirmOrigin(place) {
+        commit((current) => ({
+          ...current,
+          originQuery: place.label,
+          originLabel: place.label,
+          originIata: place.iataCode,
+          originAirportIatas: place.airportIatas,
+        }));
+      },
       setDates(start, end) {
         commit((current) => ({ ...current, startDate: start, endDate: end }));
+      },
+      setRoundTrip(roundTrip) {
+        commit((current) => ({
+          ...current,
+          roundTrip,
+          endDate: roundTrip ? current.endDate : "",
+        }));
+      },
+      setPlacesToVisit(placesToVisit) {
+        commit((current) => ({ ...current, placesToVisit }));
+      },
+      setStayPreference(stayPreference) {
+        commit((current) => ({ ...current, stayPreference }));
       },
       setBudget(budget) {
         commit((current) => ({ ...current, budget }));
@@ -411,6 +491,36 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           ...current,
           lockedStayId: id,
           members: current.members.map((member, index) => (index === 0 ? { ...member, stayId: id } : member)),
+          comparingStays: false,
+          compareStayIds: [],
+        }));
+      },
+      chooseFlight(flight) {
+        const chosen = chosenFlightFrom(flight);
+        commit((current) => ({
+          ...current,
+          chosenFlight: chosen,
+          lockedFlightId: chosen.id,
+          members: current.members.map((member, index) => (index === 0 ? { ...member, flightId: chosen.id } : member)),
+          comparingFlights: false,
+          compareFlightIds: [],
+        }));
+      },
+      chooseStay(stay) {
+        const chosen: ChosenStay = {
+          id: stay.id,
+          name: stay.name,
+          area: stay.area,
+          nightlyAmount: stay.nightlyAmount,
+          currency: stay.currency,
+          guestScore: stay.guestScore,
+          image: stay.image,
+        };
+        commit((current) => ({
+          ...current,
+          chosenStay: chosen,
+          lockedStayId: chosen.id,
+          members: current.members.map((member, index) => (index === 0 ? { ...member, stayId: chosen.id } : member)),
           comparingStays: false,
           compareStayIds: [],
         }));

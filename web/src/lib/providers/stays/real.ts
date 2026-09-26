@@ -131,7 +131,7 @@ export function createDuffelStays(opts: { token: string; fetchImpl?: typeof fetc
                 data: {
                   check_in_date: input.checkIn,
                   check_out_date: input.checkOut,
-                  rooms: 1,
+                  rooms: clampCount(input.rooms, 1),
                   guests: guests(input.adults),
                   location: {
                     radius: clampRadius(input.radiusKm),
@@ -238,8 +238,13 @@ export function createDuffelStays(opts: { token: string; fetchImpl?: typeof fetc
 }
 
 function guests(adults: number): { type: "adult" }[] {
-  const count = Math.min(9, Math.max(1, Math.floor(adults)));
+  const count = clampCount(adults, 1);
   return Array.from({ length: count }, () => ({ type: "adult" as const }));
+}
+
+function clampCount(value: number | undefined, fallback: number): number {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  return Math.min(9, Math.max(1, Math.floor(value)));
 }
 
 function clampRadius(radiusKm: number): number {
@@ -268,7 +273,9 @@ function toCard(result: DuffelSearchResult): StayCard | null {
     reviewCount: numberOrNull(accommodation.review_count),
     starRating: starRating(accommodation.rating),
     nightlyAmount: total == null ? null : total / nights,
+    totalAmount: total,
     currency: result.cheapest_rate_currency ?? null,
+    amenities: amenities(accommodation.amenities).map((item) => item.description),
   };
 }
 

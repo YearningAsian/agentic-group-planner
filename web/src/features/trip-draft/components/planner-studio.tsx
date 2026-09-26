@@ -3,8 +3,10 @@
 /**
  * `/studio` split view inside `AppShell`: chat and stay cards on the left, `TripMap` on the right.
  * Opened from `EntryChoice` Chat and from `OnboardingFlow.finish()`.
- * A null `destinationId` stays empty; exact city chat messages call `confirmDestination` before stay cards appear.
- * Browse stays (gated on that same `destinationId`) swaps the chat feed for a Duffel listing grid and widens the left pane.
+ * A null `destinationId` stays empty; exact city chat messages call `confirmDestination` before fixture stay cards appear.
+ * Browse stays and Browse flights search Duffel from the trip destination, dates, and budget.
+ * A destination without coordinates, such as Tokyo, is resolved through Duffel places before the stay search.
+ * A chat `stayArea` opens the stay listing. Chat flight cards remember the origin for later browse.
  * City detect is `chatCityDestination` in `fixtures.ts`. Nightly-vs-budget ranking is `splitStays` here; `/plan` uses nights in `plan-picker.tsx`.
  */
 import { useEffect, useRef, useState } from "react";
@@ -15,8 +17,29 @@ import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
 import type { MapMarker } from "@/features/trip-draft/components/fallback-map";
 import { chatCityDestination, destinationById, findStay, staysFor, type StayOption } from "@/features/trip-draft/fixtures";
-import { formatMoney, formatRange, money, nightsBetween, stayOverBudget, validRange } from "@/features/trip-draft/format";
+import {
+  formatMoney,
+  formatRange,
+  money,
+  nightsBetween,
+  questionnaireBrief,
+  QUESTIONNAIRE_KICKOFF_KEY,
+  stayOverBudget,
+  validRange,
+} from "@/features/trip-draft/format";
+import {
+  flightExceedsBudget,
+  relevantOffers,
+  rememberFlightOrigin,
+  rememberedFlightOrigin,
+  stayExceedsBudget,
+} from "@/features/trip-draft/browse-offers";
+import type { FlightOffer } from "@/lib/providers/flights/types";
+import { offerRecommendation, SAFE_LINE } from "@/lib/planner-chat/ground";
+import type { HotelOffer, PlannerChatEvent } from "@/lib/planner-chat/types";
+import { FlightResultCards, HotelResultCards } from "@/features/trip-draft/components/travel-result-cards";
 import type { StayCard } from "@/lib/providers/stays/types";
+import { chosenStayFromHotel } from "@/features/trip-draft/chosen-travel";
 import { useTrip } from "@/features/trip-draft/trip-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +55,26 @@ const PIN_OFFSETS = [
 
 const PROMPTS = ["Show something closer to the center", "Anything quieter?", "Raise the nightly target"];
 
-type Line = { id: string; role: "agent" | "user"; text: string };
+type Line = {
+  id: string;
+  role: "agent" | "user";
+  text: string;
+  flights?: FlightOffer[];
+  hotels?: HotelOffer[];
+  pending?: boolean;
+};
+
+function parseChatEvent(line: string): PlannerChatEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const event = JSON.parse(trimmed) as PlannerChatEvent;
+    if (event && typeof event === "object" && "type" in event) return event;
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 function splitStays(stays: StayOption[], budget: number | null, nights: number) {
   const ranked = [...stays].sort((a, b) => {
@@ -65,23 +107,6 @@ function unfitCopy(stay: StayOption, budget: number | null, nights: number) {
   };
 }
 
-function agentReply(text: string, place: string, stayName: string) {
-  const q = text.toLowerCase();
-  if (q.includes("pool")) {
-    return `None of the stays pinned in ${place} list a pool. ${stayName} is still the one I'd share with the group.`;
-  }
-  if (q.includes("center") || q.includes("closer") || q.includes("downtown")) {
-    return `The pins nearer the middle of ${place} are already on the map. ${stayName} remains the clearer fit.`;
-  }
-  if (q.includes("quiet")) {
-    return `${stayName} is the quieter of this set. The others sit on busier streets.`;
-  }
-  if (q.includes("budget") || q.includes("raise") || q.includes("$")) {
-    return `I'll weigh that against the prices on the cards. The map stays on ${place}.`;
-  }
-  return `Noted. I'll keep planning ${place} around that, using the stays already on the map.`;
-}
-
 function guestScoreLabel(score: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(score);
 }
@@ -100,6 +125,8 @@ function StayBrowseGrid({
   cards,
   status,
   datesReady,
+  hasPlace,
+  notice,
   selectedId,
   lockedStayId,
   listingHref,
@@ -108,19 +135,23 @@ function StayBrowseGrid({
   cards: StayCard[];
   status: "idle" | "loading" | "ready" | "error";
   datesReady: boolean;
+  hasPlace: boolean;
+  notice: string | null;
   selectedId: string;
   lockedStayId: string | null;
   listingHref: (id: string) => string;
   onChoose: (stay: StayCard) => void;
 }) {
   let message: string | null = null;
-  if (!datesReady) message = "Add trip dates to browse stays.";
+  if (!hasPlace) message = "Tell me where the group wants to stay.";
+  else if (!datesReady) message = "Add trip dates to browse stays.";
   else if (status === "loading" || status === "idle") message = "Looking up stays…";
   else if (status === "error") message = "Stays are unavailable right now.";
   else if (cards.length === 0) message = "No stays in this area for those dates.";
 
   return (
     <ScrollArea className="min-h-0 flex-1">
+      {notice && !message ? <p className="px-5 pt-4 text-[14px] text-muted">{notice}</p> : null}
       {message ? (
         <p className="px-5 py-6 text-[14px] text-muted">{message}</p>
       ) : (
@@ -169,12 +200,12 @@ function StayBrowseGrid({
                   <div className="border-t border-line px-3.5 py-3">
                     <Button
                       type="button"
-                      aria-label={`Choose ${stay.name}`}
+                      aria-label={saved ? `${stay.name} is on your summary` : `Choose this hotel: ${stay.name}`}
                       disabled={saved}
                       onClick={() => onChoose(stay)}
                       className="h-9 w-full rounded-[9px] bg-accent px-3 text-[12.5px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:translate-y-px disabled:opacity-70"
                     >
-                      {saved ? "Room saved" : "Choose"}
+                      {saved ? "On your summary" : "Choose this hotel"}
                     </Button>
                   </div>
                 </article>
@@ -182,6 +213,47 @@ function StayBrowseGrid({
             );
           })}
         </ul>
+      )}
+    </ScrollArea>
+  );
+}
+
+function FlightBrowseList({
+  flights,
+  status,
+  hasOrigin,
+  hasDestination,
+  datesReady,
+  notice,
+  selectedId,
+  onChoose,
+}: {
+  flights: FlightOffer[];
+  status: "idle" | "loading" | "ready" | "error";
+  hasOrigin: boolean;
+  hasDestination: boolean;
+  datesReady: boolean;
+  notice: string | null;
+  selectedId: string | null;
+  onChoose: (flight: FlightOffer) => void;
+}) {
+  let message: string | null = null;
+  if (!hasDestination) message = "Tell me where the group is flying.";
+  else if (!hasOrigin) message = "Tell me where you're flying from.";
+  else if (!datesReady) message = "Add trip dates to browse flights.";
+  else if (status === "loading" || status === "idle") message = "Looking up flights…";
+  else if (status === "error") message = "Flights are unavailable right now.";
+  else if (flights.length === 0) message = notice || "No flights matched that search.";
+
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      {message ? (
+        <p className="px-5 py-6 text-[14px] text-muted">{message}</p>
+      ) : (
+        <div className="px-5 py-4">
+          {notice ? <p className="mb-3 text-[14px] text-muted">{notice}</p> : null}
+          <FlightResultCards flights={flights} selectedId={selectedId} onChoose={onChoose} />
+        </div>
       )}
     </ScrollArea>
   );
@@ -203,37 +275,80 @@ export function PlannerStudio() {
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [voiceNoted, setVoiceNoted] = useState(false);
-  const [browsing, setBrowsing] = useState(false);
+  const [mode, setMode] = useState<"chat" | "stays" | "flights">("chat");
+  const [stayArea, setStayArea] = useState<{ label: string; lat: number; lng: number } | null>(null);
+  const [chatOrigin, setChatOrigin] = useState("");
   const [stayCards, setStayCards] = useState<StayCard[]>([]);
   const [stayStatus, setStayStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [flightCards, setFlightCards] = useState<FlightOffer[]>([]);
+  const [flightStatus, setFlightStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [flightNote, setFlightNote] = useState("");
   const [featuredToken, setFeaturedToken] = useState(featuredId);
   const [destinationToken, setDestinationToken] = useState(destination?.id ?? "");
   const [browseToken, setBrowseToken] = useState("");
   const [loadedBrowseKey, setLoadedBrowseKey] = useState("");
+  const [flightToken, setFlightToken] = useState("");
+  const [loadedFlightKey, setLoadedFlightKey] = useState("");
   const feedRef = useRef<HTMLDivElement>(null);
+  const nextLine = useRef(0);
+  const chatAbort = useRef<AbortController | null>(null);
+  const chatGeneration = useRef(0);
 
   // Adjust selection when the featured stay changes (allowed during render; avoids set-state-in-effect).
   if (featuredId !== featuredToken) {
     setFeaturedToken(featuredId);
     setSelectedId(featuredId);
   }
-  // Close browse mode when the destination clears.
+  const browsing = mode === "stays";
+  // Close stay browse when the destination clears and chat has not named an area.
   const destinationKey = destination?.id ?? "";
   if (destinationKey !== destinationToken) {
     setDestinationToken(destinationKey);
-    if (!destinationKey && browsing) setBrowsing(false);
+    if (!destinationKey && browsing && !stayArea) setMode("chat");
   }
 
   const adults = Math.max(1, state.members.filter((member) => member.joined).length);
   const datesReady = validRange(state.startDate, state.endDate);
-  const canBrowse = Boolean(browsing && destination && datesReady);
-  const browseKey =
-    canBrowse && destination ? `${destination.id}|${state.startDate}|${state.endDate}|${adults}` : "";
+  const destinationName = (state.destinationLabel || destination?.label || "").trim();
+  const destinationIata = (state.destinationIata || destination?.code || "").trim();
+  const tripPlace =
+    state.destinationLat != null && state.destinationLng != null
+      ? {
+          label: destinationName || "Destination",
+          lat: state.destinationLat,
+          lng: state.destinationLng,
+          iata: destinationIata,
+        }
+      : destination
+        ? { label: destination.label, lat: destination.lat, lng: destination.lng, iata: destination.code }
+        : destinationName || destinationIata
+          ? { label: destinationName || destinationIata, lat: null, lng: null, iata: destinationIata }
+          : null;
+  const browsePlace = stayArea ? { ...stayArea, iata: "" } : tripPlace;
+  const canBrowse = Boolean(browsing && browsePlace && datesReady);
+  const browseKey = canBrowse
+    ? `${browsePlace!.lat ?? ""}|${browsePlace!.lng ?? ""}|${encodeURIComponent(browsePlace!.label)}|${state.startDate}|${state.endDate}|${adults}|${destination?.id ?? ""}|${browsePlace!.iata ?? ""}`
+    : "";
   if (browseKey !== browseToken) {
     setBrowseToken(browseKey);
     setStayCards([]);
     setLoadedBrowseKey("");
     setStayStatus(browseKey ? "loading" : "idle");
+  }
+  const roundTrip = state.roundTrip !== false;
+  const flightOrigin = chatOrigin || state.originLabel?.trim() || rememberedFlightOrigin();
+  const flightDestination = (state.destinationIata || destination?.code || state.destinationLabel || destination?.label || "").trim();
+  const flightDatesReady = roundTrip ? datesReady : Boolean(state.startDate);
+  const canBrowseFlights = mode === "flights" && Boolean(flightOrigin) && Boolean(flightDestination) && flightDatesReady;
+  const flightKey = canBrowseFlights
+    ? `${flightOrigin}|${flightDestination}|${state.startDate}|${roundTrip ? state.endDate : ""}|${adults}`
+    : "";
+  if (flightKey !== flightToken) {
+    setFlightToken(flightKey);
+    setFlightCards([]);
+    setFlightNote("");
+    setLoadedFlightKey("");
+    setFlightStatus(flightKey ? "loading" : "idle");
   }
   const datesLabel = datesReady
     ? formatRange(state.startDate, state.endDate)
@@ -272,13 +387,22 @@ export function PlannerStudio() {
   useEffect(() => {
     if (!browseKey) return;
     const controller = new AbortController();
-    const [destinationId, checkIn, checkOut, adultsParam] = browseKey.split("|");
+    const [lat, lng, label, checkIn, checkOut, adultsParam, destinationId, iata] = browseKey.split("|");
+    const placeLabel = decodeURIComponent(label);
     const params = new URLSearchParams({
-      destinationId,
+      label: placeLabel,
       checkIn,
       checkOut,
       adults: adultsParam,
     });
+    if (lat && lng) {
+      params.set("lat", lat);
+      params.set("lng", lng);
+    } else {
+      params.set("place", placeLabel);
+      if (iata) params.set("iata", iata);
+    }
+    if (destinationId) params.set("destinationId", destinationId);
     fetch(`/api/stays/search?${params}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("search failed");
@@ -294,41 +418,236 @@ export function PlannerStudio() {
     return () => controller.abort();
   }, [browseKey]);
 
+  useEffect(() => {
+    if (!flightKey) return;
+    const controller = new AbortController();
+    const [origin, flightDestinationParam, departureDate, returnDate, travelers] = flightKey.split("|");
+    const params = new URLSearchParams({
+      origin,
+      destination: flightDestinationParam,
+      departureDate,
+      travelers,
+    });
+    if (returnDate) params.set("returnDate", returnDate);
+    fetch(`/api/flights/search?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as { flights?: FlightOffer[]; note?: string; error?: { message?: string } };
+        if (!response.ok) {
+          setFlightCards([]);
+          setFlightNote(body.error?.message || "Flights are unavailable right now.");
+          setLoadedFlightKey(flightKey);
+          setFlightStatus("ready");
+          return;
+        }
+        setFlightCards(body.flights ?? []);
+        setFlightNote(body.note ?? "");
+        setLoadedFlightKey(flightKey);
+        setFlightStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setFlightStatus("error");
+      });
+    return () => controller.abort();
+  }, [flightKey]);
+
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get("browse");
+    if (value === "stays" || value === "flights") setMode(value);
+  }, []);
+
   const browseReady = browseKey !== "" && loadedBrowseKey === browseKey;
-  const browseCards = browseReady ? stayCards : [];
-  const browseStatus = !browseKey ? "idle" : browseReady ? stayStatus : "loading";
+  const rankedStays = relevantOffers(
+    browseReady ? stayCards : [],
+    (card) => stayExceedsBudget(card, nights, budget),
+    (card) => card.nightlyAmount ?? Number.POSITIVE_INFINITY,
+  );
+  const browseCards = rankedStays.items;
+  const browseStatus = !browseKey ? "idle" : stayStatus === "error" ? "error" : browseReady ? stayStatus : "loading";
+  const stayBudgetNotice =
+    browseStatus === "ready" && rankedStays.relaxed
+      ? "Nothing fit the budget. Showing the closest prices."
+      : null;
+  const flightReady = flightKey !== "" && loadedFlightKey === flightKey;
+  const rankedFlights = relevantOffers(
+    flightReady ? flightCards : [],
+    (flight) => flightExceedsBudget(flight, budget),
+    (flight) => flight.price,
+  );
+  const visibleFlights = rankedFlights.items;
+  const flightBrowseStatus = !flightKey ? "idle" : flightStatus === "error" ? "error" : flightReady ? flightStatus : "loading";
+  const flightBudgetNotice =
+    flightBrowseStatus === "ready" && rankedFlights.relaxed
+      ? "Nothing fit the budget. Showing the closest fares."
+      : null;
 
   function push(role: Line["role"], text: string) {
     setLines((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, text }]);
   }
 
-  function send(text: string) {
+  async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    push("user", trimmed);
+    chatAbort.current?.abort();
+    const controller = new AbortController();
+    chatAbort.current = controller;
+    const generation = ++chatGeneration.current;
     const city = chatCityDestination(trimmed, state.destinationId);
     if (city) {
       trip.confirmDestination(city.id);
       trip.commitDraft?.();
-      push("agent", `Got it — flying the map to ${city.label}, ${city.country}. I'll keep planning around the stays already pinned.`);
-    } else if (!destination || !featured) {
-      push("agent", "Tell me a city name like Lisbon, Kyoto, or Mexico City and I'll move the map there.");
-    } else {
-      push("agent", agentReply(trimmed, destination.label, featured.name));
     }
+    const userLine: Line = { id: `user-${nextLine.current + 1}`, role: "user", text: trimmed };
+    const pendingId = `agent-${nextLine.current + 2}`;
+    nextLine.current += 2;
+    const history = [...lines.filter((line) => !line.pending), userLine];
+    setLines([...history, { id: pendingId, role: "agent", text: "Looking that up…", pending: true }]);
     setDraft("");
+    const update = (next: Partial<Line>) => {
+      if (chatGeneration.current !== generation) return;
+      setLines((current) => current.map((line) => (line.id === pendingId ? { ...line, ...next } : line)));
+    };
+    try {
+      const response = await fetch("/api/planner/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          messages: history
+            .filter((line) => line.text.trim())
+            .map((line) => ({ role: line.role === "agent" ? "assistant" : "user", text: line.text })),
+          trip: {
+            destination: destination?.label ?? state.destinationLabel ?? "",
+            origin: flightOrigin,
+            startDate: state.startDate,
+            endDate: state.endDate,
+            budget: state.budget,
+            members: state.members.filter((member) => member.joined).map((member) => member.name),
+          },
+        }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        update({ text: body?.error?.message || "I couldn't look that up right now. Try again in a moment.", pending: false });
+        return;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        update({ text: "I couldn't look that up right now. Try again in a moment.", pending: false });
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+      let flights: FlightOffer[] = [];
+      let hotels: HotelOffer[] = [];
+      let settled = false;
+      const show = (pending: boolean) => {
+        update({ text: answer.trim() || "Looking that up…", flights, hotels, pending });
+      };
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const parts = buffer.split("\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          const event = parseChatEvent(part);
+          if (!event) continue;
+          if (event.type === "status") {
+            if (!answer.trim()) update({ text: event.text, pending: true, flights, hotels });
+          } else if (event.type === "stayArea") {
+            setStayArea({ label: event.label, lat: event.lat, lng: event.lng });
+            setMode("stays");
+          } else if (event.type === "text") {
+            answer += event.delta;
+            show(false);
+          } else if (event.type === "cards") {
+            flights = event.flights;
+            hotels = event.hotels;
+            const origin = flights[0]?.origin;
+            if (origin) {
+              setChatOrigin(origin);
+              rememberFlightOrigin(origin);
+            }
+            update({ flights, hotels, pending: !answer.trim() });
+          } else if (event.type === "error") {
+            settled = true;
+            update({
+              text: answer.trim() ? `${answer.trim()}\n\n${event.message}` : event.message,
+              flights,
+              hotels,
+              pending: false,
+            });
+          } else if (event.type === "done") {
+            settled = true;
+            update({
+              text: answer.trim() || offerRecommendation(flights, hotels) || SAFE_LINE,
+              flights,
+              hotels,
+              pending: false,
+            });
+          }
+        }
+      }
+      if (!settled) {
+        update({
+          text: answer.trim() || offerRecommendation(flights, hotels) || SAFE_LINE,
+          flights,
+          hotels,
+          pending: false,
+        });
+      }
+    } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        setLines((current) =>
+          current.flatMap((line) => {
+            if (line.id !== pendingId) return [line];
+            if (line.pending && !line.flights?.length && !line.hotels?.length) return [];
+            return [{ ...line, pending: false }];
+          }),
+        );
+        return;
+      }
+      update({ text: "I couldn't look that up right now. Try again in a moment.", pending: false });
+    }
   }
 
-  function pickStay(stay: { id: string; name: string }) {
-    trip.lockStay(stay.id);
+  useEffect(() => {
+    if (sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) !== "1") return;
+    const brief = questionnaireBrief(state);
+    const timeout = window.setTimeout(() => {
+      sessionStorage.removeItem(QUESTIONNAIRE_KICKOFF_KEY);
+      void send(brief);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [state, send]);
+
+  function pickLiveStay(stay: StayCard) {
+    trip.chooseStay(stay);
     trip.commitDraft?.();
     setSelectedId(stay.id);
     push("agent", `${stay.name} is saved for the group. The highlighted pin is the one to share.`);
   }
 
-  function chooseStay() {
+  function chooseFixtureStay() {
     if (!destination || !featured) return;
-    pickStay(featured);
+    trip.lockStay(featured.id);
+    trip.commitDraft?.();
+    setSelectedId(featured.id);
+    push("agent", `${featured.name} is saved for the group. The highlighted pin is the one to share.`);
+  }
+
+  function pickLiveFlight(flight: FlightOffer) {
+    trip.chooseFlight(flight);
+    trip.commitDraft?.();
+  }
+
+  function pickChatHotel(hotel: HotelOffer) {
+    const chosen = chosenStayFromHotel(hotel);
+    if (!chosen) return;
+    trip.chooseStay(chosen);
+    trip.commitDraft?.();
   }
 
   function noteVoice() {
@@ -368,16 +687,35 @@ export function PlannerStudio() {
                 {destination ? `Trip to ${destination.label}, ${destination.country}` : "Pick a city to start"}
               </p>
             </div>
-            {destination ? (
+            {mode === "chat" ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMode("flights")}
+                  className="h-8 shrink-0 rounded-[9px] px-3 text-[12.5px] font-semibold"
+                >
+                  Browse flights
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMode("stays")}
+                  className="h-8 shrink-0 rounded-[9px] px-3 text-[12.5px] font-semibold"
+                >
+                  Browse stays
+                </Button>
+              </>
+            ) : (
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setBrowsing((open) => !open)}
+                onClick={() => setMode("chat")}
                 className="h-8 shrink-0 rounded-[9px] px-3 text-[12.5px] font-semibold"
               >
-                {browsing ? "Back to chat" : "Browse stays"}
+                Back to chat
               </Button>
-            ) : null}
+            )}
           </div>
           {browsing ? null : (
           <div className="flex gap-2 overflow-x-auto border-b border-line-soft px-5 py-3">
@@ -395,11 +733,24 @@ export function PlannerStudio() {
           </div>
           )}
 
-          {browsing ? (
+          {mode === "flights" ? (
+            <FlightBrowseList
+              flights={visibleFlights}
+              status={flightBrowseStatus}
+              hasOrigin={Boolean(flightOrigin)}
+              hasDestination={Boolean(flightDestination)}
+              datesReady={flightDatesReady}
+              notice={flightBudgetNotice ?? (flightBrowseStatus === "ready" ? flightNote : null)}
+              selectedId={state.lockedFlightId}
+              onChoose={pickLiveFlight}
+            />
+          ) : browsing ? (
             <StayBrowseGrid
               cards={browseCards}
               status={browseStatus}
               datesReady={datesReady}
+              hasPlace={Boolean(browsePlace)}
+              notice={stayBudgetNotice}
               selectedId={selectedId}
               lockedStayId={state.lockedStayId}
               listingHref={(id) => {
@@ -410,7 +761,7 @@ export function PlannerStudio() {
                 });
                 return `/stays/${encodeURIComponent(id)}?${params}`;
               }}
-              onChoose={pickStay}
+              onChoose={pickLiveStay}
             />
           ) : (
           <>
@@ -448,7 +799,7 @@ export function PlannerStudio() {
                         </p>
                         <Button
                           type="button"
-                          onClick={chooseStay}
+                          onClick={chooseFixtureStay}
                           disabled={state.lockedStayId === featured.id}
                           className="h-10 rounded-[9px] bg-accent px-3.5 text-[12.5px] font-semibold text-white transition duration-200 hover:bg-accent-hover active:translate-y-px"
                         >
@@ -515,7 +866,15 @@ export function PlannerStudio() {
                     <span className="flex size-[26px] shrink-0 items-center justify-center rounded-lg bg-accent text-white">
                       <Sparkles className="size-3.5" />
                     </span>
-                    <p className="pt-0.5 text-[13.5px] leading-relaxed">{line.text}</p>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className={cn("pt-0.5 text-[13.5px] leading-relaxed", line.pending && "text-muted")}>{line.text}</p>
+                      {line.flights && line.flights.length > 0 ? (
+                        <FlightResultCards flights={line.flights} selectedId={state.lockedFlightId} onChoose={pickLiveFlight} />
+                      ) : null}
+                      {line.hotels && line.hotels.length > 0 ? (
+                        <HotelResultCards hotels={line.hotels} selectedId={state.lockedStayId} onChoose={pickChatHotel} />
+                      ) : null}
+                    </div>
                   </div>
                 ),
               )}
@@ -526,7 +885,7 @@ export function PlannerStudio() {
             className="border-t border-line-soft px-5 pt-3.5 pb-4"
             onSubmit={(event) => {
               event.preventDefault();
-              send(draft);
+              return send(draft);
             }}
           >
             <div className="mb-2.5 flex gap-2 overflow-x-auto">

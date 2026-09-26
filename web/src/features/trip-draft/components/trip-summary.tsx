@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Current-trip dashboard (port of `Trip summary graph - Flights -> Hotel -> Invite.html`).
+ * Current-trip dashboard. Layout follows the Kyoto summary skeleton; colors stay on trip-draft tokens.
  * Reads the session draft from `useTrip` - destination, dates, locked flight/stay, and members -
  * and writes picks back through the same actions, so Picks and Progress stay in sync.
  * Comments are local to this screen and start empty until someone posts.
@@ -19,12 +19,13 @@ import {
   type FlightOption,
   type StayOption,
 } from "@/features/trip-draft/fixtures";
-import { formatRange, initials, money } from "@/features/trip-draft/format";
+import { formatMoney, formatRange, initials, money } from "@/features/trip-draft/format";
 import { useTrip, type Member } from "@/features/trip-draft/trip-context";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
+import { TripMap } from "@/features/trip-draft/components/trip-map";
+import type { MapMarker } from "@/features/trip-draft/components/fallback-map";
 import { cn } from "@/lib/utils";
 
-type Marker = "done" | "active" | "pending";
 type Thread = "flight" | "stay";
 type MemberChoice = { member: Member; index: number };
 
@@ -47,6 +48,12 @@ type Comment = {
   at: number;
   suggestion?: Suggestion;
 };
+
+const PIN_OFFSETS = [
+  { lng: 0.018, lat: 0.012 },
+  { lng: -0.022, lat: -0.006 },
+  { lng: 0.008, lat: -0.016 },
+] as const;
 
 const TONES = [
   { bg: "#EFD9CE", color: "#8A4B31" },
@@ -114,6 +121,31 @@ function SummaryBody() {
   const sameStayId = allJoinedHaveStay && joined.every((member) => member.stayId === joined[0]?.stayId) ? joined[0]?.stayId ?? null : null;
   const lockedFlight = findFlight(state.destinationId, sameFlightId);
   const lockedStay = findStay(state.destinationId, sameStayId);
+  const liveFlight = state.chosenFlight && state.chosenFlight.id === state.lockedFlightId ? state.chosenFlight : null;
+  const liveStay = state.chosenStay && state.chosenStay.id === state.lockedStayId ? state.chosenStay : null;
+
+  function pricedFlight(member: Member) {
+    if (liveFlight && member.flightId === liveFlight.id) {
+      return {
+        airline: liveFlight.airline,
+        route: `${liveFlight.origin} → ${liveFlight.destination}`,
+        price: liveFlight.price,
+        currency: liveFlight.currency,
+      };
+    }
+    const picked = findFlight(state.destinationId, member.flightId ?? null);
+    if (!picked) return null;
+    return { airline: picked.airline, route: `${picked.from} → ${picked.to}`, price: picked.price, currency: "USD" };
+  }
+
+  function pricedStay(member: Member) {
+    if (liveStay && member.stayId === liveStay.id) {
+      return { name: liveStay.name, price: liveStay.nightlyAmount, currency: liveStay.currency ?? "USD" };
+    }
+    const picked = findStay(state.destinationId, member.stayId ?? null);
+    if (!picked) return null;
+    return { name: picked.name, price: picked.price, currency: "USD" };
+  }
 
   const origin = useSyncExternalStore(
     () => () => {},
@@ -180,16 +212,17 @@ function SummaryBody() {
     activity?.detail ??
     (state.justJoinedName
       ? `${state.justJoinedName} joined the trip`
-      : lockedStay
+      : liveStay
+        ? `${liveStay.name} is locked in`
+        : lockedStay
         ? `${lockedStay.name} is locked in`
-        : lockedFlight
+        : liveFlight
+          ? `${liveFlight.airline} is the leading flight`
+          : lockedFlight
           ? `${lockedFlight.airline} is the leading flight`
           : `${destination.label} is the current trip`);
   const stamp = activity?.at ?? openedAt;
 
-  const flightMarker: Marker = allJoinedHaveFlight ? "done" : flights.length > 0 ? "active" : "pending";
-  const stayMarker: Marker = allJoinedHaveStay ? "done" : allJoinedHaveFlight ? "active" : "pending";
-  const inviteMarker: Marker = !inviteReached ? "pending" : state.inviteShared ? "done" : "active";
   const flightPickCount = new Set(joined.map((member) => member.flightId).filter(Boolean)).size;
   const stayPickCount = new Set(joined.map((member) => member.stayId).filter(Boolean)).size;
 
@@ -293,13 +326,37 @@ function SummaryBody() {
   }
 
   const others = flights.filter((item) => item.id !== flight?.id);
-  const fan = [others[1], others[0], flight].filter((item): item is FlightOption => Boolean(item));
   const alternates = stays.filter((item) => item.id !== stay?.id);
+  const stayBookingCount = new Set(joined.map((member) => member.stayId).filter(Boolean)).size;
+  const leadingGuestCount = joinedChoices.filter(({ member }) => member.stayId === stay?.id).length;
+  const markers: MapMarker[] = [
+    {
+      id: `airport-${destination.id}`,
+      label: destination.code,
+      lng: destination.lng,
+      lat: destination.lat,
+      title: `${destination.label} (${destination.code})`,
+    },
+    ...stays.map((item, index) => {
+      const offset = PIN_OFFSETS[index % PIN_OFFSETS.length];
+      const guests = joinedChoices
+        .filter(({ member }) => member.stayId === item.id)
+        .map(({ member, index: memberIndex }) => memberLabel(member, memberIndex));
+      return {
+        id: item.id,
+        label: item.name,
+        lng: destination.lng + offset.lng,
+        lat: destination.lat + offset.lat,
+        selected: item.id === stay?.id,
+        title: guests.length > 0 ? guests.join(", ") : "Nobody staying here yet",
+      };
+    }),
+  ];
 
   return (
     <AppShell>
       <div className="min-h-full bg-bg text-ink">
-      <div className="mx-auto max-w-[760px] px-5 pt-6 pb-20">
+      <div className="mx-auto max-w-[960px] px-5 pt-6 pb-20">
         <div
           className="flex flex-wrap items-center gap-3.5 rounded-[14px] border border-line bg-surface px-[18px] py-3.5 sm:flex-nowrap"
           style={{ boxShadow: CARD_SHADOW }}
@@ -332,124 +389,190 @@ function SummaryBody() {
           </span>
         </p>
 
-        <div className="relative">
-          <div
-            className="absolute top-3.5 bottom-3.5 left-[27px] w-0.5"
-            style={{ background: "repeating-linear-gradient(to bottom, var(--line-soft) 0 6px, transparent 6px 12px)" }}
-            aria-hidden
-          />
-          <ol>
-            <SummaryNode
-              marker={flightMarker}
-              icon={<PlaneIcon className="h-[22px] w-[22px]" />}
-              title="Flights"
-              status={
-                lockedFlight
-                  ? "Locked in"
-                  : allJoinedHaveFlight
+                <div className="mb-4 h-[340px] overflow-hidden rounded-[16px] border border-line">
+          <TripMap focus={destination} pinned markers={markers} />
+        </div>
+
+        <section className="mb-4 rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: CARD_SHADOW }}>
+          <div className="mb-3.5 flex items-baseline justify-between gap-3">
+            <h2 className="text-[15px] font-bold">Cost per person</h2>
+            <span className="text-[12px] text-ink-faint">Flight + hotel share</span>
+          </div>
+          <ul className="flex flex-col gap-2.5">
+            {state.members.map((member, index) => {
+              const name = memberLabel(member, index);
+              const pickedFlight = pricedFlight(member);
+              const pickedStay = pricedStay(member);
+              const ready = Boolean(member.joined && pickedFlight && pickedStay && pickedStay.price != null);
+              const detail =
+                [pickedFlight?.airline, pickedStay?.name].filter(Boolean).join(" + ") ||
+                (member.joined ? "No flight or stay yet" : "Waiting to join");
+              const flightShare = pickedFlight ? formatMoney(pickedFlight.price, pickedFlight.currency) : "";
+              const stayShare = pickedStay?.price != null ? formatMoney(pickedStay.price, pickedStay.currency) : "";
+              const sameCurrency = Boolean(pickedFlight && pickedStay?.price != null && pickedFlight.currency === pickedStay.currency);
+              const badge = index === 0 ? "Organizer" : member.joined ? "Joined" : "Invited";
+              const on = index === 0 || member.joined;
+              return (
+                <PersonRow
+                  key={member.id}
+                  name={name}
+                  index={index}
+                  title={name}
+                  detail={detail}
+                  amount={
+                    ready && pickedFlight && pickedStay?.price != null
+                      ? sameCurrency
+                        ? formatMoney(pickedFlight.price + pickedStay.price, pickedFlight.currency)
+                        : flightShare
+                      : undefined
+                  }
+                  split={ready ? `${flightShare} + ${stayShare}` : undefined}
+                  pending={member.joined ? "Not picked yet" : null}
+                  trailing={
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold",
+                        on ? "bg-good-tint text-success" : "bg-warn-tint text-warning",
+                      )}
+                    >
+                      {badge}
+                    </span>
+                  }
+                />
+              );
+            })}
+          </ul>
+          <div className="mt-3.5 flex items-center gap-2.5 rounded-xl border border-dashed border-line-soft bg-bg-muted py-2.5 pr-2.5 pl-3.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-muted">{link}</span>
+            <button
+              type="button"
+              onClick={() => void copyLink()}
+              className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[11.5px] font-bold text-white hover:bg-[#302a22]"
+            >
+              {copied ? "Copied" : "Copy link"}
+            </button>
+          </div>
+          <p className="sr-only" aria-live="polite">
+            {copied ? "Invite link copied." : ""}
+            {state.justJoinedName ? `${state.justJoinedName} joined the trip.` : ""}
+          </p>
+          {state.justJoinedName ? (
+            <p className="mt-3 text-[13px] font-semibold text-success">{state.justJoinedName} just joined.</p>
+          ) : null}
+        </section>
+
+        <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <section className="overflow-hidden rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: CARD_SHADOW }}>
+            <div className="mb-3.5 flex items-baseline justify-between gap-3">
+              <h2 className="text-[15px] font-bold">Flights</h2>
+              {liveFlight ? (
+                <span className="shrink-0 rounded-full bg-good-tint px-2.5 py-1 text-[11px] font-bold text-success">
+                  {liveFlight.airline} · Locked
+                </span>
+              ) : lockedFlight ? (
+                <span className="shrink-0 rounded-full bg-good-tint px-2.5 py-1 text-[11px] font-bold text-success">
+                  {lockedFlight.airline} · Locked
+                </span>
+              ) : (
+                <span className="text-right text-[12px] text-ink-faint">
+                  {allJoinedHaveFlight
                     ? `${flightPickCount} ${flightPickCount === 1 ? "flight" : "flights"}`
                     : flights.length > 0
                       ? `${flights.length} options · group deciding`
-                    : "No fares yet"
-              }
-              current={flightMarker === "active"}
-            >
-              {flight ? (
-                <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
-                  <button
-                    type="button"
-                    aria-expanded={flightsOpen}
-                    onClick={() => setFlightsOpen((open) => !open)}
-                    className="w-full px-5 pt-5 pb-3.5 text-left"
-                  >
-                    <div className="relative mb-2.5 h-[78px]">
-                      {fan.map((item, index) => {
-                        const depth = fan.length - 1 - index;
-                        const front = depth === 0;
-                        return (
-                          <div
-                            key={item.id}
+                      : "No fares yet"}
+                </span>
+              )}
+            </div>
+            {flight || liveFlight ? (
+              <>
+                {liveFlight ? (
+                  <div className="mb-3">
+                    <p className="text-[13px] font-bold">{liveFlight.airline}</p>
+                    <p className="text-[13.5px] font-semibold">
+                      {liveFlight.origin} → {liveFlight.destination}
+                    </p>
+                    <p className="text-[12.5px] text-muted">
+                      {offerClock(liveFlight.departure)} → {offerClock(liveFlight.arrival)} · {stopLabel(liveFlight.stops)}
+                    </p>
+                    <p className="mt-1 text-[14px] font-semibold tabular-nums">
+                      {formatMoney(liveFlight.price, liveFlight.currency)}
+                      <span className="text-[12px] font-medium text-muted"> / person</span>
+                    </p>
+                  </div>
+                ) : null}
+                <ul className="flex flex-col gap-2.5">
+                  {joinedChoices.map(({ member, index }) => {
+                    const name = memberLabel(member, index);
+                    const pickedFlight = pricedFlight(member);
+                    return (
+                      <PersonRow
+                        key={member.id}
+                        name={name}
+                        index={index}
+                        title={name}
+                        detail={pickedFlight ? pickedFlight.route : "No flight yet"}
+                        amount={pickedFlight ? formatMoney(pickedFlight.price, pickedFlight.currency) : undefined}
+                      />
+                    );
+                  })}
+                </ul>
+                <button
+                  type="button"
+                  aria-expanded={flightsOpen}
+                  onClick={() => setFlightsOpen((open) => !open)}
+                  className="mt-3 flex min-h-11 w-full items-center justify-between text-left text-[12px] text-ink-faint"
+                >
+                  <span>
+                    {flights.length} shortlisted, {joined.filter((member) => member.flightId).length} of {joined.length} joined picked
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1">
+                    {flightsOpen ? "Hide" : "Show all"}
+                    <ChevronIcon className={cn("h-3.5 w-3.5 transition-transform", flightsOpen && "rotate-180")} />
+                  </span>
+                </button>
+                {flight && flightsOpen ? (
+                  <ul className="mt-2">
+                    {[flight, ...[...others].sort((a, b) => a.price - b.price)].map((item) => {
+                      const leading = item.id === flight.id;
+                      return (
+                        <li
+                          key={item.id}
+                          className={cn(
+                            "mb-2.5 flex items-center gap-3 rounded-xl border px-3 py-3",
+                            leading ? "border-[#cfe7da] bg-good-tint" : "border-line bg-surface",
+                          )}
+                        >
+                          <span
                             className={cn(
-                              "absolute top-0 left-0 flex h-14 items-center rounded-xl border px-3.5 text-[12.5px] font-semibold",
-                              front
-                                ? "right-[14%] z-30 border-line-soft bg-surface text-ink"
-                                : "border-line-soft bg-bg-muted text-muted",
-                              depth === 1 && "right-[8%] z-20 translate-y-3 -rotate-[1.2deg] scale-[0.98]",
-                              depth === 2 && "right-[2%] z-10 translate-y-[22px] rotate-[1.4deg] scale-[0.96]",
-                            )}
-                            style={front ? { boxShadow: CARD_SHADOW } : undefined}
-                          >
-                            <span className="mr-2.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg bg-accent-tint text-accent">
-                              <PlaneIcon className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="truncate">
-                              {item.airline} · {money(item.price)}
-                              {front && item.stops === "Nonstop" ? ", nonstop" : ""}
-                            </span>
-                            {front ? (
-                              <span className="ml-auto shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[10.5px] font-extrabold text-success">
-                                {lockedFlight ? "Locked" : flightPickCount > 1 ? "Most picked" : "Leading"}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <span className="flex items-center justify-between text-[12px] text-ink-faint">
-                      <span>
-                        {flights.length} shortlisted, {joined.filter((member) => member.flightId).length} of {joined.length} joined picked
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        {flightsOpen ? "Hide" : "Show all"}
-                        <ChevronIcon className={cn("h-3.5 w-3.5 transition-transform", flightsOpen && "rotate-180")} />
-                      </span>
-                    </span>
-                  </button>
-
-                  {flightsOpen ? (
-                    <ul className="px-5 pb-[18px]">
-                      {[flight, ...[...others].sort((a, b) => a.price - b.price)].map((item) => {
-                        const picked = joined.some((member) => member.flightId === item.id);
-                        const leading = item.id === flight.id;
-                        return (
-                          <li
-                            key={item.id}
-                            className={cn(
-                              "mb-2.5 flex items-center gap-3 rounded-xl border px-3 py-3",
-                              leading ? "border-[#cfe7da] bg-good-tint" : "border-line bg-surface",
+                              "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border text-accent",
+                              leading ? "border-[#cfe7da] bg-surface" : "border-line bg-surface",
                             )}
                           >
-                            <span
-                              className={cn(
-                                "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border text-accent",
-                                leading ? "border-[#cfe7da] bg-surface" : "border-line bg-surface",
-                              )}
-                            >
-                              <PlaneIcon className="h-4 w-4" />
+                            <PlaneIcon className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-bold">
+                              {item.airline}
+                              {item.stops === "Nonstop" ? " · nonstop" : ""}
                             </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[13px] font-bold">
-                                {item.airline}
-                                {item.stops === "Nonstop" ? " · nonstop" : ""}
-                              </span>
-                              <span className="mt-px block truncate text-[11.5px] text-muted">
-                                {item.from} → {item.to} · {item.duration}
-                                {item.stops !== "Nonstop" ? ` · ${item.stops}` : ""}
-                              </span>
+                            <span className="mt-px block truncate text-[11.5px] text-muted">
+                              {item.from} → {item.to} · {item.duration}
+                              {item.stops !== "Nonstop" ? ` · ${item.stops}` : ""}
                             </span>
-                            <span className="shrink-0 text-[14px] font-semibold tabular-nums">{money(item.price)}</span>
-                            <MemberChoiceStrip
-                              choices={joinedChoices}
-                              optionId={item.id}
-                              kind="flight"
-                              onChoose={(choice) => assignPickedFlight(choice.member, choice.index, item)}
-                            />
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
-
+                          </span>
+                          <span className="shrink-0 text-[14px] font-semibold tabular-nums">{money(item.price)}</span>
+                          <MemberChoiceStrip
+                            choices={joinedChoices}
+                            optionId={item.id}
+                            kind="flight"
+                            onChoose={(choice) => assignPickedFlight(choice.member, choice.index, item)}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+                <div className="-mx-5 mt-3">
                   <Discuss
                     count={flightComments.length}
                     open={flightTalkOpen}
@@ -471,158 +594,134 @@ function SummaryBody() {
                       onSuggest={() => setSuggesting("flight")}
                     />
                   </Discuss>
-                </section>
-              ) : (
-                <p className="text-[14px] text-muted">Fares show up after a destination is confirmed.</p>
-              )}
-            </SummaryNode>
+                </div>
+              </>
+            ) : (
+              <p className="text-[14px] text-muted">Fares show up after a destination is confirmed.</p>
+            )}
+          </section>
 
-            <SummaryNode
-              marker={stayMarker}
-              icon={<HouseIcon className="h-[22px] w-[22px]" />}
-              title="Hotel / Airbnb"
-              status={
-                lockedStay
-                  ? "Locked in"
-                  : allJoinedHaveStay
-                    ? `${stayPickCount} ${stayPickCount === 1 ? "stay" : "stays"}`
-                    : stay
-                      ? `1 leading · ${alternates.length} ${alternates.length === 1 ? "alternate" : "alternates"}`
-                      : "Waiting on a stay"
-              }
-              current={stayMarker === "active"}
-            >
-              {stay ? (
-                <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
-                  <div className="px-5 pt-[18px]">
-                    <div className="mb-3.5 flex h-[110px] gap-0.5 overflow-hidden rounded-xl">
-                      {[stay.image, destination.photos.find((photo) => photo !== stay.image) ?? destination.photos[1]].map((src) => (
-                        <div key={src} className="relative min-w-0 flex-1">
-                          <Image src={src} alt="" fill sizes="240px" className="object-cover" />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mb-1.5 flex items-start justify-between gap-2.5">
-                      <h3 className="text-[15px] font-bold">{stay.name}</h3>
-                      <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-success">
-                        {lockedStay ? "Locked in" : stayPickCount > 1 ? "Most picked" : "Leading pick"}
+          <section className="rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: CARD_SHADOW }}>
+            <div className="mb-3.5 flex items-baseline justify-between gap-3">
+              <h2 className="text-[15px] font-bold">Hotels</h2>
+              <span className="text-[12px] text-ink-faint">
+                {stayBookingCount} {stayBookingCount === 1 ? "booking" : "bookings"}
+              </span>
+            </div>
+            <ul className="flex flex-col gap-2.5">
+              {joinedChoices.map(({ member, index }) => {
+                const name = memberLabel(member, index);
+                const pickedStay = pricedStay(member);
+                return (
+                  <PersonRow
+                    key={member.id}
+                    name={name}
+                    index={index}
+                    title={name}
+                    detail={pickedStay ? pickedStay.name : "No stay yet"}
+                    amount={pickedStay?.price != null ? formatMoney(pickedStay.price, pickedStay.currency) : undefined}
+                  />
+                );
+              })}
+            </ul>
+          </section>
+        </div>
+
+        {liveStay || stay ? (
+          <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
+            <div className="px-5 pt-[18px]">
+              <div className="mb-3.5 flex items-start justify-between gap-2.5">
+                <h2 className="text-[15px] font-bold">{liveStay ? liveStay.name : stay?.name}</h2>
+                <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-success">
+                  {liveStay || lockedStay ? "Locked in" : stayPickCount > 1 ? "Most picked" : "Leading pick"}
+                </span>
+              </div>
+              {liveStay?.image ? (
+                <div className="relative mb-3.5 h-[140px] overflow-hidden rounded-xl">
+                  <Image src={liveStay.image} alt="" fill sizes="480px" className="object-cover" />
+                </div>
+              ) : liveStay ? null : (
+                <div className="mb-3.5 flex h-[140px] gap-0.5 overflow-hidden rounded-xl">
+                  {[stay?.image, destination.photos.find((photo) => photo !== stay?.image) ?? destination.photos[1]]
+                    .filter((src): src is string => Boolean(src))
+                    .map((src) => (
+                      <div key={src} className="relative min-w-0 flex-1">
+                        <Image src={src} alt="" fill sizes="480px" className="object-cover" />
+                      </div>
+                    ))}
+                </div>
+              )}
+              <p className="mb-3.5 text-[12.5px] text-muted">
+                {liveStay
+                  ? [
+                      liveStay.area,
+                      liveStay.guestScore != null ? `${guestScoreLabel(liveStay.guestScore)} guest score` : null,
+                      formatRange(state.startDate, state.endDate),
+                      liveStay.nightlyAmount != null
+                        ? `${formatMoney(liveStay.nightlyAmount, liveStay.currency ?? "USD")}/night`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : `${stay?.neighborhood} · ${leadingGuestCount} ${leadingGuestCount === 1 ? "guest" : "guests"} · ${formatRange(state.startDate, state.endDate)} · ${money(stay?.price ?? 0)}/night`}
+              </p>
+              {liveStay || !stay ? null : (
+                <div className="flex items-center justify-end pb-4">
+                  <MemberChoiceStrip
+                    choices={joinedChoices}
+                    optionId={stay.id}
+                    kind="stay"
+                    onChoose={(choice) => assignPickedStay(choice.member, choice.index, stay)}
+                  />
+                </div>
+              )}
+            </div>
+            {(liveStay ? stays : alternates).length > 0 ? (
+              <div className="px-5 pb-4">
+                <p className="mb-2 text-[11.5px] text-ink-faint">Also considering</p>
+                <div className="flex flex-col gap-2">
+                  {(liveStay ? stays : alternates).map((item) => (
+                    <div key={item.id} className="flex items-center gap-2 rounded-xl border border-line bg-bg-muted px-3 py-2">
+                      <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-muted">
+                        {item.name} ({money(item.price)}/night)
                       </span>
-                    </div>
-                    <p className="mb-3.5 text-[12.5px] text-muted">
-                      {stay.neighborhood} · {state.members.length} guests · {formatRange(state.startDate, state.endDate)}
-                    </p>
-                    <div className="flex items-center justify-between pb-4">
-                      <p className="text-[15px] font-semibold tabular-nums">
-                        {money(stay.price)} <span className="text-[12px] font-medium text-ink-faint">/ night</span>
-                      </p>
                       <MemberChoiceStrip
                         choices={joinedChoices}
-                        optionId={stay.id}
+                        optionId={item.id}
                         kind="stay"
-                        onChoose={(choice) => assignPickedStay(choice.member, choice.index, stay)}
+                        onChoose={(choice) => assignPickedStay(choice.member, choice.index, item)}
                       />
                     </div>
-                  </div>
-                  {alternates.length > 0 ? (
-                    <div className="px-5 pb-4">
-                      <p className="mb-2 text-[11.5px] text-ink-faint">Also considering</p>
-                      <div className="flex flex-col gap-2">
-                        {alternates.map((item) => (
-                          <div key={item.id} className="flex items-center gap-2 rounded-xl border border-line bg-bg-muted px-3 py-2">
-                            <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-muted">
-                              {item.name} ({money(item.price)}/night)
-                            </span>
-                            <MemberChoiceStrip
-                              choices={joinedChoices}
-                              optionId={item.id}
-                              kind="stay"
-                              onChoose={(choice) => assignPickedStay(choice.member, choice.index, item)}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  <Discuss
-                    count={stayComments.length}
-                    open={stayTalkOpen}
-                    onToggle={() => setStayTalkOpen((open) => !open)}
-                  >
-                    <CommentList
-                      comments={stayComments}
-                      now={now}
-                      dismissed={dismissed}
-                      choices={joinedChoices}
-                      onAssign={assignSuggestion}
-                      onDismiss={(id) => setDismissed((current) => [...current, id])}
-                    />
-                    <Composer
-                      value={drafts.stay}
-                      placeholder="Comment, or paste a listing link to suggest it…"
-                      onChange={(value) => setDrafts((current) => ({ ...current, stay: value }))}
-                      onSubmit={() => post("stay")}
-                      onSuggest={() => setSuggesting("stay")}
-                    />
-                  </Discuss>
-                </section>
-              ) : (
-                <p className="text-[14px] text-muted">Stays show up after a destination is confirmed.</p>
-              )}
-            </SummaryNode>
-
-            <SummaryNode
-              marker={inviteMarker}
-              icon={<PenIcon className="h-[22px] w-[22px]" />}
-              title="Invite & share"
-              status={`${joined.length} of ${state.members.length} joined`}
-              current={inviteMarker === "active"}
-              last
-            >
-              <section className="rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
-                <div className="px-5 py-[18px]">
-                  <div className="mb-3.5 flex items-center gap-2.5 rounded-xl border border-dashed border-line-soft bg-bg-muted py-2.5 pr-2.5 pl-3.5">
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-muted">{link}</span>
-                    <button
-                      type="button"
-                      onClick={() => void copyLink()}
-                      className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[11.5px] font-bold text-white hover:bg-[#302a22]"
-                    >
-                      {copied ? "Copied" : "Copy link"}
-                    </button>
-                  </div>
-                  <ul className="flex flex-col gap-2.5">
-                    {state.members.map((member, index) => {
-                      const name = memberLabel(member, index);
-                      const badge = index === 0 ? "Organizer" : member.joined ? "Joined" : "Invited";
-                      const on = index === 0 || member.joined;
-                      return (
-                        <li key={member.id} className="flex items-center gap-2.5 text-[13px]">
-                          <Avatar name={name} index={index} />
-                          <span className="font-semibold">{name}</span>
-                          <span
-                            className={cn(
-                              "ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold",
-                              on ? "bg-good-tint text-success" : "bg-warn-tint text-warning",
-                            )}
-                          >
-                            {badge}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <p className="sr-only" aria-live="polite">
-                    {copied ? "Invite link copied." : ""}
-                    {state.justJoinedName ? `${state.justJoinedName} joined the trip.` : ""}
-                  </p>
-                  {state.justJoinedName ? (
-                    <p className="mt-3 text-[13px] font-semibold text-success">{state.justJoinedName} just joined.</p>
-                  ) : null}
+                  ))}
                 </div>
-              </section>
-            </SummaryNode>
-          </ol>
-        </div>
+              </div>
+            ) : null}
+            <Discuss
+              count={stayComments.length}
+              open={stayTalkOpen}
+              onToggle={() => setStayTalkOpen((open) => !open)}
+            >
+              <CommentList
+                comments={stayComments}
+                now={now}
+                dismissed={dismissed}
+                choices={joinedChoices}
+                onAssign={assignSuggestion}
+                onDismiss={(id) => setDismissed((current) => [...current, id])}
+              />
+              <Composer
+                value={drafts.stay}
+                placeholder="Comment, or paste a listing link to suggest it…"
+                onChange={(value) => setDrafts((current) => ({ ...current, stay: value }))}
+                onSubmit={() => post("stay")}
+                onSuggest={() => setSuggesting("stay")}
+              />
+            </Discuss>
+          </section>
+        ) : (
+          <p className="text-[14px] text-muted">Stays show up after a destination is confirmed.</p>
+        )}
+
       </div>
       </div>
       {suggesting ? (
@@ -637,45 +736,43 @@ function SummaryBody() {
   );
 }
 
-function SummaryNode({
-  marker,
-  icon,
+function PersonRow({
+  name,
+  index,
   title,
-  status,
-  current,
-  last,
-  children,
+  detail,
+  amount,
+  split,
+  pending = "Not picked yet",
+  trailing,
 }: {
-  marker: Marker;
-  icon: ReactNode;
+  name: string;
+  index: number;
   title: string;
-  status: string;
-  current: boolean;
-  last?: boolean;
-  children: ReactNode;
+  detail: string;
+  amount?: string;
+  split?: string;
+  pending?: string | null;
+  trailing?: ReactNode;
 }) {
   return (
-    <li className="relative z-[1] flex gap-[18px]" aria-current={current ? "step" : undefined}>
-      <div className="w-14 shrink-0 pt-0.5">
-        <div
-          className={cn(
-            "relative z-[1] flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface",
-            marker === "done" && "border-[#cfe7da] bg-good-tint text-success",
-            marker === "active" && "border-[#f8c9d5] bg-accent-tint text-accent",
-            marker === "pending" && "border-line text-ink-faint",
-          )}
-          style={{ boxShadow: CARD_SHADOW }}
-        >
-          {icon}
-        </div>
-      </div>
-      <div className={cn("min-w-0 flex-1", last ? "pb-1.5" : "pb-8")}>
-        <div className="mb-2.5 flex items-center gap-2.5 pt-3">
-          <h2 className="text-[15.5px] font-extrabold tracking-tight">{title}</h2>
-          <span className="ml-auto text-[12px] font-semibold text-ink-faint">{status}</span>
-        </div>
-        {children}
-      </div>
+    <li className="flex items-center gap-3 rounded-xl bg-bg-muted px-3.5 py-3">
+      <Avatar name={name} index={index} />
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[14px] font-semibold">{title}</span>
+          {trailing}
+        </span>
+        <span className="mt-px block truncate text-[12px] text-muted">{detail}</span>
+      </span>
+      {amount ? (
+        <span className="shrink-0 text-right text-[15px] font-bold tabular-nums">
+          {amount}
+          {split ? <span className="mt-0.5 block text-[11px] font-medium text-ink-faint">{split}</span> : null}
+        </span>
+      ) : pending ? (
+        <span className="shrink-0 text-[12px] font-semibold text-ink-faint">{pending}</span>
+      ) : null}
     </li>
   );
 }
@@ -987,6 +1084,28 @@ function Avatar({
 function memberLabel(member: Member | undefined, index: number): string {
   const named = member?.name.trim();
   return named || `Person ${index + 1}`;
+}
+
+function offerClock(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match) return value;
+  const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)),
+  );
+  const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(
+    new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]))),
+  );
+  return `${date} · ${time}`;
+}
+
+function stopLabel(stops: number): string {
+  if (stops <= 0) return "Nonstop";
+  if (stops === 1) return "1 stop";
+  return `${stops} stops`;
+}
+
+function guestScoreLabel(score: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(score);
 }
 
 function cheapest(flights: FlightOption[]): FlightOption | null {

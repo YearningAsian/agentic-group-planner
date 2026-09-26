@@ -136,7 +136,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="end" className="w-44">
-                <DropdownMenuItem render={<Link href="/profile" />}>Profile</DropdownMenuItem>
                 <DropdownMenuItem render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}>
                   New trip
                 </DropdownMenuItem>

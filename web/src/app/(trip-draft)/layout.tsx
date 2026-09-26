@@ -29,7 +29,6 @@ const fraunces = Fraunces({
  * `/plan` → `plan/page.tsx` → `plan-picker.tsx`
  * `/progress` → `progress/page.tsx` → `progress-graph.tsx`
  * `/itinerary` → `itinerary/page.tsx` → `itinerary-view.tsx`
- * `/profile` → `profile/page.tsx` → `profile-screen.tsx` (home address)
  * `/stays/[accommodationId]` → `stays/[accommodationId]/page.tsx` → `stay-listing.tsx` (new tab from Browse stays)
  */
 export default function TripDraftLayout({ children }: { children: ReactNode }) {
