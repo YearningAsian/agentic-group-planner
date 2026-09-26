@@ -44,7 +44,14 @@ export const CardType = z.enum([
 ]);
 export const RunTrigger = z.enum(["mention", "price_change", "demo"]);
 export const RunStatus = z.enum(["queued", "running", "succeeded", "failed"]);
-export const ToolName = z.enum(["search_places", "plan_day", "update_item", "summarize", "propose_purchase"]);
+export const ToolName = z.enum([
+  "search_places",
+  "plan_day",
+  "update_item",
+  "summarize",
+  "propose_purchase",
+  "remember_preference",
+]);
 export const ToolStatus = z.enum(["started", "succeeded", "failed"]);
 export const WebhookProvider = z.enum(["stripe"]);
 export const WebhookStatus = z.enum(["received", "processed", "ignored", "failed"]);
