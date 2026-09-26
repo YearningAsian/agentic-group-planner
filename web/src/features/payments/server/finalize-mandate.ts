@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { BookingConfirmedCard, type MandateStatus } from "@agp/shared";
-import { type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
+import { type BookResult, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
@@ -121,8 +121,13 @@ async function capturePlan(admin: AdminClient, mandateId: string): Promise<Store
 }
 
 const payerOf = (rows: HoldRow[], intentId: string) => rows.find((r) => r.stripe_payment_intent_id === intentId)?.payer_member_id;
+type FinalizeCancelReason = "booking_failed" | "price_above_cap" | "price_changed";
 
-/** Idempotent cleanup after a cancellation, including a retry after provider release failed. */
+function isFinalizeCancelReason(value: string | null): value is FinalizeCancelReason {
+  return value === "booking_failed" || value === "price_above_cap" || value === "price_changed";
+}
+
+/** Idempotent cleanup after a cancellation decision, including a retry after provider release failed. */
 async function releaseCancelledHolds(
   admin: AdminClient,
   payments: PaymentsProvider,
@@ -141,23 +146,32 @@ async function releaseCancelledHolds(
   if (released.error) throw readError(released.error, "the holds");
 }
 
-/** Persist the cancellation before any provider call so a release failure cannot later book it. */
+/** Keep the mandate live until every old authorization is released, then finish cancellation. */
 async function cancelMandate(
   admin: AdminClient,
   payments: PaymentsProvider,
   mandateId: string,
   rows: HoldRow[],
-  reason: "booking_failed" | "price_above_cap" | "price_changed",
+  reason: FinalizeCancelReason,
 ): Promise<void> {
-  const cancelled = await admin
+  const decided = await admin
     .from("mandates")
-    .update({ status: "cancelled", cancel_reason: reason, lease_expires_at: null })
+    .update({ cancel_reason: reason })
     .eq("id", mandateId)
     .eq("status", "authorized")
     .select("id");
+  if (decided.error) throw readError(decided.error, "the purchase");
+  if (decided.data.length !== 1) throw new AppError("conflict", "The purchase changed while it was being cancelled.", { retryable: true });
+  await releaseCancelledHolds(admin, payments, mandateId, rows);
+  const cancelled = await admin
+    .from("mandates")
+    .update({ status: "cancelled", lease_expires_at: null })
+    .eq("id", mandateId)
+    .eq("status", "authorized")
+    .eq("cancel_reason", reason)
+    .select("id");
   if (cancelled.error) throw readError(cancelled.error, "the purchase");
   if (cancelled.data.length !== 1) throw new AppError("conflict", "The purchase changed while it was being cancelled.", { retryable: true });
-  await releaseCancelledHolds(admin, payments, mandateId, rows);
 }
 
 /**
@@ -176,7 +190,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
 
   const { data: mandate, error } = await admin
     .from("mandates")
-    .select("id, trip_id, item_id, option_id, status, title, quote_cents, cap_cents, currency, booking_quote_id")
+    .select("id, trip_id, item_id, option_id, status, title, quote_cents, cap_cents, currency, cancel_reason, booking_quote_id, booking_provider_ref, booking_confirmation_code")
     .eq("id", mandateId)
     .maybeSingle();
   if (error) throw readError(error, "the purchase");
@@ -201,6 +215,15 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
   if (claimed.length === 0) return { status: "authorized" };
 
   try {
+    if (mandate.cancel_reason) {
+      if (!isFinalizeCancelReason(mandate.cancel_reason)) {
+        throw new AppError("internal", "This purchase has an unsupported cancellation reason.");
+      }
+      const { data: rows, error: rowsError } = await admin.from("payment_holds").select(HOLD_COLUMNS).eq("mandate_id", mandateId);
+      if (rowsError) throw readError(rowsError, "the holds");
+      await cancelMandate(admin, payments, mandateId, rows, mandate.cancel_reason);
+      return { status: "cancelled" };
+    }
     const [itemResult, optionResult, organizerResult] = await Promise.all([
       admin.from("itinerary_items").select("starts_at").eq("id", mandate.item_id).single(),
       admin.from("item_options").select("place_id").eq("id", mandate.option_id).single(),
@@ -240,17 +263,35 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
       if (saved.data.length !== 1) throw new AppError("conflict", "The purchase changed while booking began.", { retryable: true });
       quoteId = quote.quoteId;
     }
-    const booked = await booking.book({
-      kind: "tickets",
-      quoteId,
-      partySize,
-      startsAt,
-      contactName: organizer.display_name,
-      idempotencyKey: `booking:${mandateId}`,
-    });
-    if (booked.status !== "confirmed") {
-      await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
-      return { status: "cancelled" };
+    let booked: BookResult;
+    if (mandate.booking_provider_ref) {
+      booked = {
+        status: "confirmed",
+        providerRef: mandate.booking_provider_ref,
+        confirmationCode: mandate.booking_confirmation_code ?? undefined,
+      };
+    } else {
+      booked = await booking.book({
+        kind: "tickets",
+        quoteId,
+        partySize,
+        startsAt,
+        contactName: organizer.display_name,
+        idempotencyKey: `booking:${mandateId}`,
+      });
+      if (booked.status !== "confirmed") {
+        await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
+        return { status: "cancelled" };
+      }
+      if (!booked.providerRef) throw new AppError("provider_unavailable", "The merchant confirmed without a booking reference.");
+      const saved = await admin.from("mandates")
+        .update({ booking_provider_ref: booked.providerRef, booking_confirmation_code: booked.confirmationCode ?? null })
+        .eq("id", mandateId)
+        .eq("status", "authorized")
+        .is("booking_provider_ref", null)
+        .select("id");
+      if (saved.error) throw readError(saved.error, "the booking");
+      if (saved.data.length !== 1) throw new AppError("conflict", "The purchase changed while booking was confirmed.", { retryable: true });
     }
 
     for (const [intentId, amountCents] of plan.captureByIntent) {

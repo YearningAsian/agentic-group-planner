@@ -172,7 +172,8 @@ describe("finalizeMandate", () => {
     };
 
     await expect(finalizeMandate(s.mandateId, { payments, booking })).rejects.toThrow("temporary release failure");
-    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "price_changed" });
+    // Until every old authorization is released, the live-mandate index must block a replacement.
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "authorized", cancel_reason: "price_changed" });
     expect(await finalizeMandate(s.mandateId, { payments, booking })).toEqual({ status: "cancelled" });
     expect(booking.quote).toHaveBeenCalledTimes(1);
     expect(booking.book).not.toHaveBeenCalled();
@@ -199,10 +200,16 @@ describe("finalizeMandate", () => {
 
     await expect(finalizeMandate(s.mandateId, { payments, booking })).rejects.toThrow("temporary capture failure");
     expect((await mandateRow(s.mandateId)).status).toBe("authorized");
-    expect(await finalizeMandate(s.mandateId, { payments: real, booking })).toEqual({ status: "captured" });
+    const restartedBooking = {
+      ...merchant,
+      quote: vi.fn(async () => { throw new Error("an expired quote cannot be refreshed after a capture"); }),
+      book: vi.fn(async () => { throw new Error("an expired quote cannot be booked again"); }),
+    };
+    expect(await finalizeMandate(s.mandateId, { payments: real, booking: restartedBooking })).toEqual({ status: "captured" });
     expect(quote).toHaveBeenCalledTimes(1);
-    expect(book).toHaveBeenCalledTimes(2);
-    expect(book.mock.calls[1]?.[0].quoteId).toBe(book.mock.calls[0]?.[0].quoteId);
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(restartedBooking.quote).not.toHaveBeenCalled();
+    expect(restartedBooking.book).not.toHaveBeenCalled();
     expect(await bookings(s.mandateId)).toHaveLength(1);
     expect((await mandateRow(s.mandateId)).final_cents).toBe(8682 + 4357 * 2);
   });
