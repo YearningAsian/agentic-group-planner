@@ -251,6 +251,17 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Members sign in by magic link (ADR 0016). The link goes to /auth/confirm with the token hash, so
+# the server verifies it and sets the session cookie (design §2.4). A first sign-in may send the
+# confirmation email instead of the magic link, so both use the same template.
+[auth.email.template.magic_link]
+subject = "Your sign-in link"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.confirmation]
+subject = "Your sign-in link"
+content_path = "./supabase/templates/magic-link.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true
