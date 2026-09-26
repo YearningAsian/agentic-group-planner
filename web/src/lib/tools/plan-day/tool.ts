@@ -8,6 +8,7 @@ import {
   buildPlanRequest,
   type RequestItem,
   type RequestPlace,
+  timeShifts,
   travelPairs,
 } from "@/lib/optimizer/build-plan-request";
 import { checkPlanResponse } from "@/lib/optimizer/check-response";
@@ -219,7 +220,9 @@ export interface PlanDayDeps {
  * booked or pinned neighbors as context and travel from the route cache or a straight-line estimate;
  * checks the answer against the request; fills the route cache for the chosen legs; writes each
  * option's reasoning from its facts; and applies the plan through `applyPlan`, which gives a split
- * slot's second group its own sibling item. New items and options get handles. AI-210 adds re-planning.
+ * slot's second group its own sibling item. New items and options get handles. In replan mode it
+ * also plans voting or decided slots (superseding them) and moves the slot before a booking that
+ * starts at another time.
  */
 export function createPlanDayTool(deps: PlanDayDeps = {}) {
   return defineTool({
@@ -228,9 +231,6 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
       "Plan the day with the optimizer: score options for up to 3 open itinerary slots, including split plans where members branch off and meet again, and post a plan card the group discusses in comments. Put any budget, dietary, or interest changes the group mentions in constraint_updates. Use mode \"replan\" after a booking changes the day. Never invent times or prices; the card carries them.",
     input: PlanDayInput,
     handler: async (input, ctx): Promise<ToolResult> => {
-      if (input.mode !== "initial") {
-        throw new AppError("invalid_input", "Re-planning isn't available yet. Use mode \"initial\" on open slots.");
-      }
       const { admin } = ctx;
       const members = await admin.from("trip_members").select("id, display_name").eq("trip_id", ctx.tripId).order("sort_order");
       if (members.error) throw fail("members", members.error);
@@ -272,7 +272,8 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
       if (planned.length === 0) {
         throw new AppError("conflict", "There are no open slots to plan. Every slot is decided, booked, or pinned.");
       }
-      const closed = planned.find((item) => item.status !== "tbd" && item.status !== "proposing");
+      const open = input.mode === "replan" ? ["tbd", "proposing", "voting", "decided"] : ["tbd", "proposing"];
+      const closed = planned.find((item) => !open.includes(item.status));
       if (closed) throw new AppError("conflict", `The ${closed.slot_key} slot is ${closed.status}, so it can't be planned again.`);
       const empty = draft.slots.find((slot) => slot.candidates.length === 0);
       if (empty) throw new AppError("conflict", `There are no priced places to suggest for ${empty.key} yet.`);
@@ -360,6 +361,10 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
         reasoning,
         optionsPerSlot: input.options_per_slot,
         describe,
+        timezone: trip.timezone,
+        ...(input.mode === "replan"
+          ? { timeShifts: Object.fromEntries([...timeShifts(items)].map(([id, t]) => [id, { starts_at: t.starts_at, ends_at: t.ends_at }])) }
+          : {}),
       });
       if (!result.replayed) Object.assign(ctx.handles, handles);
       return {
