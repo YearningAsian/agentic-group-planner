@@ -54,7 +54,7 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel): 
   const generateObject: LlmProvider["generateObject"] = async ({ schema, prompt }) => {
     const result = await generateText({
       model: agentModel,
-      messages: [{ role: "user", content: prompt }],
+      prompt,
       // JSON-schema mode (response_format), never a forced tool call: Meta rejects forced tools.
       output: Output.object({ schema }),
       maxRetries: 0,

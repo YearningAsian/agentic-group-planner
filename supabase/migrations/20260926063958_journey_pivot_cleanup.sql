@@ -3,6 +3,21 @@
 -- matches @agp/shared/enums.ts again. Nothing writes these: no function, route, or policy used
 -- them, and no hosted project has these tables yet, so no data is lost.
 
+-- No code path ever wrote the removed values, so there is nothing to convert. If a local database
+-- somehow holds one, stop with a message that says what to do instead of a bare CHECK violation.
+do $$
+begin
+  if exists (select 1 from public.agent_runs where trigger = 'call_completed')
+    or exists (select 1 from public.messages where card_type in ('call_status', 'recap'))
+    or exists (select 1 from public.tool_calls where tool_name in ('call_restaurant', 'generate_recap'))
+    or exists (select 1 from public.bookings where provider = 'voice_reservation')
+    or exists (select 1 from public.webhook_events where provider in ('elevenlabs', 'elevenlabs_tool'))
+  then
+    raise exception 'journey_pivot_cleanup: rows use a value the pivot removed; run `supabase db reset` locally';
+  end if;
+end;
+$$;
+
 -- Restaurant calls: the column that pointed a run or a booking at a call, then the table.
 alter table public.agent_runs drop column trigger_call_id;
 alter table public.bookings drop column call_id;

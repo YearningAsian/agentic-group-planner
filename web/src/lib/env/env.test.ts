@@ -102,11 +102,18 @@ describe("server env", () => {
   });
 
   it("has no variables for the flows the journey pivot dropped (design §11.6)", () => {
-    const env = parseServerEnv(buildProfile) as Record<string, unknown>;
-    const dropped = ["VOICE_PROVIDER", "VOICE_TO_NUMBER_OVERRIDE", "ELEVENLABS_API_KEY", "VISION_MODEL"];
-    for (const name of [...dropped, "SEGMENT_PROVIDER", "IMAGE_PROVIDER", "GROUNDING_PROVIDER"]) {
-      expect(env, name).not.toHaveProperty(name);
-    }
+    // Set, so a schema that still declared one would pass it through; undeclared keys are stripped.
+    const dropped = {
+      VOICE_PROVIDER: "mock",
+      VOICE_TO_NUMBER_OVERRIDE: "+15555550100",
+      ELEVENLABS_API_KEY: "el-key",
+      VISION_MODEL: "muse-spark-1.3",
+      SEGMENT_PROVIDER: "mock",
+      IMAGE_PROVIDER: "mock",
+      GROUNDING_PROVIDER: "mock",
+    };
+    const env = parseServerEnv({ ...buildProfile, ...dropped }) as Record<string, unknown>;
+    for (const name of Object.keys(dropped)) expect(env, name).not.toHaveProperty(name);
   });
 
   it("accepts the build profile: every provider mock and no provider keys", () => {
