@@ -430,6 +430,7 @@ export type Database = {
       }
       mandates: {
         Row: {
+          booking_quote_id: string | null
           cancel_reason: string | null
           cap_cents: number
           created_at: string
@@ -453,6 +454,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          booking_quote_id?: string | null
           cancel_reason?: string | null
           cap_cents: number
           created_at?: string
@@ -476,6 +478,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          booking_quote_id?: string | null
           cancel_reason?: string | null
           cap_cents?: number
           created_at?: string
