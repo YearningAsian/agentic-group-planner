@@ -27,7 +27,7 @@ export function unchangedSlots(input: { everyone: readonly string[]; live: reado
   const kept = new Set<string>();
   for (const slot of input.answer) {
     const items = input.live.filter((i) => i.slot_key === slot.slot_key);
-    if (items.length === 0 || items.length !== slot.groups.length) continue;
+    if (items.length === 0 || items.length !== slot.groups.length || slot.groups.length > 2) continue;
     if (items.some((i) => !KEEPABLE.has(i.status) || !i.best_place_id)) continue;
     const bestByGroup = new Map(items.map((i) => [groupKey(i.attendees.length > 0 ? i.attendees : input.everyone), i.best_place_id]));
     const same = slot.groups.every((g) => {

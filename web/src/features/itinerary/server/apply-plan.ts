@@ -218,7 +218,8 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
       // The group's choice stands: the card shows the slot's live items and options as stored.
       const groups = live
         .filter((r) => r.slot_key === item.slot_key)
-        .map((r) => ({ item_id: r.id, member_ids: current.attendees.get(r.id) ?? everyone, options: snapshotsOf(r, current.options.get(r.id) ?? [], keep) }));
+        .map((r) => ({ item_id: r.id, member_ids: current.attendees.get(r.id) ?? everyone, options: snapshotsOf(r, current.options.get(r.id) ?? [], keep) }))
+        .sort((a, b) => firstMember(a.member_ids) - firstMember(b.member_ids));
       slots.push({ slot_key: item.slot_key, label: item.label, starts_at: times.starts_at, ends_at: times.ends_at, groups });
       continue;
     }

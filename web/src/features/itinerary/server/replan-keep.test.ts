@@ -48,4 +48,10 @@ describe("unchangedSlots", () => {
     expect(unchangedSlots({ everyone, live: [tbd], answer }).size).toBe(0);
     expect(unchangedSlots({ everyone, live: [{ ...voting("i1", "pA"), best_place_id: null }], answer }).size).toBe(0);
   });
+
+  it("never keeps a slot with more than two groups", () => {
+    const live = [voting("i1", "pA", ["m1"]), voting("i2", "pB", ["m2"]), voting("i3", "pC", ["m3"])];
+    const answer = [{ slot_key: "lunch", groups: [group(["m1"], "pA"), group(["m2"], "pB"), group(["m3"], "pC")] }];
+    expect(unchangedSlots({ everyone, live, answer }).size).toBe(0);
+  });
 });
