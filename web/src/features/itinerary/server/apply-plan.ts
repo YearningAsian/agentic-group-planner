@@ -4,7 +4,7 @@ import { PlanCard, type PlanChange, type SlotSummary } from "@agp/shared";
 import { checkPlanResponse } from "@/lib/optimizer/check-response";
 import type { PlannerResponse, PlanRequest } from "@/lib/optimizer/client";
 import { formatUsd } from "@/lib/money";
-import { AppError } from "@/lib/reliability";
+import { AppError, rpcError } from "@/lib/reliability";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 /** What the model reads back from a plan: its summary, and handles for the rows the plan created. */
@@ -49,14 +49,6 @@ const MAX_OPTIONS = 3;
 /** The reasoning key for one option of one group: a place can be an option for both sides of a split. */
 export function reasoningKey(slotKey: string, memberIds: readonly string[], placeId: string): string {
   return `${slotKey}:${[...memberIds].sort().join(",")}:${placeId}`;
-}
-
-/** Maps a raised `code: message` exception from a write function to an AppError. */
-export function rpcError(error: { message: string; code?: string }): AppError {
-  const match = /^(not_permitted|conflict|invalid_input):\s*(.*)$/.exec(error.message);
-  if (match) return new AppError(match[1] as "not_permitted" | "conflict" | "invalid_input", match[2] ?? error.message);
-  if (error.code === "42501") return new AppError("not_permitted", error.message);
-  return new AppError("internal", "The database write failed.", { retryable: true, cause: error });
 }
 
 /** The summary when the caller doesn't write one: each group's options with their exact prices. */

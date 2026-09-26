@@ -1,4 +1,5 @@
 import type { HoldKind } from "../enums";
+import { formatUsd } from "./format";
 
 /** A member's payment state for one share (design §2.1 summary card, §4.2, §5.5). */
 export type ShareStatus = "paid" | "authorized" | "pending" | "awaiting_member" | "fronted" | "none";
@@ -16,12 +17,6 @@ export interface ShareStatusView {
   /** What every surface shows, so the lanes, the itinerary, and the cards agree. */
   label: string;
   share_cents: number | null;
-}
-
-/** "$48", or "$48.50" when there are cents. Integer math only. */
-export function formatUsd(cents: number): string {
-  const rest = cents % 100;
-  return `$${Math.trunc(cents / 100)}${rest === 0 ? "" : `.${String(rest).padStart(2, "0")}`}`;
 }
 
 /**
