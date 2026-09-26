@@ -30,7 +30,7 @@ type HoldRow = {
   lease_expires_at: string | null;
 };
 
-const HOLD_COLUMNS = "id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share, lease_expires_at";
+export const HOLD_COLUMNS = "id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share, lease_expires_at";
 const PLAN_ATTEMPTS = 5;
 
 const toShareRow = (r: HoldRow): ShareRow => ({
@@ -128,7 +128,7 @@ function isFinalizeCancelReason(value: string | null): value is FinalizeCancelRe
 }
 
 /** Idempotent cleanup after a cancellation decision, including a retry after provider release failed. */
-async function releaseCancelledHolds(
+export async function releaseCancelledHolds(
   admin: AdminClient,
   payments: PaymentsProvider,
   mandateId: string,

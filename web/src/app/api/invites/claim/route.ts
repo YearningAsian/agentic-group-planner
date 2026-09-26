@@ -1,5 +1,5 @@
 import { invites } from "@agp/shared";
-import { claimInvite } from "@/features/invite/server";
+import { afterClaim, claimInvite } from "@/features/invite/server";
 import { AppError, toHttpError } from "@/lib/reliability";
 import { getServerClient } from "@/lib/supabase/server";
 
@@ -27,6 +27,8 @@ export async function POST(request: Request): Promise<Response> {
     const { data } = await client.auth.getUser();
     if (!data.user) throw new AppError("unauthenticated", "Sign in to join this trip.");
     const result = await claimInvite(client, parsed.data.token);
+    // The claim is committed; until the handoff lands, the organizer keeps fronting the share.
+    await afterClaim(result.memberId).catch((error: unknown) => console.error(`claim ${result.memberId}: after-claim failed`, error));
     return Response.json({ trip_slug: result.tripSlug, member_id: result.memberId } satisfies invites.ClaimInviteResponse);
   } catch (error) {
     const { status, body } = toHttpError(error);

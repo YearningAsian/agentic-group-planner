@@ -20,7 +20,9 @@ Last updated: 2026-09-26.
   - [ ] CI db tests green (`person-preferences.test.ts`)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
-- [ ] CO-S04: expire open mandates
+  - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
+  - [ ] CI db test green (`after-claim.test.ts`); card component is frontend
+- [ ] CO-S04: expire open mandates (`expireMandates`; CI db test pending; needs a scheduler caller)
 - [ ] CO-S02: declines and covering the shortfall
 
 ## Before real Stripe (`PAYMENTS_PROVIDER=real`)
@@ -35,6 +37,7 @@ Needs `STRIPE_WEBHOOK_SECRET` (whsec_…) in `.env.local` — secret key is pres
 - [x] Every card decline with a PaymentIntent counts as declined, not retryable
 - [ ] CO-302: seeded Stripe customers and claimer cards
 - [ ] Set `STRIPE_WEBHOOK_SECRET` and only then `PAYMENTS_PROVIDER=real` (test mode)
+- [x] Pending approval while a mandate is finalizing returns a retryable conflict (finalize retry only for members with no pending rows)
 
 ## Blocked on accounts or keys
 

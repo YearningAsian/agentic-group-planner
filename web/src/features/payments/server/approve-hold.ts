@@ -242,7 +242,7 @@ export async function approveHold(input: { mandateId: string; memberId: string }
 
   const { data: mandate, error } = await admin
     .from("mandates")
-    .select("id, trip_id, status, currency, expires_at")
+    .select("id, trip_id, status, currency, expires_at, cancel_reason")
     .eq("id", input.mandateId)
     .maybeSingle();
   if (error) throw readError(error, "the purchase");
@@ -263,6 +263,12 @@ export async function approveHold(input: { mandateId: string; memberId: string }
   const leakedIntent = rows.find((r) => r.status === "released" && r.stripe_payment_intent_id)?.stripe_payment_intent_id;
   if (leakedIntent && !rows.some((r) => r.status === "authorized" || r.status === "captured" || r.status === "pending")) {
     await payments.release({ paymentIntentId: leakedIntent, idempotencyKey: `pi-release:${mandate.id}:${member.id}` });
+  }
+  if (mandate.status === "cancelled" || mandate.status === "failed") {
+    throw new AppError(
+      "conflict",
+      mandate.cancel_reason === "expired" ? "The time to approve this purchase has run out." : "This purchase isn't waiting for approvals any more.",
+    );
   }
 
   const open = mandate.status === "open" || mandate.status === "partially_declined";
