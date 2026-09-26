@@ -118,7 +118,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - [ ] That run went through a real model (`LLM_PROVIDER=meta`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
 - [ ] The same prompt with `LLM_PROVIDER=mock` produces the same card, and `agent_runs.replayed = true`.
 - [ ] `GET https://<vercel-url>/api/health` returns `{ web: ok, db: ok, optimizer: ok }`.
-- [ ] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
+- [x] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
 
 **If it fails:** nobody starts Milestone 2. Everyone swarms the broken step of the slice. CI (CO-106, Should) is worth landing before Milestone 2, because four people share `main`.
 
@@ -161,7 +161,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `trip_members rejects status joined with a null profile_id`
     - `a trip can't have two organizers`
   - [ ] The migration is pushed first, before files 2–4, and `pnpm db:types` is committed with it.
-- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): foundation tables, membership helpers, and db test harness`
 
 #### VO-103 · Env loader and env examples · Must
@@ -178,7 +178,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `rejects a live Stripe key (sk_live_)`
     - `accepts the build profile: every provider mock and no provider keys`
   - [ ] Check: `web/.env.example` contains no phone number.
-- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
+- **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0. Re-verified 2026-09-26 after the journey pivot: the voice, segmentation, image, grounding, and vision-model variables are gone, and dev mode needs only `DEMO_ADMIN_TOKEN`. `pnpm --filter web test src/lib/env` → 9 passed (RED first: every case failed while the loader still required `VOICE_PROVIDER`).
 - **Commit:** `feat(env): validated server and client env with examples`
 
 #### VO-104 · Supabase clients and session proxy · Must
@@ -383,7 +383,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `plan_day rejects options_per_slot outside 2–3`
     - `the plan card requires applied_plan_rank = 1`
     - `CardPayload picks the schema by card_type`
-- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter @agp/shared test` → 5 files, 8 tests passed (enums vs §3.1, parseHandle, options_per_slot 2–3, applied_plan_rank = 1, CardPayload discriminates); `pnpm --filter @agp/shared typecheck` → exit 0. RED first: all 5 files failed on missing modules. Re-verified 2026-09-26 after the journey pivot: 5 tool inputs, 9 card schemas, and the design §3.1 enums (no call, photo, or match enums). `pnpm --filter @agp/shared test` → 8 files, 32 passed (RED first: the enum test on 27 enums, and a new api-barrel test on the votes, voice-tools, recaps, and photos modules).
 - **Commit:** `feat(shared): enums, handles, tool result, events, and contract barrels`
 
 #### AI-103 · Web skeleton: entry points, tool folders, provider folders · Must
@@ -398,7 +398,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0. Re-verified 2026-09-26 after the journey pivot: the registry lists 5 tools, `cards.tsx` maps 9 card types, the gallery, recap, and voice features and the grounding, image, segmentation, and voice providers are gone, and `features/profile` exists. `pnpm --filter web test src/lib/tools` → 4 passed (RED first: 7 tools and 11 card types).
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
 
 #### AI-104 · LLM provider and recording keys · Must
@@ -476,11 +476,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - [ ] `pnpm --filter web test:db -- tests/db/itinerary-schema.test.ts` passes:
     - `an item can't go from tbd to voting without passing through proposing`
     - `area_label, area_lat, and area_lng are all set or all null`
-    - `a vote can't point at another item's option (composite foreign key)`
+    - `an item has at most one option per rank and per place`
     - `members select items; non-members select none`
     - `ends_at must be after starts_at`
   - [ ] Pushed right after file 1. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): places, routes, and itinerary tables`
 
 #### CO-102 · Migration 3 (agent and chat) · Must
@@ -495,7 +495,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `messages.client_id is unique`
     - `card_type is required exactly when kind = card`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): agent runs, messages, and tool calls`
 
 #### CO-103 · Migration 4 (commerce, calls, and webhooks) · Must
@@ -510,7 +510,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `an authenticated user can't read webhook_events`
     - `a share has at most one own row and one fronted row`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23. 2026-09-26: re-run on a fresh local stack (`supabase db reset`, every migration through the pivot cleanup): `pnpm --filter web test:db` → 7 files, 31 passed. Still not pushed to a hosted project.
 - **Commit:** `feat(db): mandates, holds, bookings, and webhook events`
 
 #### CO-104 · `apply_plan`, first version, and the function audit · Must
