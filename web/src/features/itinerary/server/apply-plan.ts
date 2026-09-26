@@ -27,6 +27,8 @@ export interface ApplyPlanInput {
 export interface ApplyPlanResult {
   cardMessageId: string;
   changes: PlanChange[];
+  /** The ToolResult summary stored on the tool call; the model reads it. */
+  summary: string;
 }
 
 const MAX_OPTIONS = 3;
@@ -140,6 +142,7 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
   const summary = slots
     .map((s) => `${s.label}: ${s.groups[0]!.options.map((o) => `${o.name} (${dollars(o.price_cents)})`).join(", ")}`)
     .join("; ");
+  const resultSummary = `Posted a plan card for the group to discuss. ${summary}.`.slice(0, 600);
   const { data, error } = await admin.rpc("apply_plan", {
     payload: {
       trip_id: input.tripId,
@@ -149,10 +152,10 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
       mode: input.mode,
       slots: payloadSlots,
       card,
-      result_summary: `Posted a plan card for the group to discuss. ${summary}.`.slice(0, 600),
+      result_summary: resultSummary,
     },
   });
   if (error) throw rpcError(error);
   const result = data as { card_message_id: string; changes: PlanChange[] };
-  return { cardMessageId: result.card_message_id, changes: result.changes };
+  return { cardMessageId: result.card_message_id, changes: result.changes, summary: resultSummary };
 }
