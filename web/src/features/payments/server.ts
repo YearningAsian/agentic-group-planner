@@ -4,6 +4,7 @@ import { notBuilt } from "@/lib/not-built";
 // Server entry point.
 export { mandateSummary } from "./lib/mandate-summary";
 export { type ApproveHoldResult, approveHold, approverFor, type PaymentsDeps } from "./server/approve-hold";
+export { ensurePayer } from "./server/ensure-payer";
 export { cancelByOrganizer } from "./server/cancel-by-organizer";
 export { coverShortfall } from "./server/cover-shortfall";
 export { createMandate, type CreateMandateInput, type CreateMandateResult } from "./server/create-mandate";

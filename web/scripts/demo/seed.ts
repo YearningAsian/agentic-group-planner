@@ -2,7 +2,7 @@
  * `pnpm seed:demo [--batch <name>] [--stage <stage>]`: seeds the Saturday trip for development and
  * tests (design §10.4). Safe to re-run: every row has a deterministic ID, rows with a status are
  * only inserted when missing (so a re-run never moves a status backward), and the cache rows are
- * upserted. Step 2 (Stripe customers) arrives with CO-302; step 5 runs the requested stage.
+ * upserted. Step 2 seeds Stripe customers in real payment mode; step 5 runs the requested stage.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -13,6 +13,7 @@ import { parseSeedArgs, type Stage } from "./lib/args";
 import { runStages } from "./stages";
 import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
+import { seedStripeCustomers } from "./stripe-customers";
 
 interface TripFixture {
   trip: { key: string; title: string; city: string; timezone: string; price_threshold_percent: number };
@@ -223,10 +224,15 @@ async function countRows(admin: ScriptAdmin, batch: string, tripId: string): Pro
   };
 }
 
-/** Seeds one batch (design §10.4 steps 1 and 3–6). */
+/** Seeds one batch (design §10.4). */
 export async function seed(options: { batch: string; stage?: Stage; now?: Date; admin?: ScriptAdmin }): Promise<SeedResult> {
   const admin = options.admin ?? scriptAdmin();
   const users = await upsertUsers(admin, options.batch);
+  if (process.env.PAYMENTS_PROVIDER === "real") {
+    await seedStripeCustomers(admin, options.batch, users);
+  } else if (process.env.PAYMENTS_PROVIDER !== "mock") {
+    throw new Error("PAYMENTS_PROVIDER must be real or mock to seed the demo.");
+  }
   await upsertPlaces(admin, SATURDAY_TRIP);
   const trip = await upsertTrip(admin, options.batch, users, options.now ?? new Date());
   await runStages({ admin, batch: options.batch, tripId: trip.tripId }, options.stage);

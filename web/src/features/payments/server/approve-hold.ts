@@ -5,6 +5,7 @@ import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { type Hold, holdFilter, holdSuffix } from "../lib/hold";
 import { type FinalizeDeps, finalizeMandate } from "./finalize-mandate";
+import { ensurePayer } from "./ensure-payer";
 import { readError } from "./rpc-error";
 import { settleFrontedShare } from "./settle-fronted-share";
 
@@ -70,33 +71,6 @@ export async function approverFor(input: { mandateId: string; profileId: string 
 }
 
 /**
- * The payer's saved customer and card. Until members can add their own card, a payer without one
- * gets the provider's test visa (the app runs on Stripe test mode only), saved on their profile.
- */
-async function paymentMethodFor(admin: AdminClient, payments: PaymentsProvider, member: Member) {
-  if (!member.profile_id) throw new AppError("not_permitted", "Join the trip before approving.");
-  const { data: profile, error } = await admin
-    .from("profiles")
-    .select("stripe_customer_id, default_payment_method_id")
-    .eq("id", member.profile_id)
-    .single();
-  if (error) throw readError(error, "your profile");
-  const customerId =
-    profile.stripe_customer_id ??
-    (await payments.ensureCustomer({ profileId: member.profile_id, name: member.display_name })).customerId;
-  const paymentMethodId =
-    profile.default_payment_method_id ?? (await payments.attachTestCard({ customerId, card: "visa" })).paymentMethodId;
-  if (customerId !== profile.stripe_customer_id || paymentMethodId !== profile.default_payment_method_id) {
-    const saved = await admin
-      .from("profiles")
-      .update({ stripe_customer_id: customerId, default_payment_method_id: paymentMethodId })
-      .eq("id", member.profile_id);
-    if (saved.error) throw readError(saved.error, "your profile");
-  }
-  return { customerId, paymentMethodId };
-}
-
-/**
  * Authorizes one of the payer's holds for every row on it, if this call wins the claim on its
  * pending rows: their main hold, or a cover hold the organizer takes on for a declined share.
  * A concurrent approval by the same payer finds nothing to claim and returns, so the provider is
@@ -113,7 +87,7 @@ export async function authorizeHold(
   const scope = holdFilter(mandate.id, hold);
   const suffix = holdSuffix(member.id, hold);
   // Resolve the card before claiming the lease so Stripe's slow customer/card calls aren't under it.
-  const { customerId, paymentMethodId } = await paymentMethodFor(admin, payments, member);
+  const { customerId, paymentMethodId } = await ensurePayer(member.id, { admin, payments });
   const now = new Date();
   const { data: claimed, error: claimError } = await admin
     .from("payment_holds")
