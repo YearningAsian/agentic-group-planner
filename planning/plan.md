@@ -754,12 +754,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-101, CO-105
 - **Produces:** `getRoutingProvider()`, and `ensureRoutes(pairs) → Map<'from:to', { mode, durationS, distanceM, geometry }>`. AI-209 uses it.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/routing` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/routing` passes:
     - `mock walking uses 4.8 km/h and driving 25 km/h, with a straight line`
     - `real maps an ORS directions response to a GeoJSON LineString, a duration, and a distance`
-  - [ ] `pnpm --filter web test:db -- tests/db/ensure-routes.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/ensure-routes.test.ts` passes:
     - `pairs under 1.5 km use walking`
     - `only missing pairs are fetched and upserted`
+- **Status:** backend done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/providers/routing` → 6 passed and `pnpm --filter web test:db tests/db/ensure-routes.test.ts` → 3 passed (RED first: missing `./distance`, `./real`, and the mock). The ORS directions fixture is hand-built in the ORS v2 GeoJSON format, because `ORS_API_KEY` is empty; the real switch is FE-301. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(map): routing provider and cached ensureRoutes`
 
 #### FE-210 · Map view with numbered stops · Must
@@ -916,9 +917,10 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-107
 - **Produces:** `mockPlan(request) → PlanResponse` with `engine = "mock"`. It's a test double that tests inject into the optimizer client; the product never switches to it at runtime. It returns the fixture plan for the seeded trip's shape; for anything else, everyone goes together to each slot's first candidate. The database tests of `plan_day` and re-planning use it.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/mock.test.ts` passes:
     - `returns the fixture plan for the seeded trip, with engine mock`
     - `returns everyone together at the first candidate for any other request`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/optimizer/mock.test.ts` → 2 passed (RED first: no `./mock`). `mock-plan.json` uses the seeded demo batch's member IDs and `uuidFor('demo','place:<key>')`; its scores are illustrative. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `test(optimizer): optimizer test double with the seeded fixture plan`
 
 #### AI-202 · Scoring interface and planner fixtures · Must
@@ -1030,12 +1032,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - `findPlaces({ category, tags, limit })`: cache only; the provider fallback comes with AI-S04.
   - The two request fixtures, which pytest reads.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/build-plan-request.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/build-plan-request.test.ts` passes:
     - `default slots are the earliest 3 open items, so dinner is left out`
     - `a booked neighbor becomes a pinned slot with its place as the only candidate`
     - `a pinned item confirmed Δ later moves the unbooked slot right before it by Δ, and nothing else` (a synthetic trip, Δ = +30 min)
     - `candidates come from the places cache by category, at most 6 per slot`
     - `the committed request fixtures equal buildPlanRequest on saturday-trip.json`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/optimizer/build-plan-request.test.ts` → 5 passed (RED first: the AI-107 builder rejected the new input, and `timeShifts` didn't exist); a db test covers `travelMinutes` from the route cache or a straight-line estimate. Both committed request fixtures solve `optimal` on the local CP-SAT engine. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(optimizer): plan request builder with pinned context and time shift`
 
 #### AI-208 · Seeded-trip plan test and fixture tuning · Should
@@ -1054,14 +1057,15 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-201, AI-207, CO-104, FE-209
 - **Produces:** the full design §2.1 handler. It saves `constraint_updates`, fills routes through `ensureRoutes`, writes server-side reasoning, and creates split siblings through `apply_plan`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/plan-day/reasoning.test.ts` passes: `names the best interest match, the price, and the travel minutes`.
-  - [ ] `pnpm --filter web test:db -- tests/db/plan-day.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/plan-day/reasoning.test.ts` passes: `names the best interest match, the price, and the travel minutes`.
+  - [x] `pnpm --filter web test:db -- tests/db/plan-day.test.ts` passes:
     - `constraint_updates for "all" with budget_cents 8000 sets every member's budget`
     - `a split slot gets a sibling item with the same slot_key and each group's attendees`
     - `an unknown item handle returns unknown_handle and changes nothing`
     - `infeasible reasons show display names, not IDs`
     - `the ToolResult summary is at most 600 characters and mentions the split`
     - `apply_plan still rejects a non-member actor after the split changes`
+- **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/tools/plan-day/reasoning.test.ts` → 1 passed and `pnpm --filter web test:db tests/db/plan-day.test.ts` → 7 passed (RED first: no split sibling, `constraint_updates` written before a bad handle failed, no card on infeasible). Migration `20260926080526_apply_plan_splits.sql` replaces `apply_plan` to create split siblings and checks every slot before any write. The batch 2 review items are fixed: a response naming a non-candidate place is rejected with nothing written (no $0 fallback), and summaries show exact prices. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): plan_day with constraints, splits, and reasoning`
 
 #### AI-210 · Re-planning from comments · Must
@@ -1135,13 +1139,14 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-106, AI-210
 - **Produces:** the design §2.1 handler, which is how comment threads turn into plan changes. The organizer locks options; the agent applies the group's explicit confirmations.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
     - `swap_option by a non-organizer returns not_permitted with "discuss it in the comments"`
     - `swap_option by the organizer locks the item to decided`
     - `mark_tbd on a decided item supersedes it`
     - `add_slot with an area creates a TBD block with a provisional stop`
     - `every action on a booked item returns not_permitted`
     - `apply_item_change rejects a non-member actor with not_permitted`
+- **Status:** done except `request_alternatives` (2026-09-26). Proof: `pnpm --filter web test:db tests/db/update-item.test.ts` → 6 passed (RED first: the stub returned not-built, and `apply_item_change` didn't exist); a mutant without the organizer check failed the non-organizer test. Migration `20260926081300_apply_item_change.sql` also keeps a purchase in progress from changing an item's option or attendees. `request_alternatives` returns a correctable error pointing at `plan_day` replan until AI-210's single-item path lands. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): update_item tool`
 
 ### M2 · CO
@@ -1224,11 +1229,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `web/src/lib/tools/propose-purchase/{tool.ts,tool.test.ts}`
 - **Depends on:** CO-207, AI-106
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/propose-purchase/tool.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/tools/propose-purchase/tool.test.ts` passes:
     - `an item that isn't decided returns invalid_input telling the group to confirm it in comments first`
     - `an unknown handle returns unknown_handle`
     - `the idempotency key is mandate:{run_id}:{tool_call_id}`
     - `the summary gives each share and cap in dollars`
+- **Status:** done (2026-09-26, commerce worker). Proof: `pnpm --filter web test src/lib/tools/propose-purchase/tool.test.ts` → 4 passed (RED first: no `createProposePurchaseTool`). Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(agent): propose_purchase tool`
 
 #### CO-209 · Approve a hold · Must
@@ -1240,17 +1246,18 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - `POST /api/webhooks/stripe` and `handleStripeEvent(event)`. It checks the signature against the raw body, records the event first (VO-203), then makes conditional share-row updates only (design §7.2). This task handles `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, and `payment_intent.canceled`.
   - `tests/payments/kit.ts`: one interface for every payments concurrency suite, over the mock provider now and Stripe test mode in CO-305. It creates payers, lists a PaymentIntent's events, and signs an event for delivery.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/approve-hold.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/approve-hold.test.ts` passes:
     - `a member's approval authorizes one PaymentIntent for their cap, with key pi-auth:{mandate_id}:{payer_member_id}`
     - `the organizer's approval authorizes one PaymentIntent up to 9600 and moves both their own and fronted rows to authorized`
     - `two concurrent approvals call authorize once` (review focus 1)
     - `a declined card moves the hold to declined and the mandate to partially_declined`
-  - [ ] `pnpm --filter web test -- src/app/api/mandates` passes: `403 for a non-member`.
-  - [ ] `pnpm --filter web test:db -- tests/payments/approve-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
+  - [x] `pnpm --filter web test -- src/app/api/mandates` passes: `403 for a non-member`.
+  - [x] `pnpm --filter web test:db -- tests/payments/approve-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
     - `parallel approvals by the same member create one PaymentIntent and authorize it once`
     - `a duplicate amount_capturable_updated is recorded once and changes nothing`
     - `amount_capturable_updated handled before the synchronous response leaves the payer's rows authorized once`
     - `a webhook with a bad signature returns 400 and records nothing`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `pnpm --filter web test src/app/api/mandates` → 3 passed; `pnpm --filter web test:db tests/db/approve-hold.test.ts tests/payments/approve-concurrency.test.ts` → 9 passed (RED first: no approve or webhook route, `approveHold` a stub). Migration `20260926074648_payment_holds_lease.sql` leases a share row during the provider call, so concurrent approvals authorize once. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(payments): approve holds, with the stripe webhook route`
 
 #### CO-210 · Finalize a mandate · Must
@@ -1279,21 +1286,22 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   ```
 
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/payments/lib/plan-captures.test.ts` passes (review focus 5):
+  - [x] `pnpm --filter web test -- src/features/payments/lib/plan-captures.test.ts` passes (review focus 5):
     - `Person 4's own row authorized: pi_person4 captures 4357, pi_person1 captures 4357, and the fronted row is released`
     - `Person 4's own row awaiting_member: pi_person1 captures 8682 for its own and fronted rows`
     - `every share has exactly one paying row`
-  - [ ] `pnpm --filter web test:db -- tests/db/finalize-mandate.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/finalize-mandate.test.ts` passes:
     - `two concurrent finalizers produce one booking and one capture per PaymentIntent` (review focus 1)
     - `each PaymentIntent is captured once, with amount_to_capture equal to holdFees' total for the rows it pays`
     - `a book() failure releases every hold and cancels the mandate with booking_failed`
     - `the item ends booked and pinned, with exactly one booking_confirmed card`
     - `complete_mandate rejects a non-member actor with not_permitted`
-  - [ ] `pnpm --filter web test:db -- tests/payments/finalize-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305 (review focus 1):
+  - [x] `pnpm --filter web test:db -- tests/payments/finalize-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305 (review focus 1):
     - `approvals from all three members in parallel produce one booking and one capture per PaymentIntent`
     - `a duplicate payment_intent.succeeded changes nothing`
     - `payment_intent.succeeded handled before complete_mandate commits: rows end captured or released per pays_share, and the mandate is still booked once`
     - `a late amount_capturable_updated arriving after capture leaves the rows captured`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `plan-captures.test.ts` → 4 passed; `finalize-mandate.test.ts` and `finalize-concurrency.test.ts` → 9 passed (RED first: no `plan-captures`, and the mandate never left `open`). Migration `20260926080050_complete_mandate.sql` adds `complete_mandate` (security definer, `search_path = ''`, clients can't execute it) and the finalizer's lease. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(payments): finalize mandates with one paying row per share`
 
 #### CO-212 · Fronting and refund flow · Must
@@ -1302,18 +1310,19 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-210
 - **Produces:** `onPlaceholderClaimed(memberId) → { pendingMandateIds }`, and `settleFrontedShare({ mandateId, memberId })`. `approveHold` calls `settleFrontedShare` when the mandate is already captured. Refunds carry `mandate_id` and `share_member_id` metadata. The `charge.refunded` handler (added here) marks that share's `fronted` row refunded, with the same conditional update as the synchronous path.
 - **Done when**, covering design §11.1 item 3 and §11.3 item 4. Each order in the design §4.2 table is one test:
-  - [ ] `pnpm --filter web test:db -- tests/db/fronting.test.ts` passes (mock payments; review focus 5):
+  - [x] `pnpm --filter web test:db -- tests/db/fronting.test.ts` passes (mock payments; review focus 5):
     - `claim before capture: Person 4's PaymentIntent captures 4357, Person 1's captures 4357 of 9600, the fronted row is released, and nothing is refunded`
     - `claim after capture: Person 1's PaymentIntent captured 8682; Person 4's approval captures 4357, then refunds Person 1 4325 (frontedShareRefundCents) once, with key cover-refund:{mandate_id}:{member_id}`
     - `never claims: Person 1's PaymentIntent captured 8682, Person 4's own row stays awaiting_member, and nothing is refunded`
     - `claims then declines after capture: the fronted row stays captured, and nothing is refunded`
     - `running the settlement twice refunds once`
     - `claiming moves only that member's awaiting_member rows to pending and returns their mandate ids`
-  - [ ] `pnpm --filter web test:db -- tests/payments/fronting-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
+  - [x] `pnpm --filter web test:db -- tests/payments/fronting-concurrency.test.ts` passes, with mock payments now and Stripe test mode in CO-305:
     - `Person 4 approving in parallel with the last finalizing approval: exactly one row pays Person 4's share, and nothing is refunded`
     - `two parallel settlements refund Person 1 once`
     - `a duplicate charge.refunded changes nothing`
     - `charge.refunded handled before the settlement's own update marks the fronted row refunded once`
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-304. Proof: `fronting.test.ts` and `fronting-concurrency.test.ts` → 10 passed (RED first: `onPlaceholderClaimed` a stub, no `settleFrontedShare`); the race test forces all three interleavings of Person 4 approving during the last finalizing approval. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(payments): front a placeholder's share and refund the organizer once`
 
 #### CO-213 · Share status badge · Must

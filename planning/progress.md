@@ -111,3 +111,17 @@ The batch 2 review (`f1885fb..b79eb46`) found the range **mergeable as is**, wit
 | `chore(db): regenerate types from this branch's migrations` | the VO branch's types held another worker's column | `pnpm db:types` after a clean reset |
 
 The integration reset wiped the other workers' psql-applied migrations from the shared local stack; the lead re-applied their pending files (commerce: `payment_holds_lease`, `create_mandate_hardening`, `complete_mandate`; AI: `apply_plan_splits`) right after, and told both workers.
+
+### Round 3, continued: update_item, and the AI and commerce merges
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(db): apply_item_change for update_item` and `feat(agent): update_item tool` | AI-216 (`request_alternatives` waits on AI-210) | db 6 (RED first); a mutant without the organizer check failed |
+| Merge AI planning | FE-209, AI-201, AI-207, AI-209 (split siblings, reasoning, exact prices) | worker: unit 142, db 19 files / 92 |
+| `refactor(money): one formatUsd and one rpcError` | two `formatUsd`s disagreed on thousands separators; `rpcError` had three copies | unit 179 |
+| Merge commerce round 2 | CO-208, CO-209, CO-210, CO-212, and the batch 2 review fixes | after `supabase db reset`: typecheck and lint clean; shared 46, web unit 192, db 29 files / 143; pytest 57, ruff clean; `api:types` no diff |
+
+The batch 3 review (`b79eb46..58deb6b`, with engine fuzzing against a brute force) found the range **mergeable as is**, with five non-blocking findings:
+- the enumeration fallback reports `infeasible` when it times out, and CP-SAT's thousandths rounding can break near-ties differently from enumeration: both went to the AI worker;
+- `reset:demo` drops `--stage`, and a failed user delete leaves the batch with no trip: the lead fixes these;
+- the import-boundary lint rules only see `@/` alias imports: a follow-up (every server module imports `server-only`, so `next build` still catches client leaks).
