@@ -1041,16 +1041,16 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Status:** done (2026-09-26, AI worker). Proof: `pnpm --filter web test src/lib/optimizer/build-plan-request.test.ts` → 5 passed (RED first: the AI-107 builder rejected the new input, and `timeShifts` didn't exist); a db test covers `travelMinutes` from the route cache or a straight-line estimate. Both committed request fixtures solve `optimal` on the local CP-SAT engine. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
 - **Commit:** `feat(optimizer): plan request builder with pinned context and time shift`
 
-#### AI-208 · Seeded-trip plan test and fixture tuning · Should
+#### AI-208 · Seeded-trip plan test: invariants, not a pinned plan · Should
 
-- **Files:** `optimizer/tests/test_seeded.py`, `web/scripts/demo/fixtures/saturday-trip.json`, `web/scripts/demo/fixtures/mock-plan.json`
+- **Files:** `optimizer/tests/test_seeded.py`, `web/scripts/demo/fixtures/mock-plan.json`
 - **Depends on:** AI-206, AI-207
 - **Done when:**
   - [ ] `cd optimizer && pytest tests/test_seeded.py` passes:
-    - `test_seeded_trip_plan`: in the rank-1 plan, the morning is everyone at the aquarium, lunch is everyone at a vegetarian-friendly place, and the afternoon splits Person 1 and Person 4 at the High Museum from Person 2 and Person 3 at Piedmont Park. The engine is `cp_sat`, and `solve_ms` < 2000.
+    - `test_seeded_trip_options`: on the seeded trip, the engine is `cp_sat`, `solve_ms` < 2000, it returns 2–3 distinct ranked options, and every option is feasible: each member's food slots meet their dietary rules, nobody visits a place twice, and every option fits each member's budget.
     - `test_mock_plan_matches_engine`: `mock-plan.json`'s assignments equal the engine's rank-1 plan.
-- **Status:** blocked on a weights decision (2026-09-26). Done: no member visits a place twice (`feat(optimizer): stop a member visiting a place twice in a day`; `pytest tests/test_repeats.py` → 14 passed, RED first: 11 failed, including both engines against a brute force on tables whose slots share places). `test_seeded.py` is written (branch `test/seeded-optimizer`) and fails: the rank-1 plan is the High Museum, Ponce City Market, then Piedmont Park, all together. A search over weights, tags, interests, and prices reached the target only with the `cost` weight at 0.1 (design §11.7, item 6, lists the evidence and the options).
-- **Commit:** `test(optimizer): pin the seeded trip plan`
+- **Status:** re-scoped (2026-09-26). The old target pinned one exact plan (an afternoon split between the High Museum and Piedmont Park), and reaching it meant tuning weights for one fixture (design §11.7, item 6). Decision: the engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). Done: no member visits a place twice (`feat(optimizer): stop a member visiting a place twice in a day`; `pytest tests/test_repeats.py` → 14 passed, RED first: 11 failed). The old test on branch `test/seeded-optimizer` is superseded.
+- **Commit:** `test(optimizer): check the seeded trip's options`
 
 #### AI-209 · `plan_day`, full version · Must
 
@@ -1920,13 +1920,25 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
   - [ ] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
 - **Commit:** `feat(payments): expire open mandates`
 
-#### CO-S05 · Hotels through Duffel Stays (only with access) · Should
+#### CO-S05 · Hotels through Duffel Stays · Must
 
-- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-mock.ts}`
-- **Depends on:** CO-204. Also needs Duffel Stays access to be approved.
+- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,stays-mock.ts,stays-mock.test.ts,index.ts}`, `web/src/lib/money/decimal.ts`
+- **Depends on:** CO-204. The `real` check also needs Duffel Stays access on the account and a `duffel_test_` token.
+- **Produces:** `@duffel/api` 4.30.0 (server-only) behind the `BookingProvider` interface. Duffel's flow is search → fetch all rates → quote → booking; ours maps `optionId` to Duffel's `rate_id`, `quote()` to `stays.quotes.create(rate_id)`, `book()` to `stays.bookings.create({ quote_id, guests, email, phone_number })`, and `cancel()` to `stays.bookings.cancel(id)`. Duffel sends money as decimal strings (`total_amount`), which are parsed to integer cents without floats. Every call goes through `withPolicy`, because the client has no timeout setting. A booking isn't retried blindly: after an error, `book()` looks the booking up by quote before trying again. Search (`stays.search` by coordinates and radius) is a tool for Muse, not part of the adapter.
 - **Done when:**
-  - [ ] Check: `getBookingProvider("stays")` quotes and books the fixture hotel with `STAYS_PROVIDER=mock`, or a Duffel test property with `real`.
+  - [ ] `pnpm --filter web test src/lib/providers/booking src/lib/money` passes: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
+  - [ ] Check: with `STAYS_PROVIDER=real` and a test token, a Duffel test property quotes and books.
+- **Status:** unit work can start now; the `real` check is blocked on the token and Stays access.
 - **Commit:** `feat(booking): stays through duffel`
+
+#### AI-217 · Remember each person's preferences · Must
+
+- **Files:** `supabase/migrations/<timestamp>_person_preferences.sql`, `web/src/lib/tools/remember-preference/tool.ts`, `web/src/lib/agent/context.ts`, `web/tests/db/person-preferences.test.ts`
+- **Depends on:** AI-209, VO-220
+- **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, a budget style, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
+- **Done when:**
+  - [ ] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
+- **Commit:** `feat(agent): remember each person's preferences`
 
 ---
 
@@ -2021,9 +2033,9 @@ This map shows that every Must task sits under a core user flow (design §5), or
 | --- | --- |
 | Foundation and enablers (every flow) | FE-101–108, FE-201, FE-214, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
 | 5.1 Create profile | FE-221, VO-220 |
-| 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-301, AI-302 |
+| 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-217, AI-301, AI-302 |
 | 5.3 Invite and collaborate | FE-220, AI-210, AI-216, AI-303, VO-209–211 |
-| 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, VO-203, VO-213, VO-214, FE-219, FE-302 |
+| 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, CO-S05, VO-203, VO-213, VO-214, FE-219, FE-302 |
 | 5.5 Per-person itinerary | FE-202, FE-208, FE-404 |
 
 ---

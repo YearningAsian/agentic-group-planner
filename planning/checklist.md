@@ -8,7 +8,7 @@ Keep keys in a shared password manager, never in the repo. Each line names the v
 
 - [ ] **Meta Model API:** account on dev.meta.ai, an API key, and a test call to `muse-spark-1.3` → `META_MODEL_API_KEY` (ADR 0017)
 - [ ] **Google AI Studio:** Gemini key → `GOOGLE_GENERATIVE_AI_API_KEY`
-- [ ] **Duffel:** test token → `DUFFEL_ACCESS_TOKEN`; request Stays access (optional; no core flow needs it)
+- [ ] **Duffel:** test token → `DUFFEL_ACCESS_TOKEN`; request Stays access (hotel booking, CO-S05, needs it)
 - [ ] **Stripe:** test mode account → `STRIPE_SECRET_KEY` (`sk_test_…`); Stripe CLI installed and `stripe login` done
 - [ ] **Google Places API (New)** key → `GOOGLE_PLACES_API_KEY`
 - [ ] **OpenRouteService** key → `ORS_API_KEY`
@@ -88,7 +88,7 @@ pnpm --filter web add -D --save-exact prettier@3 vitest@4 @playwright/test @axe-
 pnpm --filter web exec playwright install chromium webkit
 ```
 
-- [ ] `@duffel/api@4.30.0` only if Stays access has been approved.
+- [ ] `@duffel/api@4.30.0` in `web` (hotels, CO-S05).
 
 ### B5. Shared contracts package
 

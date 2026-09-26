@@ -33,7 +33,7 @@
 | @supabase/supabase-js | 2.116.0 | |
 | @supabase/ssr | 0.12.7 | |
 | stripe | 22.6.2 | pin the API version in code. The browser packages from plan §7 are dropped ([ADR 0001](adr/0001-stack.md), item 7). |
-| @duffel/api | 4.30.0 | optional: install only if Stays access is approved |
+| @duffel/api | 4.30.0 | hotels (Duffel Stays, CO-S05); server-only, Node ≥ 20; latest stable re-checked 2026-09-26 |
 | @tanstack/react-query | 5.103.2 | |
 | motion | 13.4.0 | |
 | sonner | 2.0.8 | |
