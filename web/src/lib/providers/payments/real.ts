@@ -2,17 +2,9 @@ import "server-only";
 import Stripe from "stripe";
 import { AppError, withPolicy } from "@/lib/reliability";
 import type { AuthorizeInput, PaymentsEvent, PaymentsProvider } from "./types";
+import { STRIPE_OPTIONS, STRIPE_POLICY } from "./stripe-config";
 
-/** Match the API version shipped with the pinned stripe@22.6.2 SDK. */
-export const STRIPE_API_VERSION = "2026-08-26.dahlia";
-export const STRIPE_OPTIONS = {
-  apiVersion: STRIPE_API_VERSION,
-  maxNetworkRetries: 2,
-  timeout: 10_000,
-} as const satisfies Stripe.StripeConfig;
-
-// The SDK retries individual requests; this outer bound gives its three attempts time to finish.
-export const STRIPE_POLICY = { timeoutMs: 40_000, retries: 0 } as const;
+export { STRIPE_API_VERSION, STRIPE_OPTIONS, STRIPE_POLICY } from "./stripe-config";
 
 interface StripeProviderOptions {
   secretKey: string;
