@@ -1,6 +1,7 @@
 import "server-only";
 import { type AgentStatusEvent, pairsAgentWithPaid, type ToolError, type ToolName, type ToolResult } from "@agp/shared";
 import { tool as aiTool, jsonSchema, type ToolSet, zodSchema } from "ai";
+import { getServerEnv } from "@/lib/env/server";
 import { getLlmProvider, type LlmProvider, RecordingNotFoundError } from "@/lib/providers/llm";
 import { AppError, toToolError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
@@ -11,6 +12,7 @@ import { buildContext } from "./context";
 import { actorFor, type AgentRunRow, failRun, finishRun } from "./finish";
 import { nextQueuedRun, sweepTrip } from "./queue";
 import { recordingKey } from "./recording-key";
+import { withRecording } from "./recorder";
 import { runTool } from "./run-tool";
 
 export type { AgentRunRow } from "./finish";
@@ -165,7 +167,8 @@ async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admi
       });
     }
 
-    const llm = overrides.llm ?? getLlmProvider();
+    // AGENT_RECORD=1 saves a live run for replay; it never replaces a failing model (design §7.5).
+    const llm = overrides.llm ?? withRecording(getLlmProvider(), { enabled: getServerEnv().AGENT_RECORD });
     const result = await llm.runAgent({
       system: context.system,
       messages: context.messages,
