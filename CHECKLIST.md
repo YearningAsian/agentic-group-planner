@@ -28,7 +28,7 @@ Last updated: 2026-09-26.
   - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
   - [x] CI db test green (`after-claim.test.ts`); the card component is frontend work
 - [x] CO-S04: expire open mandates (`expireMandates` done, CI db green)
-- [ ] A scheduled caller for `expireMandates` (cron route)
+- [x] A scheduled caller for `expireMandates`: `GET /api/cron/expire-mandates` (daily Vercel cron, `CRON_SECRET`)
 - [ ] CO-S02: declines and covering the shortfall
 
 ## Before real Stripe (`PAYMENTS_PROVIDER=real`)

@@ -1916,11 +1916,11 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S04 · Mandate expiry · Should
 
-- **Files:** `web/src/features/payments/server/expire-mandates.ts`, `web/tests/db/expire-mandates.test.ts`
+- **Files:** `web/src/features/payments/server/expire-mandates.ts`, `web/tests/db/expire-mandates.test.ts`, `web/src/app/api/cron/expire-mandates/{route.ts,route.test.ts}`, `web/vercel.json`
 - **Depends on:** CO-210
 - **Done when:**
   - [x] `pnpm --filter web test:db -- tests/db/expire-mandates.test.ts` passes: `an open mandate past expires_at is cancelled with reason expired, and its holds are released`.
-- **Status:** done (2026-09-26, PR #6, CI green): `expireMandates` plus `a mandate that hasn't expired is left open` and `approving after expiry is refused`. Nothing calls it on a schedule yet; the cron route is the next step.
+- **Status:** done (2026-09-26). PR #6 (CI green): `expireMandates` plus `a mandate that hasn't expired is left open` and `approving after expiry is refused`. Then the scheduled caller ([ADR 0020](adr/0020-cron-mandate-expiry.md)): `GET /api/cron/expire-mandates` behind `CRON_SECRET`, a daily Vercel cron in `web/vercel.json`, and per-mandate failure isolation. Proof: `pnpm --filter web test src/app/api/cron src/lib/env` → 14 passed (RED first: no route module, and `CRON_SECRET` unchecked); `expire-mandates.test.ts` adds `two runs at once cancel the mandate once and release each PaymentIntent once` and `a release that fails on one mandate still releases the others, and the next run retries it` (CI database job).
 - **Commit:** `feat(payments): expire open mandates`
 
 #### CO-S05 · Hotels through Duffel Stays · Must
