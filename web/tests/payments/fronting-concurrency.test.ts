@@ -67,7 +67,10 @@ describe("fronting concurrency", () => {
       expect(person4Rows.filter((r) => r.status === "captured"), label).toHaveLength(1);
       // A hold that lost the race isn't left authorized.
       expect(person4Rows.map((r) => r.status), label).not.toContain("authorized");
-      expect(await refundsOn(rows.get(`${s.person[0]}:own`)!.stripe_payment_intent_id!), label).toEqual([]);
+      const organizerPi = rows.get(`${s.person[0]}:own`)!.stripe_payment_intent_id!;
+      expect(await refundsOn(organizerPi), label).toEqual([]);
+      // The Events API can lag a refund; Stripe's refund list can't.
+      if (kit.stripe) expect(await kit.stripe.refundsFor(organizerPi), label).toEqual([]);
       return person4Rows;
     };
     const until = async (condition: () => Promise<boolean>) => {

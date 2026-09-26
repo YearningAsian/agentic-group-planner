@@ -85,7 +85,7 @@ describe("Stripe payments kit", () => {
     expect(profile.paymentMethodId).toBe("pm_mock_declined");
   });
 
-  it("returns only events for one PaymentIntent, oldest first, including later API pages", async () => {
+  it("returns only the payment events for one PaymentIntent, oldest first", async () => {
     const { kit, options } = fixture();
     vi.spyOn(options.stripe.paymentIntents, "retrieve").mockResolvedValue({ id: "pi_target", created: 100 } as Stripe.Response<Stripe.PaymentIntent>);
     const listed = [
@@ -101,7 +101,7 @@ describe("Stripe payments kit", () => {
     }) as unknown as ReturnType<Stripe["events"]["list"]>);
 
     expect((await kit.eventsFor("pi_target")).map((e) => e.id)).toEqual(["evt_auth", "evt_charge", "evt_refund"]);
-    expect(list).toHaveBeenCalledWith({ created: { gte: 100 }, limit: 100 });
+    expect(list).toHaveBeenCalledWith({ created: { gte: 100 }, types: expect.arrayContaining(["payment_intent.succeeded", "refund.created"]), limit: 100 });
   });
 
   it("signs the exact event body accepted by Stripe's verifier before delivery", async () => {

@@ -30,7 +30,11 @@ export interface PaymentsKit {
   createPayer(batch: string, displayName: string, card?: TestCard): Promise<TestUser>;
   /** Replaces a payer's saved card, e.g. to make their next authorization decline. */
   setCard(profileId: string, card: TestCard): Promise<void>;
-  /** Every event the provider sent about a PaymentIntent, oldest first. */
+  /**
+   * The provider's events about a PaymentIntent, oldest first. On the mock that's every event; on
+   * Stripe it's what the Events API lists once the event for the PaymentIntent's current status and
+   * every `expectedTypes` entry have appeared, so pass the types a test reads.
+   */
   eventsFor(paymentIntentId: string, expectedTypes?: string[]): Promise<ProviderEvent[]>;
   /** Delivers an event to `POST /api/webhooks/stripe`, signed the way the provider signs it. */
   deliver(event: ProviderEvent): Promise<Response>;
@@ -63,6 +67,19 @@ interface StripeKitOptions {
   post: typeof post;
   eventWaitMs?: number;
 }
+
+/** The event types the payments handlers and suites read; the Events API filters on up to 20 names. */
+const PAYMENT_EVENT_TYPES = [
+  "payment_intent.amount_capturable_updated",
+  "payment_intent.payment_failed",
+  "payment_intent.succeeded",
+  "payment_intent.canceled",
+  "charge.refunded",
+  "refund.created",
+  "refund.updated",
+] as Stripe.EventListParams["types"];
+
+const isRateLimited = (error: unknown) => (error as { type?: unknown } | null)?.type === "StripeRateLimitError";
 
 function referencesIntent(event: Stripe.Event, paymentIntentId: string): boolean {
   const object = event.data.object as unknown as Record<string, unknown>;
@@ -99,18 +116,26 @@ export function createStripePaymentsKit(options: StripeKitOptions): PaymentsKit 
       };
       const currentEvent = eventByStatus[intent.status];
       const expected = new Set([...(currentEvent ? [currentEvent] : []), ...expectedTypes]);
-      const deadline = Date.now() + (options.eventWaitMs ?? 10_000);
-      while (true) {
+      const waitMs = options.eventWaitMs ?? 10_000;
+      const deadline = Date.now() + waitMs;
+      for (let delay = 250; ; delay = Math.min(delay * 2, 1_000)) {
         const events: ProviderEvent[] = [];
-        // The Events API is account-wide and newest first; scan all pages in the test's time window.
-        for await (const event of stripe.events.list({ created: { gte: intent.created }, limit: 100 })) {
-          if (referencesIntent(event, paymentIntentId)) events.push(event as unknown as ProviderEvent);
+        try {
+          // The Events API is account-wide and newest first; scan the payment types in the test's window.
+          for await (const event of stripe.events.list({ created: { gte: intent.created }, types: PAYMENT_EVENT_TYPES, limit: 100 })) {
+            if (referencesIntent(event, paymentIntentId)) events.push(event as unknown as ProviderEvent);
+          }
+        } catch (error) {
+          // Test mode's rate limit is low, and the SDK doesn't retry a 429 on its own; poll again.
+          if (!isRateLimited(error) || Date.now() >= deadline) throw error;
+          events.length = 0;
         }
         if ([...expected].every((type) => events.some((event) => event.type === type))) return events.reverse();
         if (Date.now() >= deadline) {
-          throw new Error(`Stripe did not list ${[...expected].join(", ")} for ${paymentIntentId} before the test timeout.`);
+          const seen = [...new Set(events.map((event) => event.type))].join(", ") || "none";
+          throw new Error(`Stripe did not list ${[...expected].join(", ")} for ${paymentIntentId} within ${waitMs} ms (saw ${seen}).`);
         }
-        await new Promise((resolve) => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(delay, deadline - Date.now())));
       }
     },
     deliver(event) {

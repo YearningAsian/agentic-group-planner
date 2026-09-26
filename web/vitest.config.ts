@@ -74,6 +74,8 @@ export default defineConfig({
           env: { ...env, PAYMENTS_PROVIDER: "real" },
           // The fronting race runs five full purchases against Stripe (about 70 s); mock runs take ~2 s.
           testTimeout: 180_000,
+          // beforeAll creates three payers, each a Supabase user plus a Stripe customer and card.
+          hookTimeout: 120_000,
         },
       },
     ],
