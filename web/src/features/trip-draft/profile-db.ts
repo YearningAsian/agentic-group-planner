@@ -1,37 +1,14 @@
 /**
- * Local profile (home address) for the trip-draft prototype. Separate from the trips database.
+ * Home address for the studio, stored on the signed-in user's `studio_state` row.
  */
-export const PROFILE_KEY = "agp-profile";
+import { readStudio, writeStudioProfile, type StudioProfile } from "./studio-store";
 
-export type LocalProfile = {
-  homeAddress: string;
-  homeLat: number | null;
-  homeLng: number | null;
-};
-
-const empty: LocalProfile = { homeAddress: "", homeLat: null, homeLng: null };
+export type LocalProfile = StudioProfile;
 
 export function loadProfile(): LocalProfile {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return empty;
-  try {
-    const raw = localStorage.getItem(PROFILE_KEY);
-    if (!raw) return empty;
-    const parsed = JSON.parse(raw) as Partial<LocalProfile>;
-    return {
-      homeAddress: typeof parsed.homeAddress === "string" ? parsed.homeAddress : "",
-      homeLat: typeof parsed.homeLat === "number" ? parsed.homeLat : null,
-      homeLng: typeof parsed.homeLng === "number" ? parsed.homeLng : null,
-    };
-  } catch {
-    return empty;
-  }
+  return readStudio().profile;
 }
 
 export function saveProfile(profile: LocalProfile): void {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-  } catch {
-    // Storage quota or blocked in private mode
-  }
+  writeStudioProfile(profile);
 }

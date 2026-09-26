@@ -2,8 +2,9 @@
 import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { TRIPS_DB_KEY, type TripRecord } from "./trips-db";
-import { TripProvider, useTrip, type TripState } from "./trip-context";
+import { resetStudioMemory } from "./studio-store";
+import type { TripRecord } from "./trips-db";
+import { resetTripContextForTests, TripProvider, useTrip, type TripState } from "./trip-context";
 
 type TripApi = ReturnType<typeof useTrip>;
 
@@ -67,7 +68,7 @@ function legacyRecord(overrides: Partial<Omit<TripState, "id">> = {}): TripRecor
 
 describe("TripProvider member picks", () => {
   beforeEach(() => {
-    localStorage.clear();
+    resetTripContextForTests();
   });
 
   afterEach(() => {
@@ -78,10 +79,7 @@ describe("TripProvider member picks", () => {
   });
 
   it("keeps legacy locked picks visible as the organizer choices", () => {
-    localStorage.setItem(
-      TRIPS_DB_KEY,
-      JSON.stringify({ activeTripId: "trip-legacy", trips: [legacyRecord()] }),
-    );
+    resetStudioMemory({ activeTripId: "trip-legacy", trips: [legacyRecord()] });
 
     renderProvider();
 

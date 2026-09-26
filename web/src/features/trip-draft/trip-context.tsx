@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Client-only trip state backed by localStorage database.
+ * Studio trip state. The signed-in user's copy is `studio_state` in the database.
  * Screen map: `app/(trip-draft)/layout.tsx`. Read and write only through `useTrip()`.
  */
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
@@ -14,6 +14,7 @@ import {
   type TripRecord,
   type TripsDatabase,
 } from "@/features/trip-draft/trips-db";
+import { pullStudio, resetStudioMemory } from "./studio-store";
 
 export type Member = {
   id: string;
@@ -157,13 +158,10 @@ function clearMemberPicks(members: Member[]): Member[] {
   return members.map((member) => ({ ...member, flightId: null, stayId: null }));
 }
 
-function hydrate() {
-  if (didHydrate) return;
-  didHydrate = true;
+function applyLoaded() {
   dbSnapshot = loadDatabase();
   if (dbSnapshot.trips.length > 0) {
-    const active =
-      dbSnapshot.trips.find((t) => t.id === dbSnapshot.activeTripId) ?? dbSnapshot.trips[0];
+    const active = dbSnapshot.trips.find((t) => t.id === dbSnapshot.activeTripId) ?? dbSnapshot.trips[0];
     const normalizedTrips = dbSnapshot.trips.map(normalizeState);
     dbSnapshot = { ...dbSnapshot, trips: normalizedTrips };
     snapshot = normalizeState(active);
@@ -172,6 +170,24 @@ function hydrate() {
     snapshot = initialState();
     dbSnapshot.activeTripId = null;
   }
+}
+
+function hydrate() {
+  if (didHydrate) return;
+  didHydrate = true;
+  applyLoaded();
+  void pullStudio().then(() => {
+    applyLoaded();
+    notify();
+  });
+}
+
+/** Test hook: forgets the loaded document so the next render reads the memory store. */
+export function resetTripContextForTests(): void {
+  didHydrate = false;
+  snapshot = initialState();
+  dbSnapshot = { activeTripId: null, trips: [] };
+  resetStudioMemory();
 }
 
 function notify() {

@@ -45,3 +45,9 @@ export async function demoSignIn(email: string): Promise<{ userId: string }> {
   }
   return { userId: data.user.id };
 }
+
+/** Dev mode only: sign in as Person 1, 2, or 3. Person 4 joins through the invite link. */
+export async function demoSignInSeeded(person: "person1" | "person2" | "person3"): Promise<{ userId: string }> {
+  const env = getServerEnv();
+  return demoSignIn(`${person}@${env.DEMO_EMAIL_DOMAIN}`);
+}
