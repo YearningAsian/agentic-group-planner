@@ -58,9 +58,12 @@ export async function pullStudio(): Promise<void> {
 
 async function pushStudio(): Promise<void> {
   if (typeof window === "undefined" || process.env.VITEST) return;
-  await fetch("/api/studio-state", {
+  const response = await fetch("/api/studio-state", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(current),
   });
+  if (!response.ok) {
+    console.error("Couldn't save trips", response.status);
+  }
 }
