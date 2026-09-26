@@ -3,6 +3,7 @@ import type { Database } from "@agp/shared/db";
 import type { PaymentsEvent } from "@/lib/providers/payments";
 import { finishWebhook, recordWebhook } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
+import { holdFilter, holdForMetadata } from "../lib/hold";
 import { readError } from "./rpc-error";
 
 export type StripeEventOutcome = "processed" | "ignored" | "skipped";
@@ -20,7 +21,8 @@ function trimmed(event: PaymentsEvent) {
 
 /**
  * The payer's share rows an event is about. The PaymentIntent's metadata names them, which works
- * even before the synchronous path has saved the PaymentIntent ID on the rows.
+ * even before the synchronous path has saved the PaymentIntent ID on the rows. A payer can have a
+ * main hold and cover holds on one mandate, so the rows are narrowed to the hold the event is for.
  */
 function payerRows(admin: AdminClient, event: PaymentsEvent) {
   const { mandate_id: mandateId, payer_member_id: payerId } = event.metadata;
@@ -28,7 +30,12 @@ function payerRows(admin: AdminClient, event: PaymentsEvent) {
   return {
     update(fields: Database["public"]["Tables"]["payment_holds"]["Update"]) {
       const update = query.update(fields);
-      if (mandateId && payerId) return update.eq("mandate_id", mandateId).eq("payer_member_id", payerId);
+      if (mandateId && payerId) {
+        return update
+          .eq("mandate_id", mandateId)
+          .eq("payer_member_id", payerId)
+          .filter(...holdFilter(mandateId, holdForMetadata(event.metadata)));
+      }
       return update.eq("stripe_payment_intent_id", event.paymentIntentId ?? "");
     },
   };

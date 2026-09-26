@@ -54,6 +54,14 @@ function scenario(onAuthorized: (state: { mandate: Record<string, unknown>; hold
       is(column: string, value: unknown) { filters.push((row) => row[column] === value); return builder; },
       or() { filters.push((row) => row.lease_expires_at === null); return builder; },
       order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+        });
+        return builder;
+      },
       update(values: Record<string, unknown>) { patch = values; return builder; },
       async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
       async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
@@ -128,6 +136,14 @@ describe("approveHold after a late authorization", () => {
         is(column: string, value: unknown) { filters.push((row) => row[column] === value); return builder; },
         or() { return builder; },
         order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+        });
+        return builder;
+      },
         update(values: Record<string, unknown>) { patch = values; return builder; },
         async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
         async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
@@ -167,6 +183,14 @@ describe("approveHold after a late authorization", () => {
         is() { return builder; },
         or() { return builder; },
         order() { return builder; },
+      // Hold scoping (lib/hold): `eq` for one cover hold, `not.like cover:%` for the main hold.
+      filter(column: string, op: string, value: string) {
+        filters.push((row) => {
+          const actual = String(row[column] ?? "");
+          return op === "eq" ? actual === value : !actual.startsWith(value.replace(/%$/, ""));
+        });
+        return builder;
+      },
         update() { return builder; },
         async maybeSingle() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
         async single() { return { data: matches()[0] ? { ...matches()[0] } : null, error: null }; },
