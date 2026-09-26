@@ -1,7 +1,19 @@
 import "server-only";
-import { notBuilt } from "@/lib/not-built";
+import { getServerEnv } from "@/lib/env/server";
+import { createMockTranscription } from "./mock";
+import { createMetaTranscription } from "./real";
+import type { TranscriptionProvider } from "./types";
 
 export type * from "./types";
 
-// Picks the real or mock implementation from its env flag. Stub until the provider's owner builds it.
-export const getTranscriptionProvider = notBuilt("getTranscriptionProvider");
+let cached: TranscriptionProvider | undefined;
+
+/** Picks Meta's speech to text or the mock from `TRANSCRIBE_PROVIDER` (mock by default). */
+export function getTranscriptionProvider(): TranscriptionProvider {
+  const env = getServerEnv();
+  cached ??=
+    env.TRANSCRIBE_PROVIDER === "real"
+      ? createMetaTranscription({ apiKey: env.META_MODEL_API_KEY, baseURL: env.META_MODEL_API_BASE_URL, model: env.TRANSCRIBE_MODEL })
+      : createMockTranscription();
+  return cached;
+}
