@@ -1,0 +1,284 @@
+"use client";
+
+/**
+ * Home dashboard: banner, the trip in progress, quick actions, and past trips.
+ * Shows an empty state until the user creates a trip.
+ */
+import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { Calendar, CirclePlus, MapPin, PenLine, TrendingUp, Users } from "lucide-react";
+import { AppShell } from "@/features/trip-draft/components/app-shell";
+import { TripPeople } from "@/features/trip-draft/components/trip-people";
+import {
+  PAST_TRIPS,
+  greetingFor,
+  inProgressCard,
+  organizerProfile,
+} from "@/features/trip-draft/dashboard-data";
+import { useTrip } from "@/features/trip-draft/trip-context";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Progress, ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
+import { initials } from "@/features/trip-draft/format";
+import { cn } from "@/lib/utils";
+
+export function DashboardHome() {
+  const trip = useTrip();
+  const card = inProgressCard(trip.state);
+  const profile = organizerProfile(trip.state);
+  const [copied, setCopied] = useState(false);
+  const joined = trip.state.members.filter((member) => member.joined);
+
+  async function copyInvite() {
+    if (!card) return;
+    const url = `${window.location.origin}/`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      trip.markInviteShared();
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <AppShell>
+      <div className="mx-auto max-w-[1080px] px-6 py-9 sm:px-10">
+        <div className="relative mb-7 flex min-h-[260px] items-end overflow-hidden rounded-[20px] shadow-[var(--shadow)]">
+          <Image
+            src="https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1600&q=80"
+            alt="A yellow tram on a steep city street"
+            fill
+            priority
+            sizes="(min-width: 1080px) 1080px, 100vw"
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-linear-to-t from-[#1a1410]/92 via-[#1a1410]/62 to-[#1a1410]/28" />
+          <div className="relative z-10 px-7 py-7 text-white">
+            <p className="mb-2 text-[13px] font-medium tracking-wide text-white/80">{greetingFor(profile.greeting)}</p>
+            <h1 className="font-display max-w-[16ch] text-[2rem] leading-[1.05] font-medium tracking-[-0.035em] text-balance sm:text-[2.45rem]">
+              Plan the trip before everyone&rsquo;s in the chat.
+            </h1>
+            <p className="mt-3 max-w-[42ch] text-[15px] leading-relaxed text-white/88">
+              A few questions, a flight, a stay, then a link for the people who haven&rsquo;t joined.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-3.5 flex items-baseline justify-between">
+          <h2 className="text-[17px] font-bold tracking-tight">Continue planning</h2>
+          {trip.trips.length > 0 && (
+            <Link href="/trips" className="text-[13px] font-semibold text-muted hover:text-accent">
+              View all trips
+            </Link>
+          )}
+        </div>
+
+        {card ? (
+          <Link href={trip.state.destinationId ? "/current" : "/studio"} className="mb-8 block">
+            <Card className="flex flex-col gap-5 rounded-[20px] border border-line p-5 shadow-[var(--shadow)] transition hover:-translate-y-0.5 sm:flex-row sm:p-[22px]">
+              <span className="relative h-[110px] w-full shrink-0 overflow-hidden rounded-[10px] sm:w-[150px]">
+                <Image src={card.image} alt="" fill sizes="150px" className="object-cover" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start justify-between gap-3">
+                  <span>
+                    <span className="block text-[17px] font-bold text-ink">{card.title}</span>
+                    <span className="mt-1 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] font-normal text-muted">
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="size-3.5 opacity-70" />
+                        {card.datesLabel}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="size-3.5 opacity-70" />
+                        {card.travelers} travelers
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="size-3.5 opacity-70" />
+                        {card.place}
+                      </span>
+                    </span>
+                  </span>
+                  <Badge className="shrink-0 border-transparent bg-sidebar-accent font-bold text-accent">{card.stage}</Badge>
+                </span>
+                <span className="mt-4 flex items-center gap-2.5">
+                  <Progress value={card.progress} className="min-w-0 flex-1 gap-0">
+                    <ProgressTrack className="h-[7px] bg-bg-muted">
+                      <ProgressIndicator className="bg-accent" />
+                    </ProgressTrack>
+                  </Progress>
+                  <span className="shrink-0 text-[12.5px] font-semibold text-muted">Flight → Hotel → Invite</span>
+                </span>
+                <span className="mt-4 flex items-center gap-2">
+                  <TripPeople people={card.people} />
+                  <span className="text-[12.5px] font-normal text-muted">
+                    {card.joined} of {card.travelers} travelers joined
+                  </span>
+                  <span className="trip-live-dot ml-1 size-2 rounded-full bg-success" aria-hidden />
+                </span>
+              </span>
+            </Card>
+          </Link>
+        ) : (
+          <div className="mb-8 rounded-[20px] border border-dashed border-line bg-[#fbf9f5] p-8 text-center sm:p-10">
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-line">
+              <MapPin className="size-5 text-muted" />
+            </div>
+            <h3 className="mt-3.5 text-[16.5px] font-bold text-ink">No trips planned yet</h3>
+            <p className="mx-auto mt-1 max-w-[420px] text-[13px] leading-relaxed text-muted">
+              You don&rsquo;t have any active trips. Start a questionnaire or brainstorm with the AI agent to plan your first group trip.
+            </p>
+            <div className="mt-4">
+              <Link
+                href="/onboarding"
+                onClick={() => trip.startNewTrip()}
+                className="inline-flex h-9 items-center justify-center rounded-[9px] bg-ink px-4 text-[13px] font-bold text-white transition hover:bg-[#302a22]"
+              >
+                Start your first trip
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <h2 className="mb-3.5 text-[17px] font-bold tracking-tight">Quick actions</h2>
+        <div className="mb-9 grid gap-4 md:grid-cols-2 xl:grid-cols-12">
+          <Link
+            href="/onboarding"
+            onClick={() => trip.startNewTrip()}
+            className="flex min-h-[148px] flex-col justify-between rounded-[14px] bg-ink p-[18px] text-white transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-7"
+          >
+            <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-white/12">
+              <CirclePlus className="size-4" />
+            </span>
+            <span>
+              <span className="mt-3.5 block text-[14.5px] font-bold">Start a new trip</span>
+              <span className="mt-0.5 block text-[12.5px] leading-snug text-[#c9c2b2]">
+                Braindump it, or answer a few quick questions.
+              </span>
+            </span>
+          </Link>
+          <Link
+            href={trip.state.destinationId ? "/studio" : "/onboarding"}
+            onClick={() => {
+              if (!trip.state.destinationId) trip.startNewTrip();
+            }}
+            className="flex min-h-[148px] flex-col justify-between rounded-[14px] bg-accent-tint p-[18px] text-ink transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-5"
+          >
+            <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-white text-accent">
+              <TrendingUp className="size-4" />
+            </span>
+            <span>
+              <span className="mt-3.5 block text-[14.5px] font-bold">Continue planning</span>
+              <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">
+                {trip.state.destinationId
+                  ? "Pick up where you left off on the stay."
+                  : "Start planning your first group trip."}
+              </span>
+            </span>
+          </Link>
+          <Dialog>
+            <DialogTrigger
+              disabled={!card}
+              className={cn(
+                "flex min-h-[148px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left text-ink transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-6",
+                !card && "opacity-60 cursor-not-allowed hover:translate-y-0 hover:shadow-none"
+              )}
+            >
+              <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-bg-muted">
+                <Users className="size-4" />
+              </span>
+              <span>
+                <span className="mt-3.5 block text-[14.5px] font-bold">See who&rsquo;s joined</span>
+                <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">
+                  {card
+                    ? `${joined.length} of ${trip.state.members.length} travelers have confirmed so far.`
+                    : "No active trip yet. Start a trip to invite travelers."}
+                </span>
+              </span>
+            </DialogTrigger>
+            {card ? (
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Who&rsquo;s joined</DialogTitle>
+                  <DialogDescription>
+                    {joined.length} of {trip.state.members.length} travelers are in. Placeholders still need the invite.
+                  </DialogDescription>
+                </DialogHeader>
+                <ul className="flex flex-col gap-3">
+                  {trip.state.members.map((member) => (
+                    <li key={member.id} className="flex items-center gap-3">
+                      <Avatar className="size-8">
+                        <AvatarFallback className="bg-accent-tint text-[12px] font-semibold text-accent">
+                          {initials(member.name.trim() || "Traveler")}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm font-semibold">{member.name.trim() || "Placeholder"}</span>
+                      <Badge
+                        variant="secondary"
+                        className={member.joined ? "ml-auto bg-good-tint text-success" : "ml-auto"}
+                      >
+                        {member.joined ? "Joined" : "Pending"}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </DialogContent>
+            ) : null}
+          </Dialog>
+          <button
+            type="button"
+            onClick={card ? copyInvite : undefined}
+            disabled={!card}
+            className={cn(
+              "flex min-h-[148px] flex-col justify-between rounded-[14px] border border-line bg-surface p-[18px] text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] active:translate-y-px xl:col-span-6",
+              !card && "opacity-60 cursor-not-allowed hover:translate-y-0 hover:shadow-none"
+            )}
+          >
+            <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-good-tint text-success">
+              <PenLine className="size-4" />
+            </span>
+            <span>
+              <span className="mt-3.5 block text-[14.5px] font-bold">{copied ? "Link copied" : "Invite people"}</span>
+              <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">
+                {!card
+                  ? "Create a trip first to share an invite link."
+                  : copied
+                  ? "Paste it for anyone not in the chat yet."
+                  : "Copy a link for the people not in chat yet."}
+              </span>
+            </span>
+          </button>
+        </div>
+
+        {PAST_TRIPS.length > 0 ? (
+          <>
+            <h2 className="mb-3.5 text-[17px] font-bold tracking-tight">Past trips</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {PAST_TRIPS.map((past) => (
+                <Card key={past.title} className="gap-0 overflow-hidden rounded-[14px] border border-line py-0 shadow-[var(--shadow)]">
+                  <div className="relative h-24">
+                    <Image src={past.image} alt="" fill sizes="320px" className="object-cover" />
+                  </div>
+                  <div className="px-3.5 py-3">
+                    <h3 className="text-[13.5px] font-bold">{past.title}</h3>
+                    <p className="text-[12px] text-muted">{past.meta}</p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </AppShell>
+  );
+}

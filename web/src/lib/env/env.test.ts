@@ -95,10 +95,17 @@ describe("server env", () => {
     expect(problems({ ...real, STRIPE_SECRET_KEY: "sk_test_abc" })).toEqual([]);
   });
 
+  it("rejects a live Duffel token (duffel_live_)", () => {
+    expect(problems({ ...buildProfile, DUFFEL_ACCESS_TOKEN: "duffel_live_abc" })).toEqual(["DUFFEL_ACCESS_TOKEN"]);
+    expect(problems({ ...buildProfile, DUFFEL_ACCESS_TOKEN: "duffel_test_abc" })).toEqual([]);
+  });
+
   it("CRON_SECRET is optional, and when set it's at least 16 characters", () => {
     expect(problems(buildProfile)).toEqual([]);
     expect(problems({ ...buildProfile, CRON_SECRET: "too-short" })).toEqual(["CRON_SECRET"]);
-    expect(parseServerEnv({ ...buildProfile, CRON_SECRET: "a-long-enough-cron-secret" }).CRON_SECRET).toBe("a-long-enough-cron-secret");
+    expect(parseServerEnv({ ...buildProfile, CRON_SECRET: "a-long-enough-cron-secret" }).CRON_SECRET).toBe(
+      "a-long-enough-cron-secret",
+    );
   });
 
   it("a production deploy on Vercel needs CRON_SECRET, so the expiry cron can't silently 401", () => {
@@ -145,6 +152,7 @@ describe("client env", () => {
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
       NEXT_PUBLIC_DEMO_MODE: true,
+      NEXT_PUBLIC_MAPBOX_TOKEN: undefined,
     });
     expect(() => parseClientEnv({})).toThrow(EnvError);
   });

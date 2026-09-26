@@ -48,9 +48,10 @@ const serverSchema = z.object({
   ROUTING_PROVIDER: providerFlag,
   ORS_API_KEY: secret,
   STAYS_PROVIDER: z.enum(["real", "mock"]).default("mock"),
+  // Duffel isolates test and live. Never mix a duffel_live_ token into this variable.
   DUFFEL_ACCESS_TOKEN: z
     .string()
-    .refine((token) => token.startsWith("duffel_test_"), "must be a test token (duffel_test_)")
+    .refine((token) => token.startsWith("duffel_test_"), "must be a test token (duffel_test_); live tokens are refused")
     .optional(),
 
   // Vercel sends it as `Authorization: Bearer <CRON_SECRET>` on scheduled calls. Unset, the cron
