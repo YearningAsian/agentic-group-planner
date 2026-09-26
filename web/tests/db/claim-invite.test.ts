@@ -3,6 +3,8 @@ import type { Database } from "@agp/shared/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { claimInvite, previewInvite } from "@/features/invite/server";
+import { inviteTokenFor } from "../../scripts/demo/lib/ids";
+import { seed } from "../../scripts/demo/seed";
 import { adminClient, cleanup, createPlace, createTrip, createUser, publicClient, testBatch, type TestUser } from "./helpers";
 
 const batch = testBatch();
@@ -232,5 +234,37 @@ describe("previewInvite", () => {
     expect(await previewInvite(token)).toEqual({ status: "used" });
     expect(await previewInvite(newToken())).toEqual({ status: "not_found" });
     expect(await previewInvite("not a token")).toEqual({ status: "not_found" });
+  });
+
+  it("the seeded Person 4 link previews the Saturday trip and claims once", async () => {
+    const seeded = testBatch();
+    try {
+      // A Saturday afternoon in New York, so the trip is the following Saturday.
+      const { slug, inviteToken } = await seed({ batch: seeded, now: new Date("2026-09-26T15:00:00Z") });
+      expect(inviteToken).toBe(inviteTokenFor(seeded));
+
+      // Before any plan, every slot is a TBD block, so all four are Person 4's too.
+      expect(await previewInvite(inviteToken)).toEqual({
+        status: "open",
+        trip: { title: "Saturday in Atlanta", trip_date: "2026-10-03" },
+        lane: {
+          display_name: "Person 4",
+          lane_color: "lane-4",
+          stops: [
+            { label: "Morning", starts: "10:00", ends: "12:30", place_name: null },
+            { label: "Lunch", starts: "12:45", ends: "13:45", place_name: null },
+            { label: "Afternoon", starts: "14:15", ends: "17:15", place_name: null },
+            { label: "Dinner", starts: "19:00", ends: "20:30", place_name: null },
+          ],
+        },
+      });
+
+      const claimer = await untaggedUser();
+      expect((await claimInvite(as(claimer), inviteToken)).tripSlug).toBe(slug);
+      expect((await profile(claimer.userId)).seed_batch).toBe(seeded);
+      await expect(claimInvite(as(await createUser({ batch })), inviteToken)).rejects.toMatchObject({ code: "conflict" });
+    } finally {
+      await cleanup(seeded);
+    }
   });
 });
