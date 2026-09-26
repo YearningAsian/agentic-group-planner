@@ -62,15 +62,18 @@ class _Slot:
 
     choices: list[Choice]
     candidate: npt.NDArray[np.int64]  # −1 where the member isn't in the slot
+    place: npt.NDArray[np.int64]  # the candidate's index in _Search.places, −1 where the member isn't in the slot
+    pinned: bool
     utility: npt.NDArray[np.float64]
     price: npt.NDArray[np.int64]
     split: npt.NDArray[np.int64]
     present: npt.NDArray[np.bool_]  # per member
     travel: npt.NDArray[np.float64] | None  # [previous candidate, candidate]; None for the first slot
     arrival_ok: npt.NDArray[np.bool_] | None
-    # [member, previous candidate]: the most the member can add here coming from there, or −inf when no
-    # choice is reachable in time. The last column is for a member with no previous stop.
-    best_from: npt.NDArray[np.float64]
+    candidate_place: npt.NDArray[np.int64]  # per candidate, its index in _Search.places
+    # [member, previous candidate, candidate]: what the member adds by going from there to here, or −inf when
+    # no choice offers it or it's late. The last previous index is for a member with no previous stop.
+    gain_from: npt.NDArray[np.float64]
 
 
 class _Search:
@@ -79,6 +82,7 @@ class _Search:
         self.params = params
         self.deadline = deadline
         self.n = len(table.members)
+        self.places = {place: i for i, place in enumerate(dict.fromkeys(p for s in table.slots for p in s.candidates))}
         self.slots = [self._compile(s) for s in range(len(table.slots))]
         self.slot_counts = np.array(
             [sum(1 for s in table.slots if s.pinned_members is None or m in s.pinned_members) for m in range(self.n)]
@@ -87,14 +91,14 @@ class _Search:
         # The bound needs the sign of every term fixed: with a negative weight, a better member score or
         # fewer splits could lower the plan score, so the search visits everything instead.
         self.prune = all(value >= 0 for value in table.weights.model_dump().values())
-        self.rest = self._best_remaining()
         self.kept: list[tuple[float, Assignment]] = []
         self.timed_out = False
 
     def run(self) -> list[Assignment]:
         if all(slot.choices for slot in self.slots):
             start = np.zeros(self.n)
-            self._visit(0, start, np.zeros(self.n, dtype=np.int64), np.full(self.n, -1), 0, [])
+            unseen = np.zeros((self.n, len(self.places)), dtype=bool)
+            self._visit(0, start, np.zeros(self.n, dtype=np.int64), np.full(self.n, -1), 0, [], unseen, unseen)
         return [assignment for _, assignment in self.kept]
 
     def _visit(
@@ -105,16 +109,23 @@ class _Search:
         previous: npt.NDArray[np.int64],
         splits: int,
         path: list[Choice],
+        visited: npt.NDArray[np.bool_],
+        chosen: npt.NDArray[np.bool_],
     ) -> None:
-        """Try every choice for slot s after the path so far, best bound first."""
+        """Try every choice for slot s after the path so far, best bound first.
+
+        `visited[m, place]` marks every place member m has been to on the path; `chosen` only those picked in
+        open slots. An open choice can't revisit either kind, and a pinned slot can't revisit a chosen place.
+        """
         if _clock() > self.deadline:
             self.timed_out = True
             return
         slot = self.slots[s]
         next_values, next_spent, next_previous, ok = self._step(s, values, spent, previous)
+        ok &= ~self._repeats(slot, chosen if slot.pinned else visited)
         next_splits = splits + slot.split
         if self.prune:
-            bound = self._bound(s, next_values, next_previous, next_splits)
+            bound = self._bound(s, next_values, next_previous, next_splits, visited)
             candidates = np.flatnonzero(ok & (bound > self._floor()))
             candidates = candidates[np.argsort(-bound[candidates], kind="stable")]
         else:
@@ -129,8 +140,25 @@ class _Search:
             if last:
                 self._offer(tuple(path), next_values[i], int(next_splits[i]))
             else:
-                self._visit(s + 1, next_values[i], next_spent[i], next_previous[i], int(next_splits[i]), path)
+                here = self._mark(slot, i, visited)
+                picked = chosen if slot.pinned else self._mark(slot, i, chosen)
+                self._visit(
+                    s + 1, next_values[i], next_spent[i], next_previous[i], int(next_splits[i]), path, here, picked
+                )
             path.pop()
+
+    def _repeats(self, slot: _Slot, seen: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
+        """Per choice, whether any member in it would return to a place in `seen`."""
+        present = slot.place >= 0
+        again = seen[np.arange(self.n)[None, :], np.maximum(slot.place, 0)]
+        return (present & again).any(axis=1)
+
+    def _mark(self, slot: _Slot, i: int, seen: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
+        """A copy of `seen` with choice i's places added."""
+        members = np.flatnonzero(slot.place[i] >= 0)
+        marked = seen.copy()
+        marked[members, slot.place[i, members]] = True
+        return marked
 
     def _step(
         self, s: int, values: npt.NDArray[np.float64], spent: npt.NDArray[np.int64], previous: npt.NDArray[np.int64]
@@ -160,15 +188,33 @@ class _Search:
         values: npt.NDArray[np.float64],
         previous: npt.NDArray[np.int64],
         splits: npt.NDArray[np.int64],
+        visited: npt.NDArray[np.bool_],
     ) -> npt.NDArray[np.float64]:
         """The best plan score each choice for slot s could still lead to. The next slot counts from where
-        each member actually is; later slots count their best utility, since travel only subtracts."""
+        each member actually is; later slots count their best utility, since travel only subtracts. Open
+        slots skip places the member has already been to, which keeps the bound tight when slots share
+        places; it still ignores repeats among the later slots, so it never undercounts."""
         if s + 1 == len(self.slots):
             return self._totals(values, splits)
-        ahead = self.slots[s + 1].best_from
-        column = np.where(previous >= 0, previous, ahead.shape[1] - 1)
-        reachable = ahead[np.arange(self.n)[None, :], column]
-        return self._totals(values + reachable + self.rest[s + 2], splits)
+        slot = self.slots[s]
+        seen = np.repeat(visited[None], len(slot.choices), axis=0)
+        rows, members = np.nonzero(slot.place >= 0)
+        seen[rows, members, slot.place[rows, members]] = True
+
+        ahead = self.slots[s + 1]
+        column = np.where(previous >= 0, previous, ahead.gain_from.shape[1] - 1)
+        total = values + self._best(ahead, ahead.gain_from[np.arange(self.n)[None, :], column], seen)
+        for later in self.slots[s + 2 :]:
+            total += self._best(later, later.gain_from[None, :, -1, :], seen)
+        return self._totals(total, splits)
+
+    def _best(
+        self, slot: _Slot, gains: npt.NDArray[np.float64], seen: npt.NDArray[np.bool_]
+    ) -> npt.NDArray[np.float64]:
+        """[choice, member]: the most each member can add in `slot`, given `gains[choice or 1, member, candidate]`."""
+        if not slot.pinned:
+            gains = np.where(seen[:, :, slot.candidate_place], -np.inf, gains)
+        return np.where(slot.present[None, :], gains.max(axis=2), 0.0)
 
     def _totals(self, values: npt.NDArray[np.float64], splits: npt.NDArray[np.int64]) -> npt.NDArray[np.float64]:
         """plan_score over rows of summed member values, vectorized. Used only for bounds."""
@@ -199,6 +245,8 @@ class _Search:
         choices = self._slot_choices(s)
         candidate = np.array([[-1 if c is None else c for c in choice] for choice, _ in choices], dtype=np.int64)
         candidate = candidate.reshape(len(choices), self.n)
+        place_of = np.array([self.places[p] for p in info.candidates], dtype=np.int64)
+        place = np.where(candidate >= 0, place_of[np.maximum(candidate, 0)], -1)
         utility = np.zeros(candidate.shape)
         price = np.zeros(candidate.shape, dtype=np.int64)
         for row, (choice, _) in enumerate(choices):
@@ -215,19 +263,27 @@ class _Search:
         split = np.array([split for _, split in choices], dtype=np.int64)
 
         previous_count = len(table.slots[s - 1].candidates) if s > 0 else 0
-        best_from = np.zeros((self.n, previous_count + 1))
+        gain_from = np.full((self.n, previous_count + 1, len(info.candidates)), -np.inf)
         for m in np.flatnonzero(present):
-            gains = {int(c): table.utility[(m, s, int(c))] for c in set(candidate[:, m])}
-            best_from[m, previous_count] = max(gains.values(), default=-np.inf)
-            for p in range(previous_count):
-                reachable = [
-                    gain - table.weights.travel * table.travel[(s, p, c)]
-                    for c, gain in gains.items()
-                    if table.arrival_ok[(s, p, c)]
-                ]
-                best_from[m, p] = max(reachable, default=-np.inf)
+            for c in {int(c) for c in candidate[:, m]}:
+                gain = table.utility[(m, s, c)]
+                gain_from[m, previous_count, c] = gain
+                for p in range(previous_count):
+                    if table.arrival_ok[(s, p, c)]:
+                        gain_from[m, p, c] = gain - table.weights.travel * table.travel[(s, p, c)]
         return _Slot(
-            [choice for choice, _ in choices], candidate, utility, price, split, present, travel, arrival, best_from
+            [choice for choice, _ in choices],
+            candidate,
+            place,
+            info.pinned,
+            utility,
+            price,
+            split,
+            present,
+            travel,
+            arrival,
+            place_of,
+            gain_from,
         )
 
     def _slot_choices(self, s: int) -> list[tuple[Choice, int]]:
@@ -237,10 +293,19 @@ class _Search:
         if slot.pinned_members is not None:
             return [(tuple(0 if m in slot.pinned_members else None for m in range(n)), 0)]
 
+        # A member's pinned places are fixed visits, so their open choices can never return to them.
+        pinned_places = [
+            {p.candidates[0] for p in table.slots if p.pinned_members is not None and m in p.pinned_members}
+            for m in range(n)
+        ]
+
         def fits(group: list[int], c: int) -> bool:
             price = table.price[(s, c)]
             return all(
-                table.allowed[(m, s, c)] and (table.budget[m] is None or price <= table.budget[m]) for m in group
+                table.allowed[(m, s, c)]
+                and (table.budget[m] is None or price <= table.budget[m])
+                and slot.candidates[c] not in pinned_places[m]
+                for m in group
             )
 
         choices: list[tuple[Choice, int]] = []
@@ -275,13 +340,3 @@ class _Search:
             if len(first) >= smallest and len(second) >= smallest:
                 partitions.append([first, second])
         return partitions
-
-    def _best_remaining(self) -> list[npt.NDArray[np.float64]]:
-        """rest[s][m]: the most member m could still add from slot s on. Travel only subtracts, so the best
-        utility among a slot's choices bounds what the slot adds."""
-        rest = [np.zeros(self.n) for _ in range(len(self.slots) + 1)]
-        for s in reversed(range(len(self.slots))):
-            utility = self.slots[s].utility
-            best = utility.max(axis=0) if len(utility) else np.zeros(self.n)
-            rest[s] = rest[s + 1] + best
-        return rest

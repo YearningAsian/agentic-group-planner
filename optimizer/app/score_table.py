@@ -257,12 +257,15 @@ def is_feasible(table: ScoreTable, assignment: Assignment, min_group_size: int, 
 
     Pinned slots keep their place and members. In an open slot, everyone attends a candidate that's allowed
     for them, in at most `max_groups_per_slot` groups (one when together) of at least `min_group_size`.
-    Consecutive stops must arrive in time, and each member's total price must fit their budget.
+    Consecutive stops must arrive in time, each member's total price must fit their budget, and no open
+    choice revisits a place the member visits in another slot. Pinned slots may share a place.
     """
     n = len(table.members)
     if len(assignment) != len(table.slots):
         return False
     spent = [0] * n
+    visited: list[set[str]] = [set() for _ in range(n)]
+    chosen: list[set[str]] = [set() for _ in range(n)]  # places picked in open slots
     for s, (slot, choice) in enumerate(zip(table.slots, assignment, strict=True)):
         if len(choice) != n:
             return False
@@ -279,6 +282,12 @@ def is_feasible(table: ScoreTable, assignment: Assignment, min_group_size: int, 
         for m, c in enumerate(choice):
             if c is None:
                 continue
+            place = slot.candidates[c]
+            if place in (chosen[m] if slot.pinned else visited[m]):
+                return False
+            visited[m].add(place)
+            if not slot.pinned:
+                chosen[m].add(place)
             spent[m] += table.price[(s, c)]
             previous = assignment[s - 1][m] if s > 0 else None
             if previous is not None and not table.arrival_ok[(s, previous, c)]:

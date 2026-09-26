@@ -39,19 +39,24 @@ def random_table(
     pinned: tuple[int, list[int]] | None = None,
     weights: Weights | None = None,
     budget: int | None = None,
+    shared_places: bool = False,
 ) -> ScoreTable:
     """A table with random utilities, about 10% of choices disallowed, and about 10% of arrivals late.
 
     `together` lists open-slot indices that are together slots. `pinned` inserts a pinned slot at a
     position, attended by the given members. Values are rounded to 3 decimals, like hand-written fixtures.
+    With `shared_places`, every slot offers the same places, and a pinned slot holds place 0.
     """
     rng = random.Random(seed)  # noqa: S311 - reproducible test data, not security
-    slots = [
-        SlotInfo(f"slot{s}", s in together, [f"place-{s}-{c}" for c in range(candidates)]) for s in range(open_slots)
-    ]
+
+    def place(s: int, c: int) -> str:
+        return f"place-{c}" if shared_places else f"place-{s}-{c}"
+
+    slots = [SlotInfo(f"slot{s}", s in together, [place(s, c) for c in range(candidates)]) for s in range(open_slots)]
     if pinned is not None:
         position, pinned_members = pinned
-        slots.insert(position, SlotInfo("pinned", True, ["place-pinned"], list(pinned_members)))
+        pinned_place = "place-0" if shared_places else "place-pinned"
+        slots.insert(position, SlotInfo("pinned", True, [pinned_place], list(pinned_members)))
 
     utility: dict[Key3, float] = {}
     allowed: dict[Key3, bool] = {}

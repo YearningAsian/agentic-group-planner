@@ -107,6 +107,7 @@ class _PlanModel:
             splits.append(split)
             self.at.append(attends)
 
+        self._no_repeats()
         values = [self._member_value(m) for m in range(n)]
         self._budgets()
         if not self.impossible:
@@ -144,6 +145,22 @@ class _PlanModel:
                     if penalty:
                         add(self._both(before, now), -penalty)
         return variables, coefficients, constant
+
+    def _no_repeats(self) -> None:
+        """A member's open choice never revisits a place from another slot. A pinned visit is a constant 1,
+        so it rules the place out of the member's open slots; pinned slots may share a place."""
+        for m in range(len(self.table.members)):
+            by_place: dict[str, list[BoolTerm]] = {}
+            for s, slot in enumerate(self.table.slots):
+                for c, place in enumerate(slot.candidates):
+                    by_place.setdefault(place, []).append(self.at[s][m][c])
+            for literals in by_place.values():
+                free = [v for v in literals if not isinstance(v, int)]
+                if any(v == 1 for v in literals if isinstance(v, int)):
+                    for v in free:
+                        self.model.add(v == 0)
+                elif len(free) > 1:
+                    self.model.add_at_most_one(free)
 
     def _budgets(self) -> None:
         table = self.table

@@ -422,18 +422,19 @@ Hard constraints:
 - Arrival (previous end + travel) must be no later than slot start + 15 minutes.
 - Group size must be at least `min_group_size`, with at most `max_groups_per_slot` groups per slot.
 - A `together` slot has exactly one group. A pinned slot is fixed.
+- No member visits a place twice in a day: an open slot's choice can't be a place the member visits in another slot, pinned or open. Two pinned slots may share a place.
 
 #### Engines
 
 - **CP-SAT:**
   - Variables: booleans x[m,s,c], plus y[s,c] = "someone attends c in s".
-  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y.
+  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y; for each member and place, at most one x across slots, and none when a pinned slot the member attends holds the place.
   - Objective: scores scaled ×1000 to integers; fairness through z ≤ score_m for every member.
   - Top 3: solve, then add a no-good cut on the assignment pattern and solve again. Time limit per solve = `time_limit_ms ÷ max_plans`.
 - **Enumeration:**
   1. Per slot, list every partition of members into at most 2 groups of at least 2, times each group's candidate choice.
-  2. Prune each slot by dietary, budget, and hours.
-  3. Take the product across slots with the travel check, and keep the top 3 by the same scoring function.
+  2. Prune each slot by dietary, budget, hours, and the member's pinned places.
+  3. Take the product across slots with the travel and repeat checks, and keep the top 3 by the same scoring function. The branch-and-bound estimate skips places a member has already visited on the path, so it stays tight when slots offer the same places.
   - Size: with 4 members and 4 candidates, about 40 choices per open slot, or 64,000 plans across 3 slots, which takes under a second. A `together` slot has one choice per candidate, and a pinned slot has one choice.
   - Limits: 6 members, 3 unpinned slots, 6 candidates. Beyond that, the engine returns `too_large`.
 - **The interface between scoring and the engines:** `scoring.build_score_table(request)` turns the request into a `ScoreTable` (`score_table.py`): utilities, feasibility masks from `rules.py`, travel, prices, budgets, and weights. Both engines read only that table and maximize the one objective, `plan_score`. Neither engine reads the request or computes a score, so they can be built and tested against fixture tables before scoring is finished.
