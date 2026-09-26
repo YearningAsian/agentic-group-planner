@@ -15,8 +15,6 @@ const buildProfile = {
   OPTIMIZER_URL: "http://localhost:8000",
   OPTIMIZER_TOKEN: "optimizer-token",
   PAYMENTS_PROVIDER: "mock",
-  VOICE_PROVIDER: "mock",
-  VOICE_TO_NUMBER_OVERRIDE: "+15555550100",
   PLACES_PROVIDER: "mock",
   ROUTING_PROVIDER: "mock",
 };
@@ -42,7 +40,6 @@ describe("server env", () => {
       "OPTIMIZER_URL",
       "OPTIMIZER_TOKEN",
       "PAYMENTS_PROVIDER",
-      "VOICE_PROVIDER",
       "PLACES_PROVIDER",
       "ROUTING_PROVIDER",
     ];
@@ -62,9 +59,9 @@ describe("server env", () => {
     expect(problems({ ...buildProfile, LLM_PROVIDER: "meta", META_MODEL_API_KEY: "meta-key" })).toEqual([]);
     // The defaults are Meta model IDs, so the fallback must name its own.
     expect(problems({ ...buildProfile, LLM_PROVIDER: "google" }).sort()).toEqual(
-      ["AGENT_MODEL", "GOOGLE_GENERATIVE_AI_API_KEY", "VISION_MODEL"].sort(),
+      ["AGENT_MODEL", "GOOGLE_GENERATIVE_AI_API_KEY"].sort(),
     );
-    const google = { LLM_PROVIDER: "google", GOOGLE_GENERATIVE_AI_API_KEY: "g-key", AGENT_MODEL: "g-model", VISION_MODEL: "g-model" };
+    const google = { LLM_PROVIDER: "google", GOOGLE_GENERATIVE_AI_API_KEY: "g-key", AGENT_MODEL: "g-model" };
     expect(problems({ ...buildProfile, ...google })).toEqual([]);
     expect(problems({ ...buildProfile, LLM_PROVIDER: "mock" })).toEqual([]);
     // xAI is a possible later adapter, not a built one.
@@ -73,7 +70,8 @@ describe("server env", () => {
 
   it("each Meta capability has its own flag, mock by default, and needs META_MODEL_API_KEY only when real", () => {
     const env = parseServerEnv(buildProfile);
-    const flags = ["TRANSCRIBE_PROVIDER", "SEGMENT_PROVIDER", "IMAGE_PROVIDER", "GROUNDING_PROVIDER"] as const;
+    // Voice-note transcription is the one Meta capability beyond the model since the pivot (design §2.5).
+    const flags = ["TRANSCRIBE_PROVIDER"] as const;
     for (const flag of flags) {
       expect(env[flag]).toBe("mock");
       expect(problems({ ...buildProfile, [flag]: "real" })).toEqual(["META_MODEL_API_KEY"]);
@@ -85,11 +83,7 @@ describe("server env", () => {
     const env = parseServerEnv(buildProfile);
     expect(env.META_MODEL_API_BASE_URL).toBe("https://api.meta.ai/v1");
     expect(env.AGENT_MODEL).toBe("muse-spark-1.3");
-    expect(env.VISION_MODEL).toBe("muse-spark-1.3");
     expect(env.TRANSCRIBE_MODEL).toBe("muse-voice-transcribe-1.0");
-    expect(env.SEGMENT_MODEL).toBe("sam-3.1");
-    expect(env.IMAGE_MODEL).toBe("muse-image-1.0");
-    expect(env.GROUNDING_MODEL).toBe("muse-spark-1.3");
     expect(parseServerEnv({ ...buildProfile, AGENT_MODEL: "muse-spark-1.2" }).AGENT_MODEL).toBe("muse-spark-1.2");
   });
 
@@ -101,11 +95,18 @@ describe("server env", () => {
     expect(problems({ ...real, STRIPE_SECRET_KEY: "sk_test_abc" })).toEqual([]);
   });
 
-  it("requires VOICE_TO_NUMBER_OVERRIDE in E.164 when NEXT_PUBLIC_DEMO_MODE=true", () => {
-    expect(problems({ ...buildProfile, VOICE_TO_NUMBER_OVERRIDE: undefined })).toEqual(["VOICE_TO_NUMBER_OVERRIDE"]);
-    expect(problems({ ...buildProfile, VOICE_TO_NUMBER_OVERRIDE: "555-0100" })).toEqual(["VOICE_TO_NUMBER_OVERRIDE"]);
+  it("requires DEMO_ADMIN_TOKEN only in dev mode", () => {
+    expect(problems({ ...buildProfile, DEMO_ADMIN_TOKEN: undefined })).toEqual(["DEMO_ADMIN_TOKEN"]);
     const production = { ...buildProfile, NEXT_PUBLIC_DEMO_MODE: "false", DEMO_ADMIN_TOKEN: undefined };
-    expect(problems({ ...production, VOICE_TO_NUMBER_OVERRIDE: undefined })).toEqual([]);
+    expect(problems(production)).toEqual([]);
+  });
+
+  it("has no variables for the flows the journey pivot dropped (design §11.6)", () => {
+    const env = parseServerEnv(buildProfile) as Record<string, unknown>;
+    const dropped = ["VOICE_PROVIDER", "VOICE_TO_NUMBER_OVERRIDE", "ELEVENLABS_API_KEY", "VISION_MODEL"];
+    for (const name of [...dropped, "SEGMENT_PROVIDER", "IMAGE_PROVIDER", "GROUNDING_PROVIDER"]) {
+      expect(env, name).not.toHaveProperty(name);
+    }
   });
 
   it("accepts the build profile: every provider mock and no provider keys", () => {
@@ -114,7 +115,6 @@ describe("server env", () => {
     expect(env.LLM_PROVIDER).toBe("mock");
     expect(env.AGENT_MODEL).toBe("muse-spark-1.3");
     expect(env.STAYS_PROVIDER).toBe("mock");
-    expect(env.VOICE_MOCK_SCENARIO).toBe("accept");
   });
 });
 

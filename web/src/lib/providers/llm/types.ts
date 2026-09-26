@@ -36,6 +36,6 @@ export interface LlmProvider {
    * run, and runAgent rejects with that error; expected failures are returned as a ToolResult instead.
    */
   runAgent(input: RunAgentInput): Promise<RunAgentResult>;
-  generateObject<T extends z.ZodType>(input: { schema: T; prompt: string; images?: string[] }): Promise<z.output<T>>;
-  describeImage(input: { url: string; context: string }): Promise<{ caption: string; aesthetic_score: number }>;
+  /** One structured answer in JSON-schema mode (`response_format`), never a forced tool call. */
+  generateObject<T extends z.ZodType>(input: { schema: T; prompt: string }): Promise<z.output<T>>;
 }

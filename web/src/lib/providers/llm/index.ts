@@ -11,7 +11,6 @@ type LlmEnv = Pick<
   ServerEnv,
   | "LLM_PROVIDER"
   | "AGENT_MODEL"
-  | "VISION_MODEL"
   | "META_MODEL_API_KEY"
   | "META_MODEL_API_BASE_URL"
   | "GOOGLE_GENERATIVE_AI_API_KEY"
@@ -25,13 +24,11 @@ export function selectLlmProvider(env: LlmEnv): LlmProvider {
         apiKey: env.META_MODEL_API_KEY,
         baseURL: env.META_MODEL_API_BASE_URL,
         agentModel: env.AGENT_MODEL,
-        visionModel: env.VISION_MODEL,
       });
     case "google":
       return createGoogleProvider({
         apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
         agentModel: env.AGENT_MODEL,
-        visionModel: env.VISION_MODEL,
       });
     case "mock":
       return createMockLlmProvider();

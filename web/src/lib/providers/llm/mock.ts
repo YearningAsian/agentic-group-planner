@@ -84,9 +84,5 @@ export function createMockLlmProvider(options: MockLlmOptions = {}): LlmProvider
     async generateObject() {
       throw new NotBuiltError("the mock LLM's generateObject");
     },
-
-    async describeImage() {
-      throw new NotBuiltError("the mock LLM's describeImage");
-    },
   };
 }

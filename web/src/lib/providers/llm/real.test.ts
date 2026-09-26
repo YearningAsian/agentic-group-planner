@@ -58,7 +58,6 @@ function metaWith(fetch: typeof globalThis.fetch) {
     apiKey: "test-key",
     baseURL: "https://meta.test/v1",
     agentModel: "muse-spark-1.3",
-    visionModel: "muse-spark-1.3",
     fetch,
   });
 }
@@ -114,25 +113,6 @@ describe("meta LLM provider", () => {
     expect(requests[0].body.response_format).toMatchObject({ type: "json_schema" });
     expect(requests[0].body.tools).toBeUndefined();
     expect(requests[0].body.tool_choice).toBeUndefined();
-  });
-
-  it("describeImage sends the photo to the vision model and returns a caption and score", async () => {
-    const { fetch, requests } = scriptedFetch([
-      completion({ content: '{"caption":"Four friends at the pier","aesthetic_score":0.8}' }, "stop"),
-    ]);
-    const photo = "data:image/png;base64,iVBORw0KGgo=";
-
-    const description = await createMetaProvider({
-      apiKey: "test-key",
-      baseURL: "https://meta.test/v1",
-      agentModel: "muse-spark-1.3",
-      visionModel: "vision-test",
-      fetch,
-    }).describeImage({ url: photo, context: "Saturday at the pier" });
-
-    expect(description).toEqual({ caption: "Four friends at the pier", aesthetic_score: 0.8 });
-    expect(requests[0].body.model).toBe("vision-test");
-    expect(JSON.stringify(requests[0].body.messages)).toContain("iVBORw0KGgo=");
   });
 
   it("a model call that hangs past 25 s is retried once, then fails with a timeout", async () => {

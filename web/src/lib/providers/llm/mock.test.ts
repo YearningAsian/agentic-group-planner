@@ -154,12 +154,9 @@ describe("mock LLM provider", () => {
     expect(PlanDayInput.safeParse(inputs[0]).success).toBe(true);
   });
 
-  it("generateObject and describeImage fail loudly instead of inventing output", async () => {
+  it("generateObject fails loudly instead of inventing output", async () => {
     const provider = createMockLlmProvider(noDelay);
 
     await expect(provider.generateObject({ schema: z.object({}), prompt: "x" })).rejects.toBeInstanceOf(NotBuiltError);
-    await expect(provider.describeImage({ url: "https://example.test/a.jpg", context: "x" })).rejects.toBeInstanceOf(
-      NotBuiltError,
-    );
   });
 });

@@ -50,21 +50,11 @@ const modelCallPolicy: LanguageModelMiddleware = {
 const toolFailed: StopCondition<ToolSet> = ({ steps }) =>
   steps.at(-1)?.content.some((part) => part.type === "tool-error") ?? false;
 
-const ImageDescription = z.object({
-  caption: z.string().min(1).max(200),
-  aesthetic_score: z.number().min(0).max(1),
-});
-
-function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, visionModel: LanguageModel): LlmProvider {
-  const generateObject: LlmProvider["generateObject"] = async ({ schema, prompt, images = [] }) => {
+function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel): LlmProvider {
+  const generateObject: LlmProvider["generateObject"] = async ({ schema, prompt }) => {
     const result = await generateText({
-      model: images.length > 0 ? visionModel : agentModel,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: prompt }, ...images.map((url) => ({ type: "image" as const, image: new URL(url) }))],
-        },
-      ],
+      model: agentModel,
+      messages: [{ role: "user", content: prompt }],
       // JSON-schema mode (response_format), never a forced tool call: Meta rejects forced tools.
       output: Output.object({ schema }),
       maxRetries: 0,
@@ -99,13 +89,6 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, v
     },
 
     generateObject,
-
-    describeImage: ({ url, context }) =>
-      generateObject({
-        schema: ImageDescription,
-        prompt: `Write a one-sentence caption for this trip photo and rate how good a photo it is from 0 to 1. Context: ${context}`,
-        images: [url],
-      }),
   };
 }
 
@@ -113,7 +96,6 @@ export interface MetaProviderOptions {
   apiKey?: string;
   baseURL: string;
   agentModel: string;
-  visionModel: string;
   /** Tests pass a scripted fetch; production uses the global one. */
   fetch?: typeof globalThis.fetch;
 }
@@ -130,16 +112,11 @@ export function createMetaProvider(options: MetaProviderOptions): LlmProvider {
   return createAiSdkProvider(
     "meta",
     wrapLanguageModel({ model: meta.chatModel(options.agentModel), middleware: modelCallPolicy }),
-    wrapLanguageModel({ model: meta.chatModel(options.visionModel), middleware: modelCallPolicy }),
   );
 }
 
 /** Gemini, the fallback when `LLM_PROVIDER=google`. The env loader requires its own model IDs. */
-export function createGoogleProvider(options: { apiKey?: string; agentModel: string; visionModel: string }): LlmProvider {
+export function createGoogleProvider(options: { apiKey?: string; agentModel: string }): LlmProvider {
   const google = createGoogleGenerativeAI({ apiKey: options.apiKey });
-  return createAiSdkProvider(
-    "google",
-    wrapLanguageModel({ model: google(options.agentModel), middleware: modelCallPolicy }),
-    wrapLanguageModel({ model: google(options.visionModel), middleware: modelCallPolicy }),
-  );
+  return createAiSdkProvider("google", wrapLanguageModel({ model: google(options.agentModel), middleware: modelCallPolicy }));
 }
