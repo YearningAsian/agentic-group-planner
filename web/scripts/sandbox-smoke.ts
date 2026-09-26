@@ -6,9 +6,8 @@
  * the real app code on whatever PAYMENTS_PROVIDER / STAYS_PROVIDER the env selects.
  *
  * Run: `pnpm --filter web sandbox:smoke` (vitest smoke project: server-only stub + .env.local).
- * Requires PAYMENTS_PROVIDER=mock (the script uses the mock payments kit for signed webhooks).
- * Stripe CLI: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then put the
- * printed `whsec_…` in web/.env.local as STRIPE_WEBHOOK_SECRET yourself — this script never writes it.
+ * PAYMENTS_PROVIDER defaults to mock; set it to real with an sk_test_ key and the CLI's whsec_
+ * secret in web/.env.local to exercise Stripe test mode. The script never writes credentials.
  */
 import { randomUUID } from "node:crypto";
 import type { components } from "@agp/shared/optimizer";
@@ -26,8 +25,9 @@ import { getPaymentsProvider } from "@/lib/providers/payments";
 import { summarizeTool } from "@/lib/tools/summarize/tool";
 import { assignHandles } from "@/lib/agent/handles";
 import { reset } from "./demo/reset";
-import { claimPlaceholder, paymentsKit, shareRows, mandateRow } from "../tests/payments/kit";
+import { claimPlaceholder, paymentsKit, shareRows, mandateRow, type PaymentsKit } from "../tests/payments/kit";
 import { cleanup } from "../tests/db/helpers";
+import { assertSandboxSmokeEnv } from "./sandbox-smoke-env";
 
 type PlanRequest = components["schemas"]["PlanRequest"];
 type PlanResponse = components["schemas"]["PlanResponse"];
@@ -45,17 +45,6 @@ interface StepResult {
 
 const results: StepResult[] = [];
 
-function refuseLiveKeys(): void {
-  const stripe = process.env.STRIPE_SECRET_KEY ?? "";
-  const duffel = process.env.DUFFEL_ACCESS_TOKEN ?? "";
-  if (stripe.startsWith("sk_live_")) throw new Error("sandbox:smoke refuses a live Stripe key (sk_live_).");
-  if (stripe && !stripe.startsWith("sk_test_")) throw new Error("sandbox:smoke needs a test Stripe key (sk_test_) when STRIPE_SECRET_KEY is set.");
-  if (duffel && !duffel.startsWith("duffel_test_")) throw new Error("sandbox:smoke refuses a non-test Duffel token.");
-  if ((process.env.PAYMENTS_PROVIDER ?? "mock") !== "mock") {
-    throw new Error("sandbox:smoke uses the mock payments kit; set PAYMENTS_PROVIDER=mock.");
-  }
-}
-
 function record(name: string, mode: StepMode, ok: boolean, reason: string): void {
   results.push({ name, mode, ok, reason });
   const mark = ok ? "PASS" : "FAIL";
@@ -72,7 +61,7 @@ async function step(name: string, mode: StepMode, run: () => Promise<string>): P
 }
 
 describe("sandbox smoke", () => {
-  const kit = paymentsKit();
+  let kit: PaymentsKit;
   let admin: ReturnType<typeof getAdminClient>;
   let tripId = "";
   let memberIds: string[] = [];
@@ -86,7 +75,8 @@ describe("sandbox smoke", () => {
   let person4UserId = "";
 
   beforeAll(() => {
-    refuseLiveKeys();
+    assertSandboxSmokeEnv(process.env);
+    kit = paymentsKit();
     admin = getAdminClient();
     console.log(
       `sandbox:smoke batch=${BATCH} payments=${process.env.PAYMENTS_PROVIDER ?? "?"} llm=${process.env.LLM_PROVIDER ?? "?"} stays=${process.env.STAYS_PROVIDER ?? "?"}`,
@@ -301,17 +291,25 @@ describe("sandbox smoke", () => {
 
     await step("webhook confirms captures", "real", async () => {
       const rows = await shareRows(mandateId);
-      let delivered = 0;
-      for (const row of rows.values()) {
-        if (!row.stripe_payment_intent_id) continue;
-        for (const event of (await kit.eventsFor(row.stripe_payment_intent_id)).filter((e) => e.type === "payment_intent.succeeded")) {
+      const intentIds = new Set([...rows.values()].map((row) => row.stripe_payment_intent_id).filter((id): id is string => !!id));
+      const deliveredIds: string[] = [];
+      for (const intentId of intentIds) {
+        for (const event of (await kit.eventsFor(intentId)).filter((e) => e.type === "payment_intent.succeeded")) {
           const response = await kit.deliver(event);
           expect(response.status).toBe(200);
-          delivered += 1;
+          deliveredIds.push(event.id);
         }
       }
-      expect(delivered).toBeGreaterThan(0);
-      return `delivered ${delivered} payment_intent.succeeded event(s)`;
+      expect(deliveredIds.length).toBeGreaterThan(0);
+      const ledger = await admin
+        .from("webhook_events")
+        .select("event_id, status, attempts")
+        .eq("provider", "stripe")
+        .in("event_id", deliveredIds);
+      if (ledger.error) throw ledger.error;
+      expect(ledger.data).toHaveLength(deliveredIds.length);
+      expect(ledger.data.every((event) => event.status === "processed" && event.attempts === 1)).toBe(true);
+      return `delivered ${deliveredIds.length} payment_intent.succeeded event(s); all processed once`;
     });
 
     await step("Person 4 claims and cover refund settles once", "real", async () => {
