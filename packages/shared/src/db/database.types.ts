@@ -345,6 +345,7 @@ export type Database = {
           pinned: boolean
           position: number
           seed_batch: string | null
+          shifted_min: number
           slot_key: string
           starts_at: string
           status: string
@@ -367,6 +368,7 @@ export type Database = {
           pinned?: boolean
           position: number
           seed_batch?: string | null
+          shifted_min?: number
           slot_key: string
           starts_at: string
           status?: string
@@ -389,6 +391,7 @@ export type Database = {
           pinned?: boolean
           position?: number
           seed_batch?: string | null
+          shifted_min?: number
           slot_key?: string
           starts_at?: string
           status?: string

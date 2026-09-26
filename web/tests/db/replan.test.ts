@@ -145,10 +145,10 @@ describe("apply_plan replan", () => {
       response,
       itemsBySlot: { dessert },
       reasoning: {},
-      timeShifts: { [afternoon]: { starts_at: "2026-09-26T18:45:00Z", ends_at: "2026-09-26T20:45:00Z" } },
+      timeShifts: { [afternoon]: { starts_at: "2026-09-26T18:45:00Z", ends_at: "2026-09-26T20:45:00Z", delta_min: 45 } },
     });
 
-    expect(await item(afternoon)).toMatchObject({ status: "voting" });
+    expect(await item(afternoon)).toMatchObject({ status: "voting", shifted_min: 45 });
     expect(Date.parse((await item(afternoon)).starts_at)).toBe(Date.parse("2026-09-26T18:45:00Z"));
     expect(result.changes).toEqual([{ item_id: afternoon, kind: "time_shift", before: "18:00–20:00", after: "18:45–20:45" }]);
     expect(await item(dessert)).toMatchObject({ status: "voting" });
@@ -159,6 +159,8 @@ describe("apply_plan replan", () => {
   it("an option change on a decided item supersedes it, and the replacement goes tbd → proposing → voting and points back through supersedes_item_id", async () => {
     const trip = await newTrip();
     const afternoon = await addItem(trip, "afternoon", "decided", 18);
+    const shifted = await admin.from("itinerary_items").update({ shifted_min: 30 }).eq("id", afternoon);
+    if (shifted.error) throw shifted.error;
     const toolCallId = await startToolCall(trip);
     const { request, response } = replanOf(trip, toolCallId, "afternoon", 18);
 
@@ -178,7 +180,8 @@ describe("apply_plan replan", () => {
     const { data: replacements, error } = await admin.from("itinerary_items").select("*").eq("supersedes_item_id", afternoon);
     if (error) throw error;
     expect(replacements).toHaveLength(1);
-    expect(replacements[0]).toMatchObject({ status: "voting", slot_key: "afternoon", trip_id: trip.tripId });
+    // The replacement keeps the shift already applied, so a later replan doesn't move it again.
+    expect(replacements[0]).toMatchObject({ status: "voting", slot_key: "afternoon", trip_id: trip.tripId, shifted_min: 30 });
     const { count } = await admin.from("item_options").select("*", { count: "exact", head: true }).eq("item_id", replacements[0]!.id);
     expect(count).toBe(2);
     expect(result.changes).toContainEqual({ item_id: afternoon, kind: "superseded", before: "decided", after: "voting" });
@@ -202,7 +205,7 @@ describe("apply_plan replan", () => {
         ...shift,
         itemsBySlot: { dessert },
         reasoning: {},
-        timeShifts: { [dinner]: { starts_at: "2026-09-26T21:00:00Z", ends_at: "2026-09-26T23:00:00Z" } },
+        timeShifts: { [dinner]: { starts_at: "2026-09-26T21:00:00Z", ends_at: "2026-09-26T23:00:00Z", delta_min: 60 } },
       }),
     ).rejects.toMatchObject({ code: "not_permitted" });
 
@@ -227,5 +230,31 @@ describe("apply_plan replan", () => {
     });
     expect(raw).toBeNull();
     expect(await item(dinner)).toMatchObject({ status: "booked", starts_at: before.starts_at, ends_at: before.ends_at });
+  });
+
+  it("apply_plan in replan mode rejects a non-member actor", async () => {
+    const trip = await newTrip();
+    const afternoon = await addItem(trip, "afternoon", "decided", 18);
+    const outsider = await newTrip();
+    const toolCallId = await startToolCall(trip);
+    const { request, response } = replanOf(trip, toolCallId, "afternoon", 18);
+
+    await expect(
+      applyPlan({
+        tripId: trip.tripId,
+        actorMemberId: outsider.memberIds[0]!,
+        runId: trip.runId,
+        toolCallId,
+        mode: "replan",
+        request,
+        response,
+        itemsBySlot: { afternoon },
+        reasoning: {},
+      }),
+    ).rejects.toMatchObject({ code: "not_permitted" });
+
+    expect(await item(afternoon)).toMatchObject({ status: "decided" });
+    const { count } = await admin.from("itinerary_items").select("*", { count: "exact", head: true }).eq("supersedes_item_id", afternoon);
+    expect(count).toBe(0);
   });
 });

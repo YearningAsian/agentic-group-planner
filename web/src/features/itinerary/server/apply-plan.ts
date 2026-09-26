@@ -30,7 +30,7 @@ export interface ApplyPlanInput {
   /** Options kept per group, 2–3 (`plan_day`'s `options_per_slot`). Default 3. */
   optionsPerSlot?: number;
   /** Replan only: the builder's new times per item (`timeShifts`); booked items are refused. */
-  timeShifts?: Record<string, { starts_at: string; ends_at: string }>;
+  timeShifts?: Record<string, { starts_at: string; ends_at: string; delta_min: number }>;
   /** The trip's time zone, for the change lines on a replan card. Default UTC. */
   timezone?: string;
   /**
@@ -232,7 +232,7 @@ export async function applyPlan(input: ApplyPlanInput): Promise<ApplyPlanResult>
       ...(replan
         ? {
             supersede_item_ids: supersede,
-            time_shifts: Object.entries(shifts).map(([item_id, t]) => ({ item_id, starts_at: t.starts_at, ends_at: t.ends_at })),
+            time_shifts: Object.entries(shifts).map(([item_id, t]) => ({ item_id, starts_at: t.starts_at, ends_at: t.ends_at, delta_min: t.delta_min })),
             changes,
           }
         : {}),
