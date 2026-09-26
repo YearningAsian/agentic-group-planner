@@ -1,0 +1,143 @@
+{
+  "$comment": "The optimizer test double's answer for the seeded trip (web/src/lib/optimizer/mock.ts), hand-written from the design §10.2 target plan: everyone at the aquarium, everyone at a vegetarian-friendly lunch, and an afternoon split, Person 1 and Person 4 at the High Museum and Person 2 and Person 3 at Piedmont Park. IDs are the ones in requests/saturday-initial.json: members are the seeded demo batch's (uuidFor('demo', 'member:<key>')) and places are uuidFor('demo', 'place:<key>'); the legends name them. The double maps them onto a live request by member order and by each place's price, visit length, and tags. member_scores follow the design §2.2 formulas on mock routing; option scores are illustrative and ordered by rank. AI-208 pins these assignments to the engine's rank-1 plan.",
+  "members": {
+    "5936e905-f9d3-5ac6-8ade-02c279857732": "person1",
+    "a09069ed-aa32-5c6f-8768-ffad25a08b96": "person2",
+    "e259b2b9-c227-52e0-a468-b84631bbc1b9": "person3",
+    "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af": "person4"
+  },
+  "places": {
+    "49c6f996-2da3-5ffa-b782-c7a12b116fc4": "georgia-aquarium",
+    "6e432f26-57db-5b3f-a907-f34d2c0be7f4": "high-museum",
+    "cc0fdcb1-e474-5ae2-befc-197cec2a2943": "piedmont-park",
+    "060daf7a-2bcf-5b98-9cc2-83e902ca1ab3": "botanical-garden",
+    "21d142e0-71c7-52c6-b4f4-35ba955ab3cd": "zoo-atlanta",
+    "e0882eae-d2fd-5aab-91e2-81362b32a62b": "civil-rights-center",
+    "35e4c36e-dee7-5d8a-a60e-2344516d1ed4": "ponce-city-market",
+    "dea6ace5-5b76-5792-ad9f-f1bec8bef252": "cafe-sunflower",
+    "0b4510b5-ff63-5f7e-b7a8-05b2c542c9e0": "mary-macs"
+  },
+  "response": {
+    "request_id": "saturday-initial",
+    "engine": "mock",
+    "status": "optimal",
+    "solve_ms": 0,
+    "plans": [
+      {
+        "rank": 1,
+        "total_score": 0.692,
+        "fairness": 0.537,
+        "split": true,
+        "member_scores": [
+          { "member_id": "5936e905-f9d3-5ac6-8ade-02c279857732", "score": 0.537, "preference": 0.483, "cost": 0.613, "travel": 0.104 },
+          { "member_id": "a09069ed-aa32-5c6f-8768-ffad25a08b96", "score": 0.588, "preference": 0.488, "cost": 0.467, "travel": 0.081 },
+          { "member_id": "e259b2b9-c227-52e0-a468-b84631bbc1b9", "score": 0.588, "preference": 0.488, "cost": 0.467, "travel": 0.081 },
+          { "member_id": "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af", "score": 0.537, "preference": 0.483, "cost": 0.613, "travel": 0.104 }
+        ],
+        "assignments": [
+          {
+            "slot_key": "morning",
+            "groups": [
+              {
+                "place_id": "49c6f996-2da3-5ffa-b782-c7a12b116fc4",
+                "member_ids": [
+                  "5936e905-f9d3-5ac6-8ade-02c279857732",
+                  "a09069ed-aa32-5c6f-8768-ffad25a08b96",
+                  "e259b2b9-c227-52e0-a468-b84631bbc1b9",
+                  "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"
+                ]
+              }
+            ]
+          },
+          {
+            "slot_key": "lunch",
+            "groups": [
+              {
+                "place_id": "35e4c36e-dee7-5d8a-a60e-2344516d1ed4",
+                "member_ids": [
+                  "5936e905-f9d3-5ac6-8ade-02c279857732",
+                  "a09069ed-aa32-5c6f-8768-ffad25a08b96",
+                  "e259b2b9-c227-52e0-a468-b84631bbc1b9",
+                  "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"
+                ]
+              }
+            ]
+          },
+          {
+            "slot_key": "afternoon",
+            "groups": [
+              {
+                "place_id": "6e432f26-57db-5b3f-a907-f34d2c0be7f4",
+                "member_ids": ["5936e905-f9d3-5ac6-8ade-02c279857732", "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"]
+              },
+              {
+                "place_id": "cc0fdcb1-e474-5ae2-befc-197cec2a2943",
+                "member_ids": ["a09069ed-aa32-5c6f-8768-ffad25a08b96", "e259b2b9-c227-52e0-a468-b84631bbc1b9"]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "slot_options": [
+      {
+        "slot_key": "morning",
+        "groups": [
+          {
+            "member_ids": [
+              "5936e905-f9d3-5ac6-8ade-02c279857732",
+              "a09069ed-aa32-5c6f-8768-ffad25a08b96",
+              "e259b2b9-c227-52e0-a468-b84631bbc1b9",
+              "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"
+            ],
+            "options": [
+              { "place_id": "49c6f996-2da3-5ffa-b782-c7a12b116fc4", "rank": 1, "score": 0.72, "preference": 0.401, "cost": 1.0, "travel": 0.0, "fairness": 0.66 },
+              { "place_id": "21d142e0-71c7-52c6-b4f4-35ba955ab3cd", "rank": 2, "score": 0.65, "preference": 0.517, "cost": 0.786, "travel": 0.0, "fairness": 0.58 },
+              { "place_id": "060daf7a-2bcf-5b98-9cc2-83e902ca1ab3", "rank": 3, "score": 0.58, "preference": 0.416, "cost": 0.594, "travel": 0.0, "fairness": 0.52 }
+            ]
+          }
+        ]
+      },
+      {
+        "slot_key": "lunch",
+        "groups": [
+          {
+            "member_ids": [
+              "5936e905-f9d3-5ac6-8ade-02c279857732",
+              "a09069ed-aa32-5c6f-8768-ffad25a08b96",
+              "e259b2b9-c227-52e0-a468-b84631bbc1b9",
+              "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"
+            ],
+            "options": [
+              { "place_id": "35e4c36e-dee7-5d8a-a60e-2344516d1ed4", "rank": 1, "score": 0.7, "preference": 0.357, "cost": 0.4, "travel": 0.156, "fairness": 0.64 },
+              { "place_id": "0b4510b5-ff63-5f7e-b7a8-05b2c542c9e0", "rank": 2, "score": 0.61, "preference": 0.342, "cost": 0.711, "travel": 0.111, "fairness": 0.55 },
+              { "place_id": "dea6ace5-5b76-5792-ad9f-f1bec8bef252", "rank": 3, "score": 0.57, "preference": 0.268, "cost": 0.356, "travel": 0.289, "fairness": 0.5 }
+            ]
+          }
+        ]
+      },
+      {
+        "slot_key": "afternoon",
+        "groups": [
+          {
+            "member_ids": ["5936e905-f9d3-5ac6-8ade-02c279857732", "7d55bc2d-262d-5e3b-b2fb-8a56a418b9af"],
+            "options": [
+              { "place_id": "6e432f26-57db-5b3f-a907-f34d2c0be7f4", "rank": 1, "score": 0.756, "preference": 0.838, "cost": 0.44, "travel": 0.156, "fairness": 0.698 },
+              { "place_id": "e0882eae-d2fd-5aab-91e2-81362b32a62b", "rank": 2, "score": 0.599, "preference": 0.547, "cost": 0.476, "travel": 0.156, "fairness": 0.57 },
+              { "place_id": "060daf7a-2bcf-5b98-9cc2-83e902ca1ab3", "rank": 3, "score": 0.435, "preference": 0.27, "cost": 0.594, "travel": 0.111, "fairness": 0.435 }
+            ]
+          },
+          {
+            "member_ids": ["a09069ed-aa32-5c6f-8768-ffad25a08b96", "e259b2b9-c227-52e0-a468-b84631bbc1b9"],
+            "options": [
+              { "place_id": "cc0fdcb1-e474-5ae2-befc-197cec2a2943", "rank": 1, "score": 0.763, "preference": 0.562, "cost": 0.0, "travel": 0.089, "fairness": 0.734 },
+              { "place_id": "21d142e0-71c7-52c6-b4f4-35ba955ab3cd", "rank": 2, "score": 0.62, "preference": 0.808, "cost": 0.786, "travel": 0.244, "fairness": 0.561 },
+              { "place_id": "060daf7a-2bcf-5b98-9cc2-83e902ca1ab3", "rank": 3, "score": 0.58, "preference": 0.562, "cost": 0.594, "travel": 0.111, "fairness": 0.551 }
+            ]
+          }
+        ]
+      }
+    ],
+    "infeasible_reasons": []
+  }
+}

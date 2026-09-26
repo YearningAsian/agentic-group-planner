@@ -6,6 +6,11 @@ import { AppError, withPolicy } from "@/lib/reliability";
 
 export type PlanRequest = components["schemas"]["PlanRequest"];
 export type PlanResponse = components["schemas"]["PlanResponse"];
+/**
+ * What an `OptimizerClient` answers: FastAPI's PlanResponse, or the test double's (`mockPlan`),
+ * which labels itself `engine: "mock"` so its plans are never mistaken for an engine's.
+ */
+export type PlannerResponse = Omit<PlanResponse, "engine"> & { engine: PlanResponse["engine"] | "mock" };
 
 /** Design §2.2 and §7.4: `/v1/plan` gets 8 s and one retry; enumeration covers CP-SAT inside FastAPI. */
 const PLAN_TIMEOUT_MS = 8_000;
@@ -49,7 +54,7 @@ const PlanResponseSchema = z.object({
 }) satisfies z.ZodType<PlanResponse>;
 
 export interface OptimizerClient {
-  plan(request: PlanRequest): Promise<PlanResponse>;
+  plan(request: PlanRequest): Promise<PlannerResponse>;
 }
 
 /** A non-2xx answer. `withPolicy` retries it when the status is 429 or 5xx. */

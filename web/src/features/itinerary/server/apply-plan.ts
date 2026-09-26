@@ -1,12 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { PlanCard, type PlanChange, type SlotSummary } from "@agp/shared";
-import type { components } from "@agp/shared/optimizer";
+import type { PlannerResponse, PlanRequest } from "@/lib/optimizer/client";
 import { AppError } from "@/lib/reliability";
 import { getAdminClient } from "@/lib/supabase/admin";
-
-type PlanRequest = components["schemas"]["PlanRequest"];
-type PlanResponse = components["schemas"]["PlanResponse"];
 
 export interface ApplyPlanInput {
   tripId: string;
@@ -17,7 +14,7 @@ export interface ApplyPlanInput {
   mode: "initial" | "replan";
   /** What was sent to the optimizer: it carries each candidate's price. */
   request: PlanRequest;
-  response: PlanResponse;
+  response: PlannerResponse;
   /** The items being planned, keyed by slot_key. */
   itemsBySlot: Record<string, string>;
   /** Server-written reasoning per option, keyed `${slotKey}:${placeId}`. */
