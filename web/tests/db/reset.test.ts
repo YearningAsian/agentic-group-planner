@@ -7,12 +7,17 @@ import { adminClient, cleanup, createUser, testBatch } from "./helpers";
 
 const batch = testBatch();
 const other = testBatch();
+const stuck = testBatch();
+const elsewhere = testBatch();
 const admin = adminClient() as SupabaseClient<Database>;
 const now = new Date("2026-09-26T15:00:00Z");
 
 afterAll(async () => {
   await cleanup(batch);
   await cleanup(other);
+  // The other batch's trip first: its organizer is one of `stuck`'s users.
+  await cleanup(elsewhere);
+  await cleanup(stuck);
 });
 
 async function profileIds(ofBatch: string): Promise<string[]> {
@@ -50,5 +55,32 @@ describe("reset:demo", () => {
     const { count } = await admin.from("trips").select("*", { count: "exact", head: true }).eq("id", untouched.tripId);
     expect(count).toBe(1);
     expect(await profileIds(other)).toHaveLength(3);
+  });
+
+  it("forwards --stage to the re-seed", async () => {
+    const seeded = await seed({ batch: stuck, now });
+    // Until AI-214 builds it, the planned stage throws; the re-seed reaching it proves the stage came through.
+    await expect(reset({ batch: stuck, stage: "planned", now })).rejects.toThrow(/stage not implemented: planned/);
+    const { count } = await admin.from("trips").select("*", { count: "exact", head: true }).eq("id", seeded.tripId);
+    expect(count).toBe(1);
+  });
+
+  it("a user it can't delete doesn't leave the batch without a trip", async () => {
+    await seed({ batch: stuck, now });
+    // A claimer of this batch who organizes a trip in another batch: deleting them is refused.
+    const claimer = await createUser({ batch: stuck, displayName: "Person 4" });
+    const { error } = await admin.from("trips").insert({
+      slug: `x${Date.now().toString(36)}`.slice(0, 11).padEnd(11, "x"),
+      title: "Another trip",
+      city: "Atlanta",
+      trip_date: "2026-10-03",
+      organizer_profile_id: claimer.userId,
+      seed_batch: elsewhere,
+    });
+    if (error) throw error;
+
+    await expect(reset({ batch: stuck, now })).rejects.toThrow(/re-seeded, but couldn't delete 1 user/);
+    const { count } = await admin.from("trips").select("*", { count: "exact", head: true }).eq("seed_batch", stuck);
+    expect(count).toBe(1);
   });
 });
