@@ -16,6 +16,7 @@ from app.score_table import (
     EngineResult,
     RankedPlan,
     ScoreTable,
+    assignment_key,
     combine,
     member_score,
     plan_score,
@@ -190,7 +191,7 @@ class _Search:
         if total <= self._floor():
             return
         self.kept.append((total, assignment))
-        self.kept.sort(key=lambda entry: (-entry[0], _sort_key(entry[1])))
+        self.kept.sort(key=lambda entry: (-entry[0], assignment_key(entry[1])))
         del self.kept[self.params.max_plans :]
 
     def _compile(self, s: int) -> _Slot:
@@ -284,7 +285,3 @@ class _Search:
             best = utility.max(axis=0) if len(utility) else np.zeros(self.n)
             rest[s] = rest[s + 1] + best
         return rest
-
-
-def _sort_key(assignment: Assignment) -> tuple[tuple[int, ...], ...]:
-    return tuple(tuple(-1 if c is None else c for c in choice) for choice in assignment)

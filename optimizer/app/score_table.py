@@ -221,6 +221,21 @@ class EngineResult:
     infeasible_reasons: list[str]
 
 
+class EngineUnavailable(Exception):
+    """The engine can't answer at all, such as when the solver reports an invalid model or an unknown status.
+    The caller falls back to enumeration (design §2.2)."""
+
+
+def rank_key(plan: RankedPlan) -> tuple[float, tuple[tuple[int, ...], ...]]:
+    """Sort key for ranking plans: the higher score first, then the assignment that sorts first."""
+    return -plan.score.total, assignment_key(plan.assignment)
+
+
+def assignment_key(assignment: Assignment) -> tuple[tuple[int, ...], ...]:
+    """A total order on assignments, for breaking exact ties the same way in both engines."""
+    return tuple(tuple(-1 if c is None else c for c in choice) for choice in assignment)
+
+
 def too_large(table: ScoreTable) -> bool:
     """Beyond the engine limits: 6 members, 3 open slots, 6 candidates per slot."""
     open_slots = sum(1 for s in table.slots if not s.pinned)
