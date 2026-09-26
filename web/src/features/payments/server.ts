@@ -1,9 +1,10 @@
 import "server-only";
 import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
+// Server entry point.
+export { createMandate, type CreateMandateInput, type CreateMandateResult } from "./server/create-mandate";
 
-export const createMandate = notBuilt("createMandate");
+// Stubs until the feature's owner builds them.
 export const approveHold = notBuilt("approveHold");
 export const declineHold = notBuilt("declineHold");
 export const coverShortfall = notBuilt("coverShortfall");
