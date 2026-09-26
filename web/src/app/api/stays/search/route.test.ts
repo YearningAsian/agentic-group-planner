@@ -21,7 +21,7 @@ describe("GET /api/stays/search", () => {
   it("rejects an unknown destination", async () => {
     const { GET } = await import("./route");
     const response = await GET(
-      new Request("http://localhost/api/stays/search?destinationId=tokyo&checkIn=2026-06-01&checkOut=2026-06-04&adults=2"),
+      new Request("http://localhost/api/stays/search?destinationId=not-a-city&checkIn=2026-06-01&checkOut=2026-06-04&adults=2"),
     );
     expect(response.status).toBe(400);
     expect(search).not.toHaveBeenCalled();

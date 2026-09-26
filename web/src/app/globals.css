@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@clerk/ui/themes/shadcn.css";
 
 /* Dark mode follows the OS setting. */
 @custom-variant dark (@media (prefers-color-scheme: dark));

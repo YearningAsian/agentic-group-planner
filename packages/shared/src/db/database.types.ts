@@ -214,6 +214,24 @@ export type Database = {
           },
         ]
       }
+      demo_catalog: {
+        Row: {
+          document: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          document: Json
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          document?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       item_attendees: {
         Row: {
           created_at: string
@@ -1079,6 +1097,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      studio_board: {
+        Row: {
+          active_trip_id: string | null
+          id: string
+          trips: Json
+          updated_at: string
+        }
+        Insert: {
+          active_trip_id?: string | null
+          id: string
+          trips?: Json
+          updated_at?: string
+        }
+        Update: {
+          active_trip_id?: string | null
+          id?: string
+          trips?: Json
+          updated_at?: string
+        }
+        Relationships: []
       }
       studio_state: {
         Row: {

@@ -1,4 +1,7 @@
-/** In-memory copy of the signed-in user's studio document. The browser pushes it to `/api/studio-state`. */
+/** In-memory copy of the shared trips plus this user's profile. The browser pushes it to `/api/studio-state`. */
+
+import { getBrowserClient } from "@/lib/supabase/browser";
+import { bindStudioBoard } from "./studio-live";
 
 export type StudioProfile = {
   homeAddress: string;
@@ -66,4 +69,25 @@ async function pushStudio(): Promise<void> {
   if (!response.ok) {
     console.error("Couldn't save trips", response.status);
   }
+}
+
+/** Refetches the document when the shared board changes. The event payload is ignored. */
+export function subscribeStudio(onPulled: () => void): () => void {
+  if (typeof window === "undefined" || process.env.VITEST) return () => undefined;
+  const channel = getBrowserClient().channel("studio-board");
+  return bindStudioBoard(
+    (handler) => {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "studio_board" },
+        () => handler(),
+      );
+      void channel.subscribe();
+      return () => {
+        void getBrowserClient().removeChannel(channel);
+      };
+    },
+    pullStudio,
+    onPulled,
+  );
 }

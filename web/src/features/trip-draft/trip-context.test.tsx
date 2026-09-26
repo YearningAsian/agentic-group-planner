@@ -132,7 +132,7 @@ describe("TripProvider member picks", () => {
     expect(screen.getByTestId("destination-label")).toHaveTextContent("London");
     expect(screen.getByTestId("destination-iata")).toHaveTextContent("LON");
     expect(screen.getByTestId("destination-airports")).toHaveTextContent("LHR,LGW,STN");
-    expect(screen.getByTestId("destination")).toHaveTextContent("none");
+    expect(screen.getByTestId("destination")).toHaveTextContent("london");
   });
 
   it("stamps fixture IATA codes when a known city is confirmed", () => {

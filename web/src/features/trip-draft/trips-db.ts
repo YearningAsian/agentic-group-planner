@@ -1,5 +1,5 @@
 /**
- * Trip list for the studio. The copy in memory is pushed to `studio_state` for the signed-in user.
+ * Trip list for the studio. Trips are the shared board; this user's profile stays private.
  */
 import type { TripState } from "@/features/trip-draft/trip-context";
 import { readStudio, writeStudioTrips } from "./studio-store";

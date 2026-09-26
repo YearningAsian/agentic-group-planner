@@ -10,7 +10,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, Briefcase, CirclePlus, Home } from "lucide-react";
 import { AuthControls } from "@/features/auth";
-import { DemoLoginPicker } from "@/features/demo";
 import { organizerProfile } from "@/features/trip-draft/dashboard-data";
 import { initials } from "@/features/trip-draft/format";
 import { useTrip } from "@/features/trip-draft/trip-context";
@@ -124,9 +123,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-[13.5px] font-bold text-ink">{profile.name}</p>
               <p className="truncate text-[12px] text-muted">{profile.handle}</p>
             </div>
-            <AuthControls className="ml-auto flex shrink-0 items-center gap-1.5" />
+            <AuthControls className="ml-auto flex shrink-0 flex-col items-end gap-1.5" />
           </div>
-          <DemoLoginPicker />
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-h-0 overflow-hidden bg-bg">
