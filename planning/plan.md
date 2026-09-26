@@ -1112,10 +1112,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-104, AI-106
 - **Produces:** `AGENT_RECORD=1` support: a real run writes its recording for tests and offline development (design §7.5). Recordings are never a runtime fallback.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/recorder.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/recorder.test.ts` passes:
     - `AGENT_RECORD=1 writes { key, steps, finalText } to the recording file`
     - `without AGENT_RECORD, nothing is written`
     - `a slow or failing model step ends in an error card; it never switches to a recording`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/recorder.test.ts` → 4 passed (RED first: no recorder module), including `never records a replay or a run without a key`. The runner wraps the provider with `withRecording(getLlmProvider(), { enabled: AGENT_RECORD })`; a missing recording in replay is a `RecordingNotFoundError` error card, never a fallback.
 - **Commit:** `feat(agent): record real runs for tests`
 
 #### AI-214 · `planned` stage, follow-up recording, and e2e 01-plan · Should
@@ -1523,10 +1524,11 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** `web/src/lib/agent/{prompt.ts,prompt.test.ts}`
 - **Depends on:** AI-212
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
     - `the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
   - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts (plan, collaborate, and book) calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
+- **Status:** prompt done; real-model check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/prompt.test.ts` → 2 passed (RED first: no per-tool guidance in the prompt). `TOOL_GUIDE` is keyed by `ToolName`, so a new tool without guidance fails the type check. **Blocked:** the 5-of-5 check on the deployed app needs `META_MODEL_API_KEY` and a deploy.
 - **Commit:** `feat(agent): tune the system prompt for muse spark`
 
 #### AI-302 · Plan a day on real providers · Must
@@ -1923,13 +1925,14 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Depends on:** FE-105, VO-103
 - **Produces:** the transcription provider (`TRANSCRIBE_PROVIDER`; `muse-voice-transcribe-1.0` at `POST /v1/asr/transcribe`), `toWav(audioBuffer)` (16 kHz mono 16-bit PCM), and `POST /api/voice-notes` (design §2.5, ADR 0018).
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` passes:
+  - [x] `pnpm --filter web test -- src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` passes:
     - `toWav writes a 44-byte header for 16 kHz, mono, 16-bit, and a 1 kHz sine round-trips within one sample`
     - `the route rejects a non-WAV, stereo, 44.1 kHz, or over-2-minute upload with 400 before calling the provider`
     - `the real provider sends multipart request JSON (model, keywords) and the WAV, and parses the transcript` (fetch mocked)
     - `the transcript posts through sendMessage with the upload's client_id, so a retried upload posts once`
     - `a transcript with "@agent" starts one agent run`
   - [ ] Check: with `TRANSCRIBE_PROVIDER=real`, a 10-second voice note appears as the member's message within 5 s.
+- **Status:** backend done; real check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/audio src/lib/providers/transcription src/app/api/voice-notes` → 10 passed (RED first: missing modules), adding a 5xx retry with no key in errors and a non-member refused before transcription. **Blocked:** the real check needs `META_MODEL_API_KEY`. The composer button is FE-S07.
 - **Commit:** `feat(voice): voice notes through meta speech to text`
 
 #### FE-S07 · Voice-note button in the composer · Should
