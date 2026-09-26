@@ -41,9 +41,12 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
   let result;
   switch (event.type) {
     case "payment_intent.amount_capturable_updated":
+      // A row the finalizer already planned without (pays_share = false) stays for the approval
+      // path to release, exactly as the synchronous update leaves it.
       result = await rows
         .update({ status: "authorized", stripe_payment_intent_id: event.paymentIntentId, authorized_at: new Date().toISOString() })
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .is("pays_share", null);
       break;
     case "payment_intent.payment_failed":
       // A decline ends as declined either way, so this path and the synchronous one agree.
@@ -68,6 +71,21 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
       result = await rows.update({ status: "released" }).eq("pays_share", false).eq("status", "authorized");
       break;
     }
+    case "charge.refunded":
+      // Each refund names the fronted share it settles; the same conditional update as settleFrontedShare.
+      for (const refund of event.refunds) {
+        const { mandate_id: mandateId, share_member_id: shareMemberId } = refund.metadata;
+        if (!mandateId || !shareMemberId) continue;
+        const refunded = await admin
+          .from("payment_holds")
+          .update({ status: "refunded", refunded_cents: refund.amountCents })
+          .eq("mandate_id", mandateId)
+          .eq("share_member_id", shareMemberId)
+          .eq("kind", "fronted")
+          .eq("status", "captured");
+        if (refunded.error) throw readError(refunded.error, "the holds");
+      }
+      return true;
     default:
       return false;
   }

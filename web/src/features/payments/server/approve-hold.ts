@@ -5,6 +5,7 @@ import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { type FinalizeDeps, finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
+import { settleFrontedShare } from "./settle-fronted-share";
 
 /** Long enough for an authorization with its retries; short enough that a crash only delays a retry. */
 const PROVIDER_LEASE_MS = 60_000;
@@ -14,6 +15,8 @@ export interface PaymentsDeps extends FinalizeDeps {
   payments?: PaymentsProvider;
   /** Runs once the approval that satisfies the last share wins open → authorized; defaults to finalizeMandate. */
   finalize?: (mandateId: string) => Promise<unknown>;
+  /** Runs when a placeholder's hold is authorized after the capture; defaults to settleFrontedShare. */
+  settle?: (input: { mandateId: string; memberId: string }) => Promise<unknown>;
 }
 
 export interface ApproveHoldResult {
@@ -32,7 +35,7 @@ interface Member {
 async function payerRows(admin: AdminClient, mandateId: string, memberId: string) {
   const { data, error } = await admin
     .from("payment_holds")
-    .select("id, status, cap_cents, kind")
+    .select("id, status, cap_cents, kind, pays_share")
     .eq("mandate_id", mandateId)
     .eq("payer_member_id", memberId)
     .order("kind", { ascending: false });
@@ -98,6 +101,7 @@ async function authorizeHold(
   payments: PaymentsProvider,
   mandate: { id: string; trip_id: string; currency: string },
   member: Member,
+  phase: "approving" | "settling",
 ): Promise<void> {
   const now = new Date();
   const { data: claimed, error: claimError } = await admin
@@ -114,6 +118,15 @@ async function authorizeHold(
   const release = () =>
     admin.from("payment_holds").update({ lease_expires_at: null }).in("id", claimed.map((r) => r.id)).eq("status", "pending");
   try {
+    if (phase === "approving") {
+      // The finalizer plans from rows it reads after winning open → authorized. Past that point
+      // this claim might be missed, so stop before calling the provider. Before it, the finalizer
+      // sees this claim and marks the row, and the update below learns it lost (design §4.2).
+      const { data: current, error } = await admin.from("mandates").select("status").eq("id", mandate.id).single();
+      if (error) throw readError(error, "the purchase");
+      if (current.status !== "open" && current.status !== "partially_declined") throw finalizing();
+    }
+
     // The hold covers every row this member may pay (the organizer's includes fronted shares),
     // so the amount is the same on every attempt with this idempotency key.
     const rows = await payerRows(admin, mandate.id, member.id);
@@ -128,29 +141,61 @@ async function authorizeHold(
       idempotencyKey: `pi-auth:${mandate.id}:${member.id}`,
     });
 
-    const authorized = result.status === "authorized";
-    const status = authorized ? "authorized" : result.status === "declined" ? "declined" : "failed";
-    // Conditional: the provider's webhook may already have moved these rows.
-    const { error } = await admin
-      .from("payment_holds")
-      .update({
-        status,
-        stripe_payment_intent_id: result.paymentIntentId,
-        lease_expires_at: null,
-        ...(authorized ? { authorized_at: new Date().toISOString() } : { decline_code: result.declineCode ?? null }),
-      })
-      .eq("mandate_id", mandate.id)
-      .eq("payer_member_id", member.id)
-      .eq("status", "pending");
-    if (error) throw readError(error, "the holds");
-    if (!authorized) {
-      const declined = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandate.id).eq("status", "open");
-      if (declined.error) throw readError(declined.error, "the purchase");
+    if (result.status !== "authorized") {
+      const { error } = await admin
+        .from("payment_holds")
+        .update({
+          status: result.status === "declined" ? "declined" : "failed",
+          stripe_payment_intent_id: result.paymentIntentId,
+          decline_code: result.declineCode ?? null,
+          lease_expires_at: null,
+        })
+        .eq("mandate_id", mandate.id)
+        .eq("payer_member_id", member.id)
+        .eq("status", "pending");
+      if (error) throw readError(error, "the holds");
+      if (phase === "approving") {
+        const declined = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandate.id).eq("status", "open");
+        if (declined.error) throw readError(declined.error, "the purchase");
+      }
+      return;
+    }
+
+    // Conditional: the webhook may already have authorized these rows, and a finalizer that saw
+    // this approval in flight marks them pays_share = false, which this update must not undo. A
+    // finalizer that re-plans clears its marks again, so look once more before giving up.
+    let excluded: Awaited<ReturnType<typeof payerRows>> = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { error } = await admin
+        .from("payment_holds")
+        .update({ status: "authorized", stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null, authorized_at: new Date().toISOString() })
+        .eq("mandate_id", mandate.id)
+        .eq("payer_member_id", member.id)
+        .eq("status", "pending")
+        .is("pays_share", null);
+      if (error) throw readError(error, "the holds");
+      const pending = (await payerRows(admin, mandate.id, member.id)).filter((r) => r.status === "pending");
+      excluded = pending.filter((r) => r.pays_share === false);
+      if (pending.length === excluded.length) break;
+    }
+    if (excluded.length > 0) {
+      // The finalizer planned without this hold: another row already pays these shares.
+      await payments.release({ paymentIntentId: result.paymentIntentId, idempotencyKey: `pi-release:${mandate.id}:${member.id}` });
+      const released = await admin
+        .from("payment_holds")
+        .update({ status: "released", stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null })
+        .in("id", excluded.map((r) => r.id))
+        .eq("status", "pending");
+      if (released.error) throw readError(released.error, "the holds");
     }
   } catch (error) {
     await release();
     throw error;
   }
+}
+
+function finalizing(): AppError {
+  return new AppError("conflict", "This purchase is being finalized. Try again in a moment.", { retryable: true });
 }
 
 /** A share is satisfied when a row that may pay it is authorized (design §4.2). */
@@ -195,16 +240,28 @@ export async function approveHold(input: { mandateId: string; memberId: string }
 
   const rows = await payerRows(admin, mandate.id, member.id);
   if (rows.length === 0) throw new AppError("not_permitted", "You don't have a share of this purchase to approve.");
+  const open = mandate.status === "open" || mandate.status === "partially_declined";
   if (rows.some((r) => r.status === "pending")) {
-    if (mandate.status !== "open" && mandate.status !== "partially_declined") {
+    if (open) {
+      if (Date.parse(mandate.expires_at) < Date.now()) throw new AppError("conflict", "The time to approve this purchase has run out.");
+      await authorizeHold(admin, payments, mandate, member, "approving");
+    } else if (mandate.status === "captured") {
+      // A placeholder who joined after the booking pays their share now (design §4.2).
+      await authorizeHold(admin, payments, mandate, member, "settling");
+    } else if (mandate.status === "authorized") {
+      throw finalizing();
+    } else {
       throw new AppError("conflict", "This purchase isn't waiting for approvals any more.");
     }
-    if (Date.parse(mandate.expires_at) < Date.now()) throw new AppError("conflict", "The time to approve this purchase has run out.");
-    await authorizeHold(admin, payments, mandate, member);
+  }
+
+  if (mandate.status === "captured") {
+    const own = (await payerRows(admin, mandate.id, member.id)).find((r) => r.kind === "own" && r.status === "authorized");
+    if (own) await (deps.settle ?? ((i) => settleFrontedShare(i, deps)))({ mandateId: mandate.id, memberId: member.id });
   }
 
   const satisfied = await isSatisfied(admin, mandate.id);
-  if (satisfied) {
+  if (satisfied && open) {
     const { data: won, error: winError } = await admin
       .from("mandates")
       .update({ status: "authorized" })

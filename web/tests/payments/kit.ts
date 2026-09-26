@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { POST as stripeWebhook } from "@/app/api/webhooks/stripe/route";
-import { createMandate } from "@/features/payments/server";
+import { createMandate, onPlaceholderClaimed } from "@/features/payments/server";
 import { NotBuiltError } from "@/lib/not-built";
 import { getPaymentsProvider } from "@/lib/providers/payments";
 import { type MockPaymentsProvider, signMockWebhook } from "@/lib/providers/payments/mock";
@@ -97,7 +97,6 @@ export interface MandateScenario {
  * propose_purchase call that Person 2 made.
  */
 export async function mandateScenario(batch: string, payers: [TestUser, TestUser, TestUser]): Promise<MandateScenario> {
-  const admin = adminClient();
   const { tripId, memberIds } = await createTrip(batch, {
     members: [
       { displayName: "Person 1", profileId: payers[0].userId },
@@ -106,6 +105,18 @@ export async function mandateScenario(batch: string, payers: [TestUser, TestUser
       { displayName: "Person 4", inviteToken: `invite-${randomUUID()}` },
     ],
   });
+  return addMandate(batch, { tripId, person: memberIds as MandateScenario["person"] });
+}
+
+/** Another decided $42 item on the same trip, everyone attending, with its own open mandate. */
+export async function addMandate(
+  batch: string,
+  trip: { tripId: string; person: MandateScenario["person"] },
+  slot: { key: string; startsAt: string; endsAt: string } = { key: "morning", startsAt: "2026-09-26T14:00:00Z", endsAt: "2026-09-26T16:30:00Z" },
+): Promise<MandateScenario> {
+  const admin = adminClient();
+  const { tripId } = trip;
+  const memberIds = trip.person;
   const { placeId } = await createPlace(batch, { name: "Georgia Aquarium" });
   const insert = async (table: string, row: Record<string, unknown>) => {
     const { data, error } = await admin.from(table).insert({ seed_batch: batch, ...row }).select("id").single();
@@ -114,11 +125,11 @@ export async function mandateScenario(batch: string, payers: [TestUser, TestUser
   };
   const itemId = await insert("itinerary_items", {
     trip_id: tripId,
-    slot_key: "morning",
-    label: "Morning",
+    slot_key: slot.key,
+    label: slot.key,
     category: "activity",
-    starts_at: "2026-09-26T14:00:00Z",
-    ends_at: "2026-09-26T16:30:00Z",
+    starts_at: slot.startsAt,
+    ends_at: slot.endsAt,
     position: 1,
     status: "voting",
   });
@@ -142,7 +153,9 @@ export async function mandateScenario(batch: string, payers: [TestUser, TestUser
     trip_id: tripId,
     trigger: "mention",
     requester_member_id: memberIds[1],
-    status: "running",
+    // Finished: a trip has one running run at a time, and a trip here may hold several mandates.
+    status: "succeeded",
+    finished_at: new Date().toISOString(),
     provider: "mock",
     model: "muse-spark-1.3",
   });
@@ -161,27 +174,21 @@ export async function mandateScenario(batch: string, payers: [TestUser, TestUser
     optionId,
     idempotencyKey: `mandate:${runId}:${toolCallId}`,
   });
-  return { tripId, itemId, optionId, runId, mandateId, person: memberIds as MandateScenario["person"] };
+  return { tripId, itemId, optionId, runId, mandateId, person: memberIds };
 }
 
 /**
- * Person 4 claims their lane as `user`, the way an invite claim does: the member joins, and their
- * `awaiting_member` share rows wait for their approval instead.
+ * Person 4 claims their lane as `user`, the way an invite claim does: the member joins, then the
+ * claim hands their `awaiting_member` share rows to them (`onPlaceholderClaimed`).
  */
-export async function claimPlaceholder(s: MandateScenario, user: TestUser): Promise<void> {
-  const admin = adminClient();
+export async function claimPlaceholder(s: Pick<MandateScenario, "person">, user: TestUser): Promise<{ pendingMandateIds: string[] }> {
   const person4 = s.person[3];
-  const joined = await admin
+  const joined = await adminClient()
     .from("trip_members")
     .update({ profile_id: user.userId, status: "joined", claimed_at: new Date().toISOString(), invite_token: null })
     .eq("id", person4);
   if (joined.error) throw joined.error;
-  const pending = await admin
-    .from("payment_holds")
-    .update({ status: "pending", payer_member_id: person4 })
-    .eq("share_member_id", person4)
-    .eq("status", "awaiting_member");
-  if (pending.error) throw pending.error;
+  return onPlaceholderClaimed(person4);
 }
 
 /** The mandate's share rows, keyed `${share member}:${kind}`. */
@@ -201,6 +208,7 @@ export async function shareRows(mandateId: string) {
     pays_share: boolean | null;
     decline_code: string | null;
     authorized_at: string | null;
+    lease_expires_at: string | null;
     updated_at: string;
   };
   return new Map((data as Row[]).map((row) => [`${row.share_member_id}:${row.kind}`, row]));

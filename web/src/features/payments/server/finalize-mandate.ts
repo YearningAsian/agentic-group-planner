@@ -26,7 +26,11 @@ type HoldRow = {
   share_cents: number;
   stripe_payment_intent_id: string | null;
   pays_share: boolean | null;
+  lease_expires_at: string | null;
 };
+
+const HOLD_COLUMNS = "id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share, lease_expires_at";
+const PLAN_ATTEMPTS = 5;
 
 const toShareRow = (r: HoldRow): ShareRow => ({
   id: r.id,
@@ -38,29 +42,81 @@ const toShareRow = (r: HoldRow): ShareRow => ({
   paymentIntentId: r.stripe_payment_intent_id,
 });
 
+interface StoredPlan {
+  rows: HoldRow[];
+  plan: CapturePlan;
+  release: HoldRow[];
+}
+
+/** The plan already on the rows, from this finalizer or one that crashed after planning. */
+function storedPlan(rows: HoldRow[]): StoredPlan {
+  const paying = rows.filter((r) => r.pays_share === true).map((r) => ({ ...toShareRow(r), status: "authorized" }));
+  const plan = planCaptures(paying);
+  const release = rows.filter((r) => r.pays_share === false && r.status === "authorized");
+  const releaseIntents = [...new Set(release.map((r) => r.stripe_payment_intent_id!).filter((id) => !plan.captureByIntent.has(id)))];
+  return { rows, plan: { ...plan, releaseIntents }, release };
+}
+
 /**
- * The capture plan, stored on the rows as `pays_share` before any provider call, so the webhook
- * path marks rows the same way, and a retried finalizer repeats the first plan instead of making
- * a new one from rows that have moved since.
+ * Writes the capture plan onto the rows as `pays_share` before any provider call, so the webhook
+ * path marks rows the same way and a retried finalizer repeats this plan. A placeholder's approval
+ * still in flight (a pending row under its lease) is marked `false` first, conditional on it still
+ * being pending, so exactly one side wins that row: either the approval lands first and the plan
+ * is made again with its hold paying, or the plan lands first and the approval releases its hold.
+ * Every mark is conditional on the status the plan saw; if anything moved, the marks are cleared
+ * and the caller plans again. Returns null in that case.
  */
-async function capturePlan(admin: AdminClient, rows: HoldRow[]): Promise<{ plan: CapturePlan; release: HoldRow[] }> {
-  if (rows.some((r) => r.pays_share !== null)) {
-    const paying = rows.filter((r) => r.pays_share === true).map((r) => ({ ...toShareRow(r), status: "authorized" }));
-    const plan = planCaptures(paying);
-    const release = rows.filter((r) => r.pays_share === false && r.status === "authorized");
-    const releaseIntents = [...new Set(release.map((r) => r.stripe_payment_intent_id!).filter((id) => !plan.captureByIntent.has(id)))];
-    return { plan: { ...plan, releaseIntents }, release };
-  }
+async function writePlan(admin: AdminClient, rows: HoldRow[]): Promise<StoredPlan | null> {
+  const now = Date.now();
   const plan = planCaptures(rows.map(toShareRow));
-  const flag = async (ids: string[], paysShare: boolean) => {
-    if (ids.length === 0) return;
-    const { error } = await admin.from("payment_holds").update({ pays_share: paysShare }).in("id", ids).is("pays_share", null);
+  const inFlight = rows.filter((r) => r.status === "pending" && r.lease_expires_at !== null && Date.parse(r.lease_expires_at) > now);
+  const marks: [HoldRow[], boolean, string][] = [
+    [inFlight, false, "pending"],
+    [rows.filter((r) => plan.paying.some((p) => p.id === r.id)), true, "authorized"],
+    [rows.filter((r) => plan.release.some((p) => p.id === r.id)), false, "authorized"],
+  ];
+  const marked: string[] = [];
+  for (const [targets, paysShare, status] of marks) {
+    if (targets.length === 0) continue;
+    const { data, error } = await admin
+      .from("payment_holds")
+      .update({ pays_share: paysShare })
+      .in("id", targets.map((r) => r.id))
+      .eq("status", status)
+      .is("pays_share", null)
+      .select("id");
     if (error) throw readError(error, "the holds");
-  };
-  await flag(plan.paying.map((r) => r.id), true);
-  await flag(plan.release.map((r) => r.id), false);
+    marked.push(...data.map((r) => r.id));
+    if (data.length !== targets.length) {
+      if (marked.length > 0) {
+        const cleared = await admin.from("payment_holds").update({ pays_share: null }).in("id", marked);
+        if (cleared.error) throw readError(cleared.error, "the holds");
+      }
+      return null;
+    }
+  }
   const releaseIds = new Set(plan.release.map((r) => r.id));
-  return { plan, release: rows.filter((r) => releaseIds.has(r.id)) };
+  return { rows, plan, release: rows.filter((r) => releaseIds.has(r.id)) };
+}
+
+/** Reads the rows and settles on one capture plan: the stored one, or a new one written first. */
+async function capturePlan(admin: AdminClient, mandateId: string): Promise<StoredPlan> {
+  for (let attempt = 0; attempt < PLAN_ATTEMPTS; attempt++) {
+    const { data: rows, error } = await admin.from("payment_holds").select(HOLD_COLUMNS).eq("mandate_id", mandateId);
+    if (error) throw readError(error, "the holds");
+    // A plan is reused only when complete: a finalizer that crashed mid-write leaves some rows
+    // unmarked, and before any capture its marks can simply be cleared.
+    const complete = rows.some((r) => r.pays_share === true) && rows.every((r) => r.status !== "authorized" || r.pays_share !== null);
+    if (complete || rows.some((r) => r.status === "captured")) return storedPlan(rows);
+    if (rows.some((r) => r.pays_share !== null)) {
+      const cleared = await admin.from("payment_holds").update({ pays_share: null }).eq("mandate_id", mandateId).not("pays_share", "is", null);
+      if (cleared.error) throw readError(cleared.error, "the holds");
+      continue;
+    }
+    const written = await writePlan(admin, rows);
+    if (written) return written;
+  }
+  throw new AppError("internal", "The share rows kept changing while the purchase was being finalized.", { retryable: true });
 }
 
 const payerOf = (rows: HoldRow[], intentId: string) => rows.find((r) => r.stripe_payment_intent_id === intentId)?.payer_member_id;
@@ -126,21 +182,16 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
   if (claimed.length === 0) return { status: "authorized" };
 
   try {
-    const [holdResult, itemResult, optionResult, organizerResult] = await Promise.all([
-      admin
-        .from("payment_holds")
-        .select("id, share_member_id, payer_member_id, kind, status, share_cents, stripe_payment_intent_id, pays_share")
-        .eq("mandate_id", mandateId),
+    const [itemResult, optionResult, organizerResult] = await Promise.all([
       admin.from("itinerary_items").select("starts_at").eq("id", mandate.item_id).single(),
       admin.from("item_options").select("place_id").eq("id", mandate.option_id).single(),
       admin.from("trip_members").select("id, display_name").eq("trip_id", mandate.trip_id).eq("role", "organizer").single(),
     ]);
-    for (const result of [holdResult, itemResult, optionResult, organizerResult]) {
+    for (const result of [itemResult, optionResult, organizerResult]) {
       if (result.error) throw readError(result.error, "the purchase");
     }
-    const rows = holdResult.data!;
     const organizer = organizerResult.data!;
-    const { plan, release } = await capturePlan(admin, rows);
+    const { rows, plan, release } = await capturePlan(admin, mandateId);
 
     const partySize = new Set(rows.map((r) => r.share_member_id)).size;
     const startsAt = itemResult.data!.starts_at;
