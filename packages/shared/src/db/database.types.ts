@@ -214,6 +214,24 @@ export type Database = {
           },
         ]
       }
+      demo_catalog: {
+        Row: {
+          document: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          document: Json
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          document?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       item_attendees: {
         Row: {
           created_at: string

@@ -1,8 +1,9 @@
 /**
- * Static trip-draft fixtures (prototype port). Sample destinations, fares, and stays with no
- * backend. TODO: replace with Supabase + places/routing/stays provider adapters.
- * Lookups in this file: `destinationById`, `matchDestination` (questionnaire prefix match), `flightsFor`, `staysFor`, `findFlight`, `findStay`, `chatCityDestination` (studio; whole message must match a city).
+ * Trip-draft inventory. The same document is stored in `demo_catalog` so the database and
+ * these screens share one list. Fares are round-trip display dollars from New York, not a charge.
+ * Lookups: `destinationById`, `matchDestination`, `flightsFor`, `staysFor`, `findFlight`, `findStay`, `chatCityDestination`.
  */
+import catalog from "./city-catalog.json";
 export type Destination = {
   id: string;
   label: string;
@@ -48,158 +49,17 @@ const PLANES = [
   photo("photo-1569154941061-e231b4725ef1"),
 ];
 
-export const DESTINATIONS: Destination[] = [
-  {
-    id: "lisbon",
-    label: "Lisbon",
-    country: "Portugal",
-    code: "LIS",
-    lng: -9.1393,
-    lat: 38.7223,
-    blurb: "Hills, tiles, and late dinners",
-    photos: [
-      photo("photo-1555881400-74d7acaacd8b"),
-      photo("photo-1533106497176-45ae19e68ba2"),
-      photo("photo-1585208798174-6cedd86e019a"),
-    ],
-  },
-  {
-    id: "kyoto",
-    label: "Kyoto",
-    country: "Japan",
-    code: "KIX",
-    lng: 135.7681,
-    lat: 35.0116,
-    blurb: "Temples and quiet mornings",
-    photos: [
-      photo("photo-1493976040374-85c8e12f0c0e"),
-      photo("photo-1524413840807-0c3cb6fa808d"),
-      photo("photo-1545569341-9eb8b30979d9"),
-    ],
-  },
-  {
-    id: "mexico-city",
-    label: "Mexico City",
-    country: "Mexico",
-    code: "MEX",
-    lng: -99.1332,
-    lat: 19.4326,
-    blurb: "Markets, museums, and long tables",
-    photos: [
-      photo("photo-1518659526054-190340b32735"),
-      photo("photo-1585464231875-d9ef1f5ad396"),
-      photo("photo-1512813195386-6cf811ad3542"),
-    ],
-  },
-  {
-    id: "reykjavik",
-    label: "Reykjavík",
-    country: "Iceland",
-    code: "KEF",
-    lng: -21.9426,
-    lat: 64.1466,
-    blurb: "Pools, weather, and long light",
-    photos: [
-      photo("photo-1476610182048-b716b8518aae"),
-      photo("photo-1504829857797-ddff29c27927"),
-      photo("photo-1529963183134-61a90db47eaf"),
-    ],
-  },
-  {
-    id: "new-orleans",
-    label: "New Orleans",
-    country: "USA",
-    code: "MSY",
-    lng: -90.0715,
-    lat: 29.9511,
-    blurb: "Porches, music, and spice",
-    photos: [
-      photo("photo-1569949381669-ecf31ae8e613"),
-      photo("photo-1571896349842-33c89424de2d"),
-      photo("photo-1568402102990-bc541580b59f"),
-    ],
-  },
-  {
-    id: "barcelona",
-    label: "Barcelona",
-    country: "Spain",
-    code: "BCN",
-    lng: 2.1734,
-    lat: 41.3851,
-    blurb: "Sea, design, and late walks",
-    photos: [
-      photo("photo-1583422409516-2895a77efded"),
-      photo("photo-1539037116277-4db20889f2d4"),
-      photo("photo-1523531294919-4bcd7c65e216"),
-    ],
-  },
-];
+type FlightSeed = Omit<FlightOption, "id" | "destinationId" | "from" | "to" | "image">;
+type StaySeed = Omit<StayOption, "id" | "destinationId" | "image">;
 
-const FLIGHTS: Record<string, Omit<FlightOption, "id" | "destinationId" | "from" | "to" | "image">[]> = {
-  lisbon: [
-    { airline: "Mariner", depart: "6:20 PM", arrive: "6:35 AM+1", duration: "7h 15m", stops: "Nonstop", price: 548 },
-    { airline: "Cedar Air", depart: "10:05 PM", arrive: "2:40 PM+1", duration: "11h 35m", stops: "1 stop", price: 389 },
-    { airline: "Lumen", depart: "8:50 AM", arrive: "9:05 PM", duration: "7h 15m", stops: "Nonstop", price: 712 },
-  ],
-  kyoto: [
-    { airline: "Mariner", depart: "11:10 AM", arrive: "3:45 PM+1", duration: "14h 35m", stops: "1 stop", price: 890 },
-    { airline: "Cedar Air", depart: "1:20 AM", arrive: "7:55 AM+1", duration: "16h 35m", stops: "1 stop", price: 734 },
-    { airline: "Lumen", depart: "9:40 AM", arrive: "6:15 PM+1", duration: "17h 35m", stops: "Nonstop", price: 1240 },
-  ],
-  "mexico-city": [
-    { airline: "Mariner", depart: "7:15 AM", arrive: "11:40 AM", duration: "5h 25m", stops: "Nonstop", price: 286 },
-    { airline: "Cedar Air", depart: "3:50 PM", arrive: "9:35 PM", duration: "6h 45m", stops: "1 stop", price: 214 },
-    { airline: "Lumen", depart: "6:05 PM", arrive: "10:20 PM", duration: "5h 15m", stops: "Nonstop", price: 364 },
-  ],
-  reykjavik: [
-    { airline: "Mariner", depart: "8:30 PM", arrive: "6:15 AM+1", duration: "5h 45m", stops: "Nonstop", price: 412 },
-    { airline: "Cedar Air", depart: "5:10 PM", arrive: "6:40 AM+1", duration: "9h 30m", stops: "1 stop", price: 318 },
-    { airline: "Lumen", depart: "9:55 PM", arrive: "7:30 AM+1", duration: "5h 35m", stops: "Nonstop", price: 529 },
-  ],
-  "new-orleans": [
-    { airline: "Mariner", depart: "9:05 AM", arrive: "11:50 AM", duration: "3h 45m", stops: "Nonstop", price: 178 },
-    { airline: "Cedar Air", depart: "2:25 PM", arrive: "6:40 PM", duration: "5h 15m", stops: "1 stop", price: 142 },
-    { airline: "Lumen", depart: "6:40 PM", arrive: "9:20 PM", duration: "3h 40m", stops: "Nonstop", price: 246 },
-  ],
-  barcelona: [
-    { airline: "Mariner", depart: "7:45 PM", arrive: "9:10 AM+1", duration: "7h 25m", stops: "Nonstop", price: 612 },
-    { airline: "Cedar Air", depart: "11:30 PM", arrive: "4:15 PM+1", duration: "11h 45m", stops: "1 stop", price: 447 },
-    { airline: "Lumen", depart: "10:20 AM", arrive: "11:55 PM", duration: "7h 35m", stops: "Nonstop", price: 804 },
-  ],
-};
+export const DESTINATIONS: Destination[] = catalog.destinations.map((destination) => ({
+  ...destination,
+  photos: destination.photos.map((id) => photo(id)) as [string, string, string],
+}));
 
-const STAYS: Record<string, Omit<StayOption, "id" | "destinationId" | "image">[]> = {
-  lisbon: [
-    { name: "Alfama townhouse", neighborhood: "Alfama", rating: 4.94, reviews: 186, price: 168 },
-    { name: "Tile-roof flat", neighborhood: "Baixa", rating: 4.81, reviews: 92, price: 124 },
-    { name: "River-view loft", neighborhood: "Cais do Sodré", rating: 4.88, reviews: 140, price: 210 },
-  ],
-  kyoto: [
-    { name: "Machiya with a garden", neighborhood: "Gion", rating: 4.97, reviews: 74, price: 242 },
-    { name: "Lane house", neighborhood: "Higashiyama", rating: 4.86, reviews: 121, price: 176 },
-    { name: "Inn near the river", neighborhood: "Pontocho", rating: 4.9, reviews: 88, price: 198 },
-  ],
-  "mexico-city": [
-    { name: "Courtyard apartment", neighborhood: "Roma Norte", rating: 4.91, reviews: 203, price: 132 },
-    { name: "Tree-lined flat", neighborhood: "Condesa", rating: 4.84, reviews: 156, price: 118 },
-    { name: "Rooftop studio", neighborhood: "Juárez", rating: 4.79, reviews: 97, price: 96 },
-  ],
-  reykjavik: [
-    { name: "Harbor cottage", neighborhood: "Grandagarður", rating: 4.93, reviews: 64, price: 228 },
-    { name: "Quiet studio", neighborhood: "Miðbær", rating: 4.77, reviews: 81, price: 164 },
-    { name: "House with a hot tub", neighborhood: "Vesturbær", rating: 4.96, reviews: 52, price: 286 },
-  ],
-  "new-orleans": [
-    { name: "Shotgun cottage", neighborhood: "Marigny", rating: 4.89, reviews: 143, price: 154 },
-    { name: "Balcony suite", neighborhood: "French Quarter", rating: 4.83, reviews: 210, price: 189 },
-    { name: "Garden house", neighborhood: "Garden District", rating: 4.95, reviews: 77, price: 206 },
-  ],
-  barcelona: [
-    { name: "Eixample apartment", neighborhood: "Eixample", rating: 4.9, reviews: 168, price: 176 },
-    { name: "Gothic-quarter flat", neighborhood: "El Born", rating: 4.85, reviews: 134, price: 158 },
-    { name: "Sea-facing rooms", neighborhood: "Barceloneta", rating: 4.8, reviews: 99, price: 194 },
-  ],
-};
+const FLIGHTS: Record<string, FlightSeed[]> = catalog.flights;
+
+const STAYS: Record<string, StaySeed[]> = catalog.stays;
 
 export const DIETARY = ["None", "Vegetarian", "Vegan", "Gluten-free", "Halal", "Kosher"] as const;
 
