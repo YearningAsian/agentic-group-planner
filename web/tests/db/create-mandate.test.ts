@@ -33,7 +33,7 @@ async function insert(table: string, row: Record<string, unknown>): Promise<stri
  * The seeded shape: four attendees at a decided $42 aquarium visit, Person 4 still a placeholder,
  * and a run that Person 2 started.
  */
-async function decidedTrip(): Promise<Trip> {
+async function decidedTrip(itemStatus: "decided" | "voting" | "tbd" = "decided"): Promise<Trip> {
   const { tripId, memberIds } = await createTrip(batch, {
     members: [
       { displayName: "Person 1", profileId: users[0]!.userId },
@@ -50,7 +50,7 @@ async function decidedTrip(): Promise<Trip> {
     starts_at: "2026-09-26T14:00:00Z",
     ends_at: "2026-09-26T16:30:00Z",
     position: 1,
-    status: "voting",
+    status: itemStatus === "decided" ? "voting" : itemStatus,
   });
   const optionId = await insert("item_options", {
     trip_id: tripId,
@@ -62,8 +62,10 @@ async function decidedTrip(): Promise<Trip> {
     score_breakdown: {},
     source: "mock",
   });
-  const decided = await admin.from("itinerary_items").update({ status: "decided", chosen_option_id: optionId }).eq("id", itemId);
-  if (decided.error) throw decided.error;
+  if (itemStatus === "decided") {
+    const decided = await admin.from("itinerary_items").update({ status: "decided", chosen_option_id: optionId }).eq("id", itemId);
+    if (decided.error) throw decided.error;
+  }
   const attendees = memberIds.map((member_id) => ({ item_id: itemId, member_id, trip_id: tripId, seed_batch: batch }));
   const attending = await admin.from("item_attendees").insert(attendees);
   if (attending.error) throw attending.error;
@@ -79,13 +81,13 @@ async function decidedTrip(): Promise<Trip> {
 }
 
 /** A started propose_purchase call, as the runner records it before the handler runs. */
-async function toolCall(trip: Trip) {
+async function toolCall(trip: Trip, toolName = "propose_purchase") {
   const toolCallId = `call_${randomUUID()}`;
   await insert("tool_calls", {
     trip_id: trip.tripId,
     run_id: trip.runId,
     tool_call_id: toolCallId,
-    tool_name: "propose_purchase",
+    tool_name: toolName,
     input: { item_handle: "I1" },
     status: "started",
   });
@@ -138,10 +140,12 @@ function rawPayload(trip: Trip, toolCallId: string, overrides: { actorMemberId?:
       own(p4, false),
       { share_member_id: p4, payer_member_id: p1, kind: "fronted", share_cents: 4200, cap_cents: 4800, status: "pending" },
     ],
-    card: { card_type: "approval", mandate_id: mandateId, shares: [] },
+    card: { card_type: "approval", mandate_id: mandateId, item_id: overrides.itemId ?? trip.itemId, shares: [] },
     result_summary: "test",
   };
 }
+
+type RawPayload = ReturnType<typeof rawPayload>;
 
 beforeAll(async () => {
   users = [];
@@ -256,6 +260,51 @@ describe("create_mandate", () => {
     expect(asMember.error?.code).toBe("42501");
     expect(await rows("mandates", "trip_id", trip.tripId)).toEqual([]);
     expect(await rows("mandates", "trip_id", other.tripId)).toEqual([]);
+  });
+
+  it("rejects a payload naming a run, a share member, or a payer from another trip", async () => {
+    const trip = await decidedTrip();
+    const other = await decidedTrip();
+    const { toolCallId } = await toolCall(trip);
+    const variants: [string, (p: RawPayload) => void][] = [
+      ["run", (p) => (p.run_id = other.runId)],
+      ["share member", (p) => (p.shares[3]!.share_member_id = other.memberIds[3]!)],
+      ["payer", (p) => (p.shares[4]!.payer_member_id = other.memberIds[0]!)],
+    ];
+    for (const [what, change] of variants) {
+      const payload = rawPayload(trip, toolCallId);
+      change(payload);
+      const { error } = await admin.rpc("create_mandate", { payload });
+      expect(error?.message, what).toMatch(/not_permitted/);
+    }
+    expect(await rows("mandates", "trip_id", trip.tripId)).toEqual([]);
+    expect(await rows("mandates", "trip_id", other.tripId)).toEqual([]);
+  });
+
+  it("the SQL guard rejects an item that isn't decided with invalid_input", async () => {
+    for (const status of ["voting", "tbd"] as const) {
+      const trip = await decidedTrip(status);
+      const { toolCallId } = await toolCall(trip);
+      // Straight to the function, past the wrapper's own check.
+      const { error } = await admin.rpc("create_mandate", { payload: rawPayload(trip, toolCallId) });
+      expect(error?.message, status).toMatch(new RegExp(`^invalid_input: the item is ${status}`));
+      expect(await rows("mandates", "trip_id", trip.tripId)).toEqual([]);
+    }
+  });
+
+  it("rejects a tool call that isn't propose_purchase, and a card naming another item", async () => {
+    const trip = await decidedTrip();
+    const planCall = await toolCall(trip, "plan_day");
+    const wrongTool = await admin.rpc("create_mandate", { payload: rawPayload(trip, planCall.toolCallId) });
+    expect(wrongTool.error?.message).toMatch(/^invalid_input: .*propose_purchase/);
+
+    const other = await decidedTrip();
+    const { toolCallId } = await toolCall(trip);
+    const foreignCard = rawPayload(trip, toolCallId);
+    foreignCard.card.item_id = other.itemId;
+    expect((await admin.rpc("create_mandate", { payload: foreignCard })).error?.message).toMatch(/not_permitted/);
+    expect(await rows("mandates", "trip_id", trip.tripId)).toEqual([]);
+    expect((await rows("tool_calls", "tool_call_id", toolCallId))[0]!.status).toBe("started");
   });
 
   it("the same idempotency key returns the same mandate", async () => {
