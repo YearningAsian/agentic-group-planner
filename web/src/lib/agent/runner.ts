@@ -1,6 +1,5 @@
 import "server-only";
-import { type AgentStatusEvent, ErrorCard, pairsAgentWithPaid, type ToolName, type ToolResult } from "@agp/shared";
-import type { Database } from "@agp/shared/db";
+import { type AgentStatusEvent, pairsAgentWithPaid, type ToolError, type ToolName, type ToolResult } from "@agp/shared";
 import { tool as aiTool, type ToolSet } from "ai";
 import { getLlmProvider, type LlmProvider, RecordingNotFoundError } from "@/lib/providers/llm";
 import { AppError, toToolError } from "@/lib/reliability";
@@ -9,10 +8,12 @@ import type { ToolDefinition } from "@/lib/tools/define-tool";
 import { toolRegistry } from "@/lib/tools/registry";
 import { type Broadcast, supabaseBroadcast, TOOL_LABELS } from "./broadcast";
 import { buildContext } from "./context";
+import { actorFor, type AgentRunRow, failRun, finishRun } from "./finish";
+import { nextQueuedRun, sweepTrip } from "./queue";
 import { recordingKey } from "./recording-key";
 import { runTool } from "./run-tool";
 
-export type AgentRunRow = Database["public"]["Tables"]["agent_runs"]["Row"];
+export type { AgentRunRow } from "./finish";
 
 /** A claimed run is presumed dead once its lease lapses (design §4.4). A run takes 90 s at most. */
 export const LEASE_MS = 120_000;
@@ -55,19 +56,6 @@ export async function claimRun(admin: AdminClient, runId: string, leaseMs = LEAS
   return data;
 }
 
-/** The member a run's writes are on behalf of: its requester, or the organizer for a server-started run. */
-async function actorFor(admin: AdminClient, run: AgentRunRow): Promise<string> {
-  if (run.requester_member_id) return run.requester_member_id;
-  const { data, error } = await admin
-    .from("trip_members")
-    .select("id")
-    .eq("trip_id", run.trip_id)
-    .eq("role", "organizer")
-    .single();
-  if (error) throw new AppError("internal", "The trip has no organizer.", { retryable: false, cause: error });
-  return data.id;
-}
-
 async function triggerBody(admin: AdminClient, run: AgentRunRow): Promise<string | null> {
   if (!run.trigger_message_id) return null;
   const { data, error } = await admin.from("messages").select("body").eq("id", run.trigger_message_id).single();
@@ -75,22 +63,16 @@ async function triggerBody(admin: AdminClient, run: AgentRunRow): Promise<string
   return data.body;
 }
 
-async function finish(admin: AdminClient, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await admin.rpc("finish_agent_run", { payload: payload as never });
-  if (error) throw new AppError("internal", "Couldn't finish the agent run.", { retryable: true, cause: error });
-}
-
-/** The error card for a failed run. It shows a safe message, never the raw error. */
-function errorCardFor(error: unknown, tool: ToolName | null, retryMessageId: string | null): ErrorCard {
-  const base =
-    error instanceof RecordingNotFoundError
-      ? {
-          code: "internal" as const,
-          message: "There's no recorded run for this request, and the mock model only replays recordings.",
-          retryable: false,
-        }
-      : toToolError(error);
-  return ErrorCard.parse({ card_type: "error", ...base, tool, retry_message_id: retryMessageId });
+/** What a failed run's error card says. A safe message, never the raw error. */
+function errorFor(error: unknown): ToolError {
+  if (error instanceof RecordingNotFoundError) {
+    return {
+      code: "internal",
+      message: "There's no recorded run for this request, and the mock model only replays recordings.",
+      retryable: false,
+    };
+  }
+  return toToolError(error);
 }
 
 /** The agent's closing message: never empty, never long, and never the agent as payer. */
@@ -106,16 +88,21 @@ function finalText(text: string, results: unknown[]): string {
 }
 
 /**
- * Claims and runs one queued agent run (design §5.2): builds the context, runs the model's tool
- * loop with the registry's tools, and ends the run through `finish_agent_run` with exactly one
- * agent text message, or, on any failure, one error card with the run marked failed. Broadcasts
- * `agent.status` as it goes. Never throws: it runs inside `after()`. Returns null when the run
- * couldn't be claimed.
+ * Claims and runs one queued agent run (design §5.2), then the trip's next queued run (design
+ * §4.4). Before claiming, it fails the trip's runs that can't finish (an expired lease, a queued
+ * run older than 5 minutes). The run builds the context, runs the model's tool loop with the
+ * registry's tools, and ends through `finish_agent_run` with exactly one agent text message, or,
+ * on any failure, one error card with the run marked failed. Broadcasts `agent.status` as it goes.
+ * Never throws: it runs inside `after()`. Returns null when the run couldn't be claimed.
  */
 export async function startAgentRun(runId: string, overrides: Partial<RunnerDeps> = {}): Promise<RunOutcome | null> {
   const admin = overrides.admin ?? getAdminClient();
   let run: AgentRunRow | null;
   try {
+    const { data, error } = await admin.from("agent_runs").select("trip_id").eq("id", runId).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    await sweepTrip(admin, data.trip_id);
     run = await claimRun(admin, runId);
   } catch (error) {
     console.error(`agent run ${runId}: claim failed`, error);
@@ -123,14 +110,27 @@ export async function startAgentRun(runId: string, overrides: Partial<RunnerDeps
   }
   if (!run) return null;
 
+  const outcome = await execute(run, { ...overrides, admin });
+
+  // One run per trip at a time, so the finished run starts the next one, in this same after().
+  try {
+    const next = await nextQueuedRun(admin, run.trip_id);
+    if (next) await startAgentRun(next, overrides);
+  } catch (error) {
+    console.error(`agent run ${run.id}: couldn't start the next queued run`, error);
+  }
+  return outcome;
+}
+
+async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admin: AdminClient }): Promise<RunOutcome> {
+  const { admin } = overrides;
   const broadcast = overrides.broadcast ?? supabaseBroadcast(admin);
   const status = (event: Omit<AgentStatusEvent, "run_id">) => broadcast(run.trip_id, { run_id: run.id, ...event });
   let step = 0;
   let failedTool: ToolName | null = null;
-  let actor: string | null = null;
 
   try {
-    actor = await actorFor(admin, run);
+    const actor = await actorFor(admin, run);
     const [body, context] = await Promise.all([triggerBody(admin, run), buildContext(run.trip_id, run.requester_member_id, admin)]);
     await admin.from("agent_runs").update({ handles: context.handles }).eq("id", run.id);
     await status({ step, state: "started", label: "Reading the trip" });
@@ -164,7 +164,7 @@ export async function startAgentRun(runId: string, overrides: Partial<RunnerDeps
       recordingKey: body === null ? undefined : recordingKey(body),
     });
 
-    await finish(admin, {
+    await finishRun(admin, {
       trip_id: run.trip_id,
       actor_member_id: actor,
       run_id: run.id,
@@ -178,19 +178,10 @@ export async function startAgentRun(runId: string, overrides: Partial<RunnerDeps
     return "succeeded";
   } catch (error) {
     console.error(`agent run ${run.id} failed`, error);
-    const card = errorCardFor(error, failedTool, run.trigger_message_id);
     try {
-      await finish(admin, {
-        trip_id: run.trip_id,
-        actor_member_id: actor ?? (await actorFor(admin, run)),
-        run_id: run.id,
-        status: "failed",
-        message: { kind: "card", card_type: "error", card_payload: card },
-        step_count: step,
-        error: { code: card.code, message: card.message, tool: card.tool },
-      });
+      await failRun(admin, run, { ...errorFor(error), tool: failedTool }, step);
     } catch (finishError) {
-      // The lease runs out and the next claimant fails the run (AI-212), so it can't stay running.
+      // The lease lapses and the next claimant fails the run (sweepTrip), so it can't stay running.
       console.error(`agent run ${run.id}: couldn't record the failure`, finishError);
     }
     await status({ step, state: "failed", label: "Something went wrong" });
