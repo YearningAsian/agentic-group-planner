@@ -65,14 +65,12 @@ export function ProgressGraph() {
   const currentId = nodes.find((node) => node.status === "current")?.id ?? "invite";
 
   async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(link);
-    } catch {
-      // The link stays visible if the clipboard is blocked.
-    }
+    // Show the confirmation even if the clipboard prompt never settles.
+    const write = navigator.clipboard?.writeText(link).catch(() => undefined);
     trip.markInviteShared();
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
+    await write;
   }
 
   async function shareLink() {

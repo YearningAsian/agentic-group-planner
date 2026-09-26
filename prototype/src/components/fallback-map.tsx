@@ -51,8 +51,8 @@ export function FallbackMap({
           {focus.label}
         </p>
       ) : null}
-      <p className="absolute bottom-3 left-3 right-3 text-[12px] leading-snug text-[#3d4a46]">
-        {note ?? "Preview map. Add a real Mapbox token in .env.local to load live tiles."}
+      <p className="absolute bottom-3 left-3 max-w-[16rem] rounded-full bg-white/90 px-3 py-1.5 text-[12px] leading-snug text-[#3d4a46] shadow-[var(--shadow)]">
+        {note ?? "Preview map. A real Mapbox token loads live tiles."}
       </p>
     </div>
   );
