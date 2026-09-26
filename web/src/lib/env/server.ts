@@ -16,6 +16,8 @@ const serverSchema = z.object({
   SUPABASE_SECRET_KEY: z.string(missing).min(1),
   NEXT_PUBLIC_DEMO_MODE: z.enum(["true", "false"], missing).transform((value) => value === "true"),
   DEMO_ADMIN_TOKEN: secret,
+  // Seeded users' email domain (design §9.3). Dev-mode sign-in accepts only this domain.
+  DEMO_EMAIL_DOMAIN: z.string().min(1).default("demo.agp.test"),
 
   LLM_PROVIDER: z.enum(["meta", "google", "mock"]).default("meta"),
   AGENT_MODEL: model("muse-spark-1.3"),

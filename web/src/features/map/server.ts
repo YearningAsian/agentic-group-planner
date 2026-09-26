@@ -1,6 +1,4 @@
 import "server-only";
-import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
-
-export const ensureRoutes = notBuilt("ensureRoutes");
+// Server entry point for the map feature.
+export { ensureRoutes, type EnsureRoutesDeps, legKey, type PlacePair, type RouteLeg, travelMinutes } from "./server/ensure-routes";

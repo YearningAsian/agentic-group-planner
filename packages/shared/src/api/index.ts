@@ -7,3 +7,4 @@ export * as invites from "./invites";
 export * as demo from "./demo";
 export * as trips from "./trips";
 export * as health from "./health";
+export * as voiceNotes from "./voice-notes";

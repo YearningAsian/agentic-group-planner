@@ -422,18 +422,19 @@ Hard constraints:
 - Arrival (previous end + travel) must be no later than slot start + 15 minutes.
 - Group size must be at least `min_group_size`, with at most `max_groups_per_slot` groups per slot.
 - A `together` slot has exactly one group. A pinned slot is fixed.
+- No member visits a place twice in a day: an open slot's choice can't be a place the member visits in another slot, pinned or open. Two pinned slots may share a place.
 
 #### Engines
 
 - **CP-SAT:**
   - Variables: booleans x[m,s,c], plus y[s,c] = "someone attends c in s".
-  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y.
+  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y; for each member and place, at most one x across slots, and none when a pinned slot the member attends holds the place.
   - Objective: scores scaled ×1000 to integers; fairness through z ≤ score_m for every member.
   - Top 3: solve, then add a no-good cut on the assignment pattern and solve again. Time limit per solve = `time_limit_ms ÷ max_plans`.
 - **Enumeration:**
   1. Per slot, list every partition of members into at most 2 groups of at least 2, times each group's candidate choice.
-  2. Prune each slot by dietary, budget, and hours.
-  3. Take the product across slots with the travel check, and keep the top 3 by the same scoring function.
+  2. Prune each slot by dietary, budget, hours, and the member's pinned places.
+  3. Take the product across slots with the travel and repeat checks, and keep the top 3 by the same scoring function. The branch-and-bound estimate skips places a member has already visited on the path, so it stays tight when slots offer the same places.
   - Size: with 4 members and 4 candidates, about 40 choices per open slot, or 64,000 plans across 3 slots, which takes under a second. A `together` slot has one choice per candidate, and a pinned slot has one choice.
   - Limits: 6 members, 3 unpinned slots, 6 candidates. Beyond that, the engine returns `too_large`.
 - **The interface between scoring and the engines:** `scoring.build_score_table(request)` turns the request into a `ScoreTable` (`score_table.py`): utilities, feasibility masks from `rules.py`, travel, prices, budgets, and weights. Both engines read only that table and maximize the one objective, `plan_score`. Neither engine reads the request or computes a score, so they can be built and tested against fixture tables before scoring is finished.
@@ -1796,3 +1797,17 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 - **Dormant migration content, dropped.** Migrations 1–4 created the `votes` and `calls` tables, `agent_runs.trigger_call_id`, and `bookings.call_id`, and their CHECKs allowed the dropped tool names, card types, run trigger, and providers. `20260926063958_journey_pivot_cleanup.sql` drops those tables and columns and narrows each CHECK to the §3.1 values; `web/tests/db/pivot-cleanup.test.ts` pins it.
 - **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
 - **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.
+
+### 11.7 Interpretations while building the backend (2026-09-26)
+
+1. **A candidate's price and visit length live in `places.raw`.** §3.2 has no price column on `places`, and §2.2's `Candidate` needs `price_cents` per person. The seed writes `raw.price_cents` and `raw.duration_min` from `saturday-trip.json`, and `buildPlanRequest` offers only places with a known price, so no price is invented. A real provider's places need a price source before they can be candidates (AI-S04).
+2. **The end of a run is a write function.** `finish_agent_run` (§3.4) writes the run's one message and its final status together.
+3. **Members' messages link only within their trip.** The insert policy requires `item_id` and `reply_to_message_id` on the message's own trip (migration `20260926071157`).
+4. **A run at the step cap fails** (§4.4), on both the live and the replay provider, rather than ending with empty text.
+5. **`Slot.category` in the plan request.** §2.2's dietary rule applies to "food slots", but the request had no way to say which slots are food. `Slot` has an optional `category` (the `place_category` values), and `food` and `dessert` count as food.
+6. **Repeats fixed; the §10.2 target plan is dropped (AI-208, re-scoped 2026-09-26).** Decision: don't tune weights for one fixture. The engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). The seeded test checks invariants (feasibility, dietary rules, no repeats, budgets, solve time), not an exact plan. The evidence that led here: the engines put everyone at Piedmont Park for both the morning and the afternoon. A member's open choice can no longer revisit a place (§2.2 hard constraints), so the seeded top plan is now the High Museum, Ponce City Market, then Piedmont Park, all together. Tuning alone can't reach the target plan (2026-09-26 search over `split_penalty`, the `cost` weight, the aquarium's tags, the members' interests, and the zoo's price):
+   - A split can't pay for itself at `split_penalty` 0.3. A member's score is their mean slot value ÷ the weight span (2.0), so over 3 slots, even a perfect split adds at most about 0.17 per member. Splits first appear at 0.05.
+   - Scoring has no time of day, so "aquarium, then the park" competes with "the park, then the zoo or the aquarium". The aquarium is the slot's most expensive option, so its cost term is always −0.6, more than most interest matches earn. Persons 1 and 4 gain nothing from it over the free, higher-rated park, and Zoo Atlanta (animals and outdoors, $33) beats it for Persons 2 and 3.
+   - The target appears only when all four members list an interest the aquarium is tagged with and the `cost` weight drops to 0.1, which would make the planner nearly ignore prices.
+   
+   The options were (a) a budget-relative cost term, (b) lower `split_penalty` and `cost` defaults, and (c) changing the target. (a) stays a possible later improvement; none of them blocks work now.

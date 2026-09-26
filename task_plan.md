@@ -53,6 +53,18 @@ Started 2026-09-26. Docs only; no implementation. The end goal is now five steps
 - [x] `planning/tools/check_plan.py`: `.cursor/` added to the ignored tops, mirroring the working-tree `.gitignore`.
 - [x] Verification: `python planning/tools/check_plan.py` → 127 tasks (83 Must, 44 Should), all checks passed.
 
+## 6. Backend and data recovery (2026-09-26, Windows)
+
+`planning/plan.md` remains the task authority; proof and Frontend impact go in `planning/progress.md`.
+
+- [x] Fetch remote state, inspect PRs and worktrees, and preserve interrupted local money work in a separate WIP commit.
+- [x] Fast-forward local `testing` and `colin-data-backend` to their remotes; PRs #1 and #2 are already merged.
+- [x] Fold the four sibling worktrees back into branches, push them, and delete the folders.
+- [x] Diagnose the platform-sensitive CP-SAT time-limit test (fixed in `c69a34b`).
+- [ ] Review PR #3 independently, resolve substantive findings, rerun applicable gates, and merge into `testing` only when reviewed and green.
+- [ ] Continue the next uncompleted backend/data task from the plan with RED → GREEN, audit, commit, PR, and merge loop.
+- [x] Record the database tests blocked by the unavailable local Docker engine; CI's database job covers them.
+
 ## 5. Backend and data session (2026-09-26)
 
 The per-feature log, with proofs and blockers, is in `planning/progress.md`.
@@ -60,5 +72,5 @@ The per-feature log, with proofs and blockers, is in `planning/progress.md`.
 - [x] Recovery: clean tree; AI-104 (`feat/agent-llm-provider`) merged into `colin-data-backend`; local Supabase stack up.
 - [x] Feature 1: code aligned with the journey pivot (AI-102, AI-103, VO-103 re-verified; cleanup migration).
 - [x] Feature 2: agent context and runner (AI-105, AI-106).
-- [ ] Feature 3: send-message route and the `plan_day` slice (FE-105, AI-107).
-- [ ] Feature 4: seed script and health route (VO-105, VO-107).
+- [x] Feature 3: send-message route and the `plan_day` slice (FE-105, AI-107); AI-212 too.
+- [ ] Feature 4: seed script (VO-105, done) and health route (VO-107).

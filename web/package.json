@@ -11,7 +11,9 @@
     "test": "vitest run --project unit --project unit-dom",
     "test:db": "vitest run --project db",
     "test:stripe": "vitest run --project stripe",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "seed:demo": "tsx --env-file-if-exists=.env.local scripts/demo/seed.ts",
+    "reset:demo": "tsx --env-file-if-exists=.env.local scripts/demo/reset.ts"
   },
   "dependencies": {
     "@agp/shared": "workspace:*",

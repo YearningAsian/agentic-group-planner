@@ -8,6 +8,6 @@ describe("api barrel", () => {
       .filter(([, value]) => (value as { [Symbol.toStringTag]?: string } | null)?.[Symbol.toStringTag] === "Module")
       .map(([name]) => name)
       .sort();
-    expect(modules).toEqual(["demo", "health", "invites", "itinerary", "mandates", "messages", "profile", "trips"]);
+    expect(modules).toEqual(["demo", "health", "invites", "itinerary", "mandates", "messages", "profile", "trips", "voiceNotes"]);
   });
 });
