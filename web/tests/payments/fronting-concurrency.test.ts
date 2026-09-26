@@ -22,7 +22,9 @@ async function ledger(eventId: string) {
   return data;
 }
 
-const refundsOn = async (intent: string) => (await kit.eventsFor(intent)).filter((e) => e.type === "charge.refunded");
+const refundEventType = kit.provider === "real" ? "refund.created" : "charge.refunded";
+const refundsOn = async (intent: string, waitForOne = false) =>
+  (await kit.eventsFor(intent, waitForOne ? [refundEventType] : [])).filter((e) => e.type === refundEventType);
 
 /** Captured without Person 4; Person 4 then claims and authorizes, but nobody has settled yet. */
 async function readyToSettle(): Promise<MandateScenario & { pi1: string }> {
@@ -65,7 +67,10 @@ describe("fronting concurrency", () => {
       expect(person4Rows.filter((r) => r.status === "captured"), label).toHaveLength(1);
       // A hold that lost the race isn't left authorized.
       expect(person4Rows.map((r) => r.status), label).not.toContain("authorized");
-      expect(await refundsOn(rows.get(`${s.person[0]}:own`)!.stripe_payment_intent_id!), label).toEqual([]);
+      const organizerPi = rows.get(`${s.person[0]}:own`)!.stripe_payment_intent_id!;
+      expect(await refundsOn(organizerPi), label).toEqual([]);
+      // The Events API can lag a refund; Stripe's refund list can't.
+      if (kit.stripe) expect(await kit.stripe.refundsFor(organizerPi), label).toEqual([]);
       return person4Rows;
     };
     const until = async (condition: () => Promise<boolean>) => {
@@ -141,17 +146,18 @@ describe("fronting concurrency", () => {
     ]);
 
     expect(results.map((r) => r.refundedCents).sort((a, b) => a - b)).toEqual([0, 4325]);
-    expect(await refundsOn(s.pi1)).toHaveLength(1);
+    expect(await refundsOn(s.pi1, true)).toHaveLength(1);
+    if (kit.stripe) expect(await kit.stripe.refundsFor(s.pi1)).toEqual([{ id: expect.any(String), amountCents: 4325 }]);
     const rows = await shareRows(s.mandateId);
     expect(rows.get(`${person4}:own`)!.status).toBe("captured");
     expect(rows.get(`${person4}:fronted`)).toMatchObject({ status: "refunded", refunded_cents: 4325 });
   });
 
-  it("a duplicate charge.refunded changes nothing", async () => {
+  it("a duplicate refund event changes nothing", async () => {
     const s = await readyToSettle();
     await settleFrontedShare({ mandateId: s.mandateId, memberId: s.person[3] });
     const before = await shareRows(s.mandateId);
-    const [refunded] = await refundsOn(s.pi1);
+    const [refunded] = await refundsOn(s.pi1, true);
 
     await deliver(refunded!);
     await deliver(refunded!);
@@ -160,7 +166,7 @@ describe("fronting concurrency", () => {
     expect(await shareRows(s.mandateId)).toEqual(before);
   });
 
-  it("charge.refunded handled before the settlement's own update marks the fronted row refunded once", async () => {
+  it("a refund event handled before the settlement's own update marks the fronted row refunded once", async () => {
     const s = await readyToSettle();
     const person4 = s.person[3];
     const real = getPaymentsProvider();
@@ -171,7 +177,7 @@ describe("fronting concurrency", () => {
       parseWebhook: real.parseWebhook.bind(real),
       refund: async (input) => {
         const result = await real.refund(input);
-        for (const event of await refundsOn(input.paymentIntentId)) await deliver(event);
+        for (const event of await refundsOn(input.paymentIntentId, true)) await deliver(event);
         seenByWebhook = (await shareRows(s.mandateId)).get(`${person4}:fronted`)!;
         return result;
       },
@@ -184,6 +190,7 @@ describe("fronting concurrency", () => {
     expect(fronted).toMatchObject({ status: "refunded", refunded_cents: 4325 });
     // The settlement's own conditional update found nothing to change.
     expect(fronted.updated_at).toBe(seenByWebhook!.updated_at);
-    expect(await refundsOn(s.pi1)).toHaveLength(1);
+    expect(await refundsOn(s.pi1, true)).toHaveLength(1);
+    if (kit.stripe) expect(await kit.stripe.refundsFor(s.pi1)).toEqual([{ id: expect.any(String), amountCents: 4325 }]);
   });
 });

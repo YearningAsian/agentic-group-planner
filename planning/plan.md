@@ -1660,11 +1660,12 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** CO-210, CO-212, CO-301, CO-302
 - **Produces:** the Stripe branch of the payments test kit. It creates real test-mode customers with `pm_card_visa`, and reads each PaymentIntent's real events through the Events API. It delivers them to `handleStripeEvent` with signatures from `stripe.webhooks.generateTestHeaderString`, which is how a suite sends a real event twice, or in a different order than Stripe did, on demand.
 - **Done when:**
-  - [ ] `pnpm --filter web test:stripe -- tests/payments` passes. These are the CO-209, CO-210, and CO-212 suites against Stripe test mode (review point 4.3). Each suite also checks Stripe's side:
+  - [x] `pnpm --filter web test:stripe -- tests/payments` passes. These are the CO-209, CO-210, and CO-212 suites against Stripe test mode (review point 4.3). Each suite also checks Stripe's side:
     - `Stripe shows exactly one PaymentIntent per payer for the mandate, even after parallel approvals`
     - `each PaymentIntent's amount_received equals the sum of the rows it pays`
-    - `in the claim-after-capture test, Person 1's PaymentIntent has exactly one refund, for 4200`
+    - `in the claim-after-capture test, Person 1's PaymentIntent has exactly one refund, for 4325` (the $42 share plus the fee it added to the organizer's hold, `frontedShareRefundCents`, ADR 0019; this line said 4200 before fees were passed through)
   - [ ] Check: with `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, one full booking flow and one claim record every real event once in `webhook_events`, all `processed`.
+- **Status:** suites done (2026-09-26); the live-forward check is part of CO-303/CO-304. Proof: `pnpm --filter web test:stripe -- tests/payments` against Stripe test mode and the hosted dev Supabase project → 3 files, 12 passed in 124 s. The kit creates real test customers with `pm_card_visa`, reads each PaymentIntent's events through the Events API (polling until the expected type is listed), and signs deliveries with `stripe.webhooks.generateTestHeaderString`. The fronting race runs five full purchases (about 70 s), so the `stripe` project's timeout is 180 s. `src/test/stripe-payments-kit.test.ts` → 8 passed (the kit's contract, Stripe mocked).
 - **Commit:** `test(payments): concurrency and webhook suites on stripe test mode`
 
 ### M3 · VO

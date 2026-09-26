@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { approveHold } from "@/features/payments/server";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { adminClient, cleanup, testBatch, type TestUser } from "../db/helpers";
-import { claimPlaceholder, mandateRow, mandateScenario, paymentsKit, type ProviderEvent, shareRows } from "./kit";
+import { claimPlaceholder, type MandateScenario, mandateRow, mandateScenario, paymentsKit, type ProviderEvent, shareRows } from "./kit";
 
 const batch = testBatch();
 const kit = paymentsKit();
@@ -51,6 +51,23 @@ afterAll(async () => {
   await cleanup(batch);
 });
 
+/**
+ * Stripe's side of a finished purchase: each payer has exactly one PaymentIntent for the mandate,
+ * it received exactly the given amount, and the rows it pays agree (so the database and Stripe
+ * can't both be wrong the same way).
+ */
+async function expectStripeCaptures(s: MandateScenario, ...expected: [profileId: string, cents: number][]) {
+  const rows = [...(await shareRows(s.mandateId)).values()];
+  for (const [profileId, cents] of expected) {
+    const intents = await kit.stripe!.intentsFor(profileId, s.mandateId);
+    expect(intents, profileId).toEqual([{ id: expect.stringMatching(/^pi_/), amountReceivedCents: cents }]);
+    const paying = rows.filter((row) => row.stripe_payment_intent_id === intents[0]!.id && row.pays_share);
+    expect(paying.length, profileId).toBeGreaterThan(0);
+    expect(paying.every((row) => row.captured_cents !== null), profileId).toBe(true);
+    expect(paying.reduce((sum, row) => sum + row.captured_cents!, 0), profileId).toBe(cents);
+  }
+}
+
 describe("finalize concurrency", () => {
   it("approvals from all three members in parallel produce one booking and one capture per PaymentIntent", async () => {
     const s = await mandateScenario(batch, payers);
@@ -61,6 +78,10 @@ describe("finalize concurrency", () => {
     expect(await bookingCount(s.mandateId)).toBe(1);
     const captures = await capturesByIntent(s.mandateId);
     expect(Object.values(captures)).toEqual([1, 1, 1]);
+    if (kit.stripe) {
+      // Person 4 never claimed, so the organizer's PaymentIntent also pays their fronted share.
+      await expectStripeCaptures(s, [payers[0]!.userId, 8682], [payers[1]!.userId, 4357], [payers[2]!.userId, 4357]);
+    }
   });
 
   it("a duplicate payment_intent.succeeded changes nothing", async () => {
@@ -111,6 +132,16 @@ describe("finalize concurrency", () => {
     expect(rows.get(`${s.person[0]}:own`)).toMatchObject({ status: "captured", captured_cents: 4357 });
     expect(await mandateRow(s.mandateId)).toMatchObject({ status: "captured", final_cents: 4357 * 4 });
     expect(await bookingCount(s.mandateId)).toBe(1);
+    if (kit.stripe) {
+      // The organizer's hold was authorized for 9600 but captures only their own share.
+      await expectStripeCaptures(
+        s,
+        [payers[0]!.userId, 4357],
+        [payers[1]!.userId, 4357],
+        [payers[2]!.userId, 4357],
+        [person4.userId, 4357],
+      );
+    }
   });
 
   it("a late amount_capturable_updated arriving after capture leaves the rows captured", async () => {
@@ -118,7 +149,9 @@ describe("finalize concurrency", () => {
     for (const memberId of s.person.slice(0, 3)) await approveHold({ mandateId: s.mandateId, memberId });
     const before = await shareRows(s.mandateId);
     const intent = before.get(`${s.person[1]}:own`)!.stripe_payment_intent_id!;
-    const authorized = (await kit.eventsFor(intent)).find((e) => e.type === "payment_intent.amount_capturable_updated")!;
+    const authorized = (await kit.eventsFor(intent, ["payment_intent.amount_capturable_updated"])).find(
+      (e) => e.type === "payment_intent.amount_capturable_updated",
+    )!;
 
     await deliver(authorized);
 
