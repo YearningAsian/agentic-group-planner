@@ -19,6 +19,9 @@ Last updated: 2026-09-26.
   - [x] `remember_preference` tool (requester only; no card)
   - [ ] CI db tests green (`person-preferences.test.ts`)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
+  - [x] migration + `applyPlan` replan: time shifts keep status; voting/decided slots superseded; booked refused
+  - [x] `plan_day` accepts `mode: "replan"`; seeded replan optimizer test
+  - [ ] CI green (`replan.test.ts`, `test_seeded_replan.py`); `update_item` `request_alternatives` still points at replan
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
   - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
   - [ ] CI db test green (`after-claim.test.ts`); card component is frontend
