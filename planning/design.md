@@ -552,6 +552,7 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 | POST | `/api/webhooks/stripe` | Stripe signature | raw | `200` | CO |
 | POST | `/api/demo/:action` | dev mode, organizer session, and `x-demo-token` | action: `reset` \| `price-change` (Should); development tooling only | `{ ok, detail }` | VO |
 | GET | `/api/health` | none | — | `{ web, db, optimizer }` | VO |
+| GET | `/api/cron/expire-mandates` | `Authorization: Bearer $CRON_SECRET` (Vercel cron) | — | `{ expired: uuid[], failed: uuid[] }` | CO ([ADR 0020](adr/0020-cron-mandate-expiry.md)) |
 
 Agent runs start inside `/api/messages` through Next.js `after()`. There is no public "run the agent" route. Routes that start runs set `maxDuration = 300`.
 
@@ -1605,6 +1606,7 @@ Card catalog:
 | `ORS_API_KEY` | server | when real | |
 | `STAYS_PROVIDER` | server | yes | `real` \| `mock` (default `mock`) |
 | `DUFFEL_ACCESS_TOKEN` | server | when real | test token (`duffel_test_`) |
+| `CRON_SECRET` | server | on Vercel | at least 16 characters; Vercel cron sends it as a bearer token. Unset, the cron routes refuse every call |
 | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN` | public, server | no | |
 | `SENTRY_AUTH_TOKEN` | build | no | source maps |
 

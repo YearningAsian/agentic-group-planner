@@ -53,6 +53,10 @@ const serverSchema = z.object({
     .refine((token) => token.startsWith("duffel_test_"), "must be a test token (duffel_test_)")
     .optional(),
 
+  // Vercel sends it as `Authorization: Bearer <CRON_SECRET>` on scheduled calls. Unset, the cron
+  // routes refuse every call.
+  CRON_SECRET: z.string().min(16, "must be at least 16 characters").optional(),
+
   NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
   SENTRY_DSN: z.url().optional(),
   SENTRY_AUTH_TOKEN: secret,

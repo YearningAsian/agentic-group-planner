@@ -95,6 +95,12 @@ describe("server env", () => {
     expect(problems({ ...real, STRIPE_SECRET_KEY: "sk_test_abc" })).toEqual([]);
   });
 
+  it("CRON_SECRET is optional, and when set it's at least 16 characters", () => {
+    expect(problems(buildProfile)).toEqual([]);
+    expect(problems({ ...buildProfile, CRON_SECRET: "too-short" })).toEqual(["CRON_SECRET"]);
+    expect(parseServerEnv({ ...buildProfile, CRON_SECRET: "a-long-enough-cron-secret" }).CRON_SECRET).toBe("a-long-enough-cron-secret");
+  });
+
   it("requires DEMO_ADMIN_TOKEN only in dev mode", () => {
     expect(problems({ ...buildProfile, DEMO_ADMIN_TOKEN: undefined })).toEqual(["DEMO_ADMIN_TOKEN"]);
     const production = { ...buildProfile, NEXT_PUBLIC_DEMO_MODE: "false", DEMO_ADMIN_TOKEN: undefined };

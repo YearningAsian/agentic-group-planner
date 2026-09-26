@@ -12,9 +12,12 @@ const LIVE_HOLDS = ["awaiting_member", "pending", "authorized"];
  * (design §4.2). The status flips in one conditional update, so an approval racing the expiry
  * either wins open → authorized first or finds the mandate cancelled. An authorization still in
  * flight sees its rows released and releases its own PaymentIntent. Expired mandates whose release
- * failed earlier are retried, so running this twice changes nothing more.
+ * failed earlier are retried, so running this twice changes nothing more. One mandate's failed
+ * release is reported in `failed` and doesn't stop the others.
  */
-export async function expireMandates(deps: { payments?: PaymentsProvider; now?: Date } = {}): Promise<{ expired: string[] }> {
+export async function expireMandates(
+  deps: { payments?: PaymentsProvider; now?: Date } = {},
+): Promise<{ expired: string[]; failed: string[] }> {
   const admin = getAdminClient();
   const payments = deps.payments ?? getPaymentsProvider();
   const now = (deps.now ?? new Date()).toISOString();
@@ -36,10 +39,16 @@ export async function expireMandates(deps: { payments?: PaymentsProvider; now?: 
   if (leftoverError) throw readError(leftoverError, "the holds");
 
   const mandateIds = [...new Set([...cancelled.map((m) => m.id), ...unreleased.map((r) => r.mandate_id)])];
+  const failed: string[] = [];
   for (const mandateId of mandateIds) {
-    const { data: rows, error: rowsError } = await admin.from("payment_holds").select(HOLD_COLUMNS).eq("mandate_id", mandateId);
-    if (rowsError) throw readError(rowsError, "the holds");
-    await releaseCancelledHolds(admin, payments, mandateId, rows);
+    try {
+      const { data: rows, error: rowsError } = await admin.from("payment_holds").select(HOLD_COLUMNS).eq("mandate_id", mandateId);
+      if (rowsError) throw readError(rowsError, "the holds");
+      await releaseCancelledHolds(admin, payments, mandateId, rows);
+    } catch {
+      // Its rows stay live, so the next run finds it through `unreleased` and retries.
+      failed.push(mandateId);
+    }
   }
-  return { expired: cancelled.map((m) => m.id) };
+  return { expired: cancelled.map((m) => m.id), failed };
 }
