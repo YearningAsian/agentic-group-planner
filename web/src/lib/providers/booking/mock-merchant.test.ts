@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { NotBuiltError } from "@/lib/not-built";
-import { getBookingProvider } from "./index";
+import { getBookingProvider, selectStaysProvider } from "./index";
 import { createMockMerchant } from "./mock-merchant";
 
 const placeId = "00000000-0000-4000-8000-0000000000c1";
@@ -63,8 +63,17 @@ describe("mock merchant", () => {
     await expect(m.simulatePriceChange({ quoteId: "q_mock_nope", newTotalCents: 1 })).rejects.toMatchObject({ code: "invalid_input" });
   });
 
-  it("getBookingProvider returns the mock merchant for tickets only", () => {
+  it("getBookingProvider returns the mock merchant for tickets, and has no restaurant provider", () => {
     expect(getBookingProvider("tickets")).toBe(getBookingProvider("tickets"));
-    expect(() => getBookingProvider("stays")).toThrow(NotBuiltError);
+    expect(() => getBookingProvider("restaurant")).toThrow(NotBuiltError);
+  });
+
+  it("selectStaysProvider picks the hotel mock or Duffel from STAYS_PROVIDER", async () => {
+    const mock = selectStaysProvider({ STAYS_PROVIDER: "mock" });
+    await expect(mock.quote({ kind: "tickets", placeId, optionId: aquarium, partySize: 1, startsAt })).rejects.toMatchObject({
+      message: "The mock merchant sells stays only.",
+    });
+    expect(() => selectStaysProvider({ STAYS_PROVIDER: "real" })).toThrow(/DUFFEL_ACCESS_TOKEN/);
+    expect(selectStaysProvider({ STAYS_PROVIDER: "real", DUFFEL_ACCESS_TOKEN: "duffel_test_x" }).quote).toBeTypeOf("function");
   });
 });

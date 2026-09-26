@@ -11,6 +11,7 @@ export const TOOL_GUIDE: Record<ToolName, string> = {
   search_places: "find venues when the group asks for something the itinerary's options don't cover.",
   summarize: "summarize the day, one member's schedule, or the next stop.",
   propose_purchase: "propose buying tickets for a decided item. The server quotes and splits; each member approves their own share.",
+  remember_preference: "save what the person who asked said about themselves (diet, interest, or a short note). Never for another member; it persists across trips.",
 };
 
 /**

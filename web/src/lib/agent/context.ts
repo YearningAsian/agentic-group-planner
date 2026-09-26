@@ -8,6 +8,8 @@ import { AGENT_INSTRUCTIONS } from "./prompt";
 
 /** How much chat history the model sees (design §2.1). */
 export const CONTEXT_MESSAGES = 30;
+/** How many remembered notes per member the model sees, newest first kept. */
+export const CONTEXT_NOTES = 5;
 
 /** Everything the model's context is built from, read in one pass. Pure input to `renderContext`. */
 export interface TripSnapshot {
@@ -21,6 +23,8 @@ export interface TripSnapshot {
     budget_cents: number | null;
     dietary: string[];
     interests: string[];
+    /** Notes from the person's `person_preferences`, oldest first; absent for placeholders. */
+    remembered?: string[];
   }[];
   /** Open items only: superseded and cancelled items are history, not plan. */
   items: {
@@ -91,7 +95,10 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
     ];
     const budget = m.budget_cents === null ? "no budget set" : `budget ${usd(m.budget_cents)}`;
     const interests = m.interests.length > 0 ? ` · likes ${m.interests.join(", ")}` : "";
-    return `${handleOf(m.id)} ${m.display_name}${tags.length > 0 ? ` (${tags.join(", ")})` : ""} · ${budget}${interests}`;
+    // Quoted, because a note is the person's own words rather than an instruction.
+    const notes = (m.remembered ?? []).slice(-CONTEXT_NOTES).map((n) => JSON.stringify(n));
+    const remembered = notes.length > 0 ? ` · remembers ${notes.join("; ")}` : "";
+    return `${handleOf(m.id)} ${m.display_name}${tags.length > 0 ? ` (${tags.join(", ")})` : ""} · ${budget}${interests}${remembered}`;
   });
 
   const items = [...snapshot.items].sort((a, b) => handleOf(a.id).localeCompare(handleOf(b.id), "en", { numeric: true }));
@@ -151,6 +158,15 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
   return { system, messages, handles: table };
 }
 
+/** The `text` of each `person_preferences.notes` entry, skipping anything malformed. */
+function noteTexts(notes: unknown): string[] {
+  if (!Array.isArray(notes)) return [];
+  return notes.flatMap((n) => {
+    const text = (n as { text?: unknown } | null)?.text;
+    return typeof text === "string" && text.trim() !== "" ? [text.trim()] : [];
+  });
+}
+
 /** Reads what `renderContext` needs for one trip with the admin client. */
 export async function loadTripSnapshot(admin: AdminClient, tripId: string): Promise<TripSnapshot> {
   const fail = (what: string, cause: unknown) =>
@@ -158,7 +174,7 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
 
   const [trip, members, constraints, items, attendees, messages] = await Promise.all([
     admin.from("trips").select("id, title, city, trip_date, timezone").eq("id", tripId).single(),
-    admin.from("trip_members").select("id, display_name, role, status, sort_order").eq("trip_id", tripId),
+    admin.from("trip_members").select("id, profile_id, display_name, role, status, sort_order").eq("trip_id", tripId),
     admin.from("member_constraints").select("member_id, budget_cents, dietary, interests").eq("trip_id", tripId),
     admin
       .from("itinerary_items")
@@ -192,11 +208,20 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
           .in("item_id", itemIds);
   if (options.error) throw fail("options", options.error);
 
+  const profileIds = members.data.flatMap((m) => (m.profile_id ? [m.profile_id] : []));
+  const preferences =
+    profileIds.length === 0
+      ? { data: [], error: null }
+      : await admin.from("person_preferences").select("profile_id, notes").in("profile_id", profileIds);
+  if (preferences.error) throw fail("remembered preferences", preferences.error);
+
   const constraintsByMember = new Map(constraints.data.map((c) => [c.member_id, c]));
+  const notesByProfile = new Map(preferences.data.map((p) => [p.profile_id, noteTexts(p.notes)]));
   return {
     trip: trip.data,
-    members: members.data.map((m) => {
+    members: members.data.map(({ profile_id, ...m }) => {
       const c = constraintsByMember.get(m.id);
+      const remembered = profile_id ? notesByProfile.get(profile_id) : undefined;
       return {
         ...m,
         role: m.role as MemberRole,
@@ -204,6 +229,7 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
         budget_cents: c?.budget_cents ?? null,
         dietary: c?.dietary ?? [],
         interests: c?.interests ?? [],
+        ...(remembered && remembered.length > 0 ? { remembered } : {}),
       };
     }),
     items: items.data.map((i) => ({

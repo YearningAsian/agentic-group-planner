@@ -29,6 +29,8 @@ export interface BookingProvider {
     partySize: number;
     startsAt: string;
     contactName: string;
+    /** The lead guest; stays need one, tickets don't. */
+    guest?: { givenName: string; familyName: string; email: string; phoneNumber: string };
     idempotencyKey: string;
   }): Promise<BookResult>;
   cancel(input: { providerRef: string; idempotencyKey: string }): Promise<{ status: "cancelled" }>;

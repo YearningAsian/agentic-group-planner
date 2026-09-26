@@ -4,7 +4,7 @@
 
 **Goal:** Build the five core user flows in [design §5](design.md#5-core-user-flows): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. Build the development and test tooling around them.
 
-**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 5 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
+**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 6 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
 
 **Tech stack:** pinned in [`stack.md`](stack.md), and re-verified before installing.
 
@@ -399,7 +399,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `startAgentRun(runId)`, exported from `lib/agent/index.ts` as a stub.
   - Stub `card.tsx` files that render a plain `<article>` naming the card type. The M1 slice passes with the stub plan card.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
+  - [x] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
 - **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0. Re-verified 2026-09-26 after the journey pivot: the registry lists 5 tools, `cards.tsx` maps 9 card types, the gallery, recap, and voice features and the grounding, image, segmentation, and voice providers are gone, and `features/profile` exists. `pnpm --filter web test src/lib/tools` → 4 passed (RED first: 7 tools and 11 card types).
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
@@ -1043,13 +1043,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 
 #### AI-208 · Seeded-trip plan test: invariants, not a pinned plan · Should
 
-- **Files:** `optimizer/tests/test_seeded.py`, `web/scripts/demo/fixtures/mock-plan.json`
+- **Files:** `optimizer/tests/test_seeded.py`
 - **Depends on:** AI-206, AI-207
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_seeded.py` passes:
-    - `test_seeded_trip_options`: on the seeded trip, the engine is `cp_sat`, `solve_ms` < 2000, it returns 2–3 distinct ranked options, and every option is feasible: each member's food slots meet their dietary rules, nobody visits a place twice, and every option fits each member's budget.
-    - `test_mock_plan_matches_engine`: `mock-plan.json`'s assignments equal the engine's rank-1 plan.
-- **Status:** re-scoped (2026-09-26). The old target pinned one exact plan (an afternoon split between the High Museum and Piedmont Park), and reaching it meant tuning weights for one fixture (design §11.7, item 6). Decision: the engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). Done: no member visits a place twice (`feat(optimizer): stop a member visiting a place twice in a day`; `pytest tests/test_repeats.py` → 14 passed, RED first: 11 failed). The old test on branch `test/seeded-optimizer` is superseded.
+  - [x] `cd optimizer && pytest tests/test_seeded.py` passes:
+    - `test_seeded_trip_options`: on the seeded trip, the engine is `cp_sat`, `solve_ms` < 2000, it returns 2–3 distinct ranked options, and every option is feasible: everyone is seated in every slot, a together slot has one group, each member's food slots meet their dietary rules, nobody visits a place twice, and every option fits each member's budget.
+    - `test_mock_plan_is_feasible`: `mock-plan.json`'s recorded plan (the demo's split afternoon) breaks none of those rules.
+- **Status:** done, re-scoped (2026-09-26). The old target pinned one exact plan (an afternoon split between the High Museum and Piedmont Park), and reaching it meant tuning weights for one fixture (design §11.7, item 6). Decision: the engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). The engine's options are now all together (the museum and the park in either order, or the park then the zoo), so the recorded mock plan is no longer its rank 1; it stays as a feasible option Muse may choose, which keeps the split-sibling flow covered. Proof: `pytest tests/test_seeded.py` → 3 passed; a hand-broken plan (dietary miss, repeated place, over budget, missing member, split together-slot) fails the checker each time; whole optimizer 74 passed, ruff clean. Also done: no member visits a place twice (`pytest tests/test_repeats.py` → 14 passed). The old test on branch `test/seeded-optimizer` is superseded. Local solve times ranged from 193 ms warm to 3.4 s cold on a low-memory machine; CI decides whether the 2 s bound holds.
 - **Commit:** `test(optimizer): check the seeded trip's options`
 
 #### AI-209 · `plan_day`, full version · Must
@@ -1535,7 +1535,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** AI-212
 - **Done when:**
   - [x] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
-    - `the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts`
+    - `the system prompt lists every tool, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
   - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts (plan, collaborate, and book) calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
 - **Status:** prompt done; real-model check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/prompt.test.ts` → 2 passed (RED first: no per-tool guidance in the prompt). `TOOL_GUIDE` is keyed by `ToolName`, so a new tool without guidance fails the type check. **Blocked:** the 5-of-5 check on the deployed app needs `META_MODEL_API_KEY` and a deploy.
@@ -1922,22 +1922,23 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S05 · Hotels through Duffel Stays · Must
 
-- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,stays-mock.ts,stays-mock.test.ts,index.ts}`, `web/src/lib/money/decimal.ts`
+- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,mock-merchant.ts,index.ts}`, `packages/shared/src/money/decimal.ts`
 - **Depends on:** CO-204. The `real` check also needs Duffel Stays access on the account and a `duffel_test_` token.
 - **Produces:** `@duffel/api` 4.30.0 (server-only) behind the `BookingProvider` interface. Duffel's flow is search → fetch all rates → quote → booking; ours maps `optionId` to Duffel's `rate_id`, `quote()` to `stays.quotes.create(rate_id)`, `book()` to `stays.bookings.create({ quote_id, guests, email, phone_number })`, and `cancel()` to `stays.bookings.cancel(id)`. Duffel sends money as decimal strings (`total_amount`), which are parsed to integer cents without floats. Every call goes through `withPolicy`, because the client has no timeout setting. A booking isn't retried blindly: after an error, `book()` looks the booking up by quote before trying again. Search (`stays.search` by coordinates and radius) is a tool for Muse, not part of the adapter.
 - **Done when:**
-  - [ ] `pnpm --filter web test src/lib/providers/booking src/lib/money` passes: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
+  - [x] `pnpm --filter web test src/lib/providers/booking` and `pnpm --filter @agp/shared test src/money/decimal.test.ts` pass: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
   - [ ] Check: with `STAYS_PROVIDER=real` and a test token, a Duffel test property quotes and books.
-- **Status:** unit work can start now; the `real` check is blocked on the token and Stays access.
+- **Status:** adapter done (2026-09-26); the `real` check is blocked on a `duffel_test_` token and Stays access (sandbox only — live tokens are refused by the env loader, same rule as Stripe `sk_test_`). Proof: `stays-real.test.ts` → 16 passed after review fixes (paginate via `listWithGenerator`, re-find before reporting failed, map 401/403 to `internal`, refuse non-zero `due_at_accommodation_amount`); `mock-merchant.test.ts` → 6 passed; `decimal.test.ts` → 17 passed; typecheck and lint clean. The hotel mock is the mock merchant with `kind: "stays"`. Duffel's Stays booking has no idempotency key, so `book()` tags `metadata` with ours, scans every booking page before creating and again (with backoff) after an ambiguous failure; a create is never retried. Not wired yet: `create_mandate` and `finalizeMandate` still ask for `tickets`, and a stays mandate needs a lead guest's email and phone.
 - **Commit:** `feat(booking): stays through duffel`
 
 #### AI-217 · Remember each person's preferences · Must
 
-- **Files:** `supabase/migrations/<timestamp>_person_preferences.sql`, `web/src/lib/tools/remember-preference/tool.ts`, `web/src/lib/agent/context.ts`, `web/tests/db/person-preferences.test.ts`
+- **Files:** `supabase/migrations/20260926130000_person_preferences.sql`, `web/src/lib/tools/remember-preference/tool.ts`, `web/src/lib/agent/context.ts`, `web/tests/db/person-preferences.test.ts`
 - **Depends on:** AI-209, VO-220
-- **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, a budget style, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
+- **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
+- **Status:** done except CI db proof (2026-09-26). Done: migration + own-row RLS + join/claim trigger; `loadTripSnapshot` / `renderContext` quote notes; `remember_preference` tool (requester only, merges into trip constraints, no card); tool_name CHECK widened. Proof: shared 65, `remember-preference/tool.test.ts` → 4 passed, registry and prompt cover 6 tools; typecheck and lint clean. Open: `person-preferences.test.ts` green in CI (Docker down locally).
 - **Commit:** `feat(agent): remember each person's preferences`
 
 ---

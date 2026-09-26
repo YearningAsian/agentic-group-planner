@@ -7,14 +7,17 @@ Last updated: 2026-09-26.
 ## Direction
 
 - The optimizer returns feasible, ranked options. Muse picks one and explains it from the conversation and each person's remembered preferences. Don't tune weights for one fixture.
-- Hotels go through Duffel Stays (`@duffel/api`); tickets stay on the mock merchant.
+- Hotels go through Duffel Stays (`@duffel/api`); tickets stay on the mock merchant. Stripe and Duffel stay in **test/sandbox** only (`sk_test_`, `duffel_test_`); live keys are refused by the env loader.
 - Money is integer cents, statuses only move forward, and the agent proposes while a person approves.
 
 ## Next
 
+- [ ] Stays mandates: `create_mandate` and `finalizeMandate` use `getBookingProvider("stays")` for hotels, with a lead guest's email and phone (test-mode Duffel only: `duffel_test_`)
+- [ ] Muse tool `search_stays`: Duffel `stays.search` by the trip's coordinates (sandbox), results saved as places with rate options
 - [ ] AI-217: remember each person's preferences across trips, and feed them to Muse
-- [ ] CO-S05: Duffel Stays booking adapter plus a stays mock (unit tests first; the live check needs a token)
-- [ ] AI-208: seeded-trip test checks invariants, not an exact plan
+  - [x] migration + RLS + join trigger; agent context quotes remembered notes
+  - [x] `remember_preference` tool (requester only; no card)
+  - [ ] CI db tests green (`person-preferences.test.ts`)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
 - [ ] CO-S04: expire open mandates
@@ -42,6 +45,9 @@ From the PR #3 review. Mock payments are unaffected.
 
 ## Done (recent)
 
+- [x] CO-S05 review fixes: paginate booking lookup, map 401/403 to `internal`, re-find before failed, refuse hotel-arrival fees (test tokens only)
+- [x] AI-208: seeded-trip test checks that every option is feasible, not one exact plan
+- [x] CO-S05: Duffel Stays booking adapter (`@duffel/api` 4.30.0) and the hotel mock; live check waits on a `duffel_test_` token
 - [x] CO-301: Stripe test-mode provider
 - [x] CO-209: late holds released only when no row pays a share
 - [x] No member visits a place twice in a day (both engines)

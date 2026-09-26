@@ -74,6 +74,17 @@ describe("renderContext", () => {
     expect(handles).toMatchObject({ M1: p1, M2: p2, M3: p3, M4: p4 });
   });
 
+  it("lists what the planner remembers about a member, newest five, quoted", () => {
+    const notes = ["a", "b", "hates early starts", "loves street food", "prefers museums", "walks slowly"];
+    const members = snapshot().members.map((m) => (m.id === p2 ? { ...m, remembered: notes } : m));
+    const { system } = renderContext(snapshot({ members }), p1);
+
+    expect(system).toContain(
+      'M2 Person 2 (vegetarian) · budget $80 · remembers "b"; "hates early starts"; "loves street food"; "prefers museums"; "walks slowly"',
+    );
+    expect(system).toContain("M1 Person 1 (organizer) · budget $80\n");
+  });
+
   it("renders items in the trip's time zone, with status, the chosen place, and options", () => {
     const { system, handles } = renderContext(snapshot(), p1);
 

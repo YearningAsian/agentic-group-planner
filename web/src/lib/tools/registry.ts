@@ -6,12 +6,14 @@ import { planDayTool } from "./plan-day/tool";
 import { updateItemTool } from "./update-item/tool";
 import { summarizeTool } from "./summarize/tool";
 import { proposePurchaseTool } from "./propose-purchase/tool";
+import { rememberPreferenceTool } from "./remember-preference/tool";
 
-/** The agent's 5 tools, keyed by name. The runner hands exactly these to the model. */
+/** The agent's tools, keyed by name. The runner hands exactly these to the model. */
 export const toolRegistry = {
   search_places: searchPlacesTool,
   plan_day: planDayTool,
   update_item: updateItemTool,
   summarize: summarizeTool,
   propose_purchase: proposePurchaseTool,
+  remember_preference: rememberPreferenceTool,
 } satisfies Record<ToolName, ToolDefinition>;

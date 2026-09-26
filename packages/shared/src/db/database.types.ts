@@ -803,6 +803,44 @@ export type Database = {
           },
         ]
       }
+      person_preferences: {
+        Row: {
+          created_at: string
+          dietary: string[]
+          interests: string[]
+          notes: Json
+          profile_id: string
+          seed_batch: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dietary?: string[]
+          interests?: string[]
+          notes?: Json
+          profile_id: string
+          seed_batch?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dietary?: string[]
+          interests?: string[]
+          notes?: Json
+          profile_id?: string
+          seed_batch?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_preferences_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       places: {
         Row: {
           address: string | null
