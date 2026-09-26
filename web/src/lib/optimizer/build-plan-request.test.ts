@@ -313,6 +313,19 @@ describe("buildPlanRequest", () => {
     expect(buildPlanRequest(input).slots[0]!.candidates.map((c) => c.place_id)).toEqual([rate(1, {}).id]);
   });
 
+  it("matches a Duffel rate to an evening check-in by the trip's local date", () => {
+    // 9 pm in New York on October 3 is 01:00Z on October 4.
+    const input = syntheticTrip([{ category: "lodging", starts_at: "2026-10-04T01:00:00Z", ends_at: "2026-10-05T15:00:00Z" }]);
+    input.timezone = "America/New_York";
+    const itemId = input.items[0]!.id;
+    input.places = [{
+      id: "00000000-0000-4000-8000-000000000451", name: "Hotel", category: "lodging", rating: 4,
+      tags: [], dietary_tags: [], hours: null,
+      raw: { price_cents: 4000, rate_id: "rat_1", item_id: itemId, check_in_date: "2026-10-03", check_out_date: "2026-10-05", guests: 2 },
+    }];
+    expect(buildPlanRequest(input).slots[0]!.candidates.map((c) => c.place_id)).toEqual(["00000000-0000-4000-8000-000000000451"]);
+  });
+
   it("the committed request fixtures equal buildPlanRequest on saturday-trip.json", async () => {
     const built = {
       "saturday-initial.json": buildPlanRequest(await saturdayInitial()),

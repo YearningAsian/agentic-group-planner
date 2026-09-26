@@ -64,6 +64,58 @@ describe("hotel search", () => {
     expect(selectStaysSearch({ STAYS_PROVIDER: "mock" }).id).toBe("stays_mock");
   });
 
+  it("one result's failure skips that hotel instead of discarding the others", async () => {
+    const hotel = (id: string, rateId: string) => ({
+      id, check_in_date: "2026-10-03", check_out_date: "2026-10-05", expires_at: "2026-10-01T15:00:00Z",
+      guests: [{ type: "adult" }],
+      accommodation: { id: `acc_${id}`, name: `Hotel ${id}`, rating: 4,
+        location: { geographic_coordinates: { latitude: -24.38, longitude: -128.32 }, address: { line_one: "1 Test Road" } },
+        rooms: [{ rates: [{ id: rateId, total_amount: "100.00", total_currency: "USD", payment_type: "pay_now",
+          available_payment_methods: ["balance"], due_at_accommodation_amount: "0.00", loyalty_programme_required: false,
+          expires_at: "2026-10-01T14:00:00Z" }] }] },
+    });
+    const client = {
+      search: async () => ({ data: { results: [hotel("srr_1", "rat_1"), hotel("srr_2", "rat_2")] } }),
+      searchResults: { fetchAllRates: async (id: string) => {
+        if (id === "srr_1") throw Object.assign(new Error("result no longer available"), { status: 422 });
+        return { data: hotel("srr_2", "rat_2") };
+      } },
+    };
+    const search = createDuffelStaysSearch({ client: client as never, now: () => Date.parse("2026-09-26T12:00:00Z") });
+    const offers = await search.search({ near: { lat: -24.38, lng: -128.32 }, checkIn: "2026-10-03", checkOut: "2026-10-05", guests: 1, maxResults: 2 });
+    expect(offers.map((o) => o.rateId)).toEqual(["rat_2"]);
+  });
+
+  it("an access error stops the search as unavailable, not retryable", async () => {
+    const client = {
+      search: async () => { throw Object.assign(new Error("forbidden"), { status: 403 }); },
+      searchResults: { fetchAllRates: async () => ({ data: {} }) },
+    };
+    const search = createDuffelStaysSearch({ client: client as never });
+    await expect(search.search({ near: { lat: 0, lng: 0 }, checkIn: "2026-10-03", checkOut: "2026-10-05", guests: 1, maxResults: 1 }))
+      .rejects.toMatchObject({ code: "provider_unavailable", retryable: false });
+  });
+
+  it("a request Duffel rejects outright isn't retryable", async () => {
+    const client = {
+      search: async () => { throw Object.assign(new Error("stay too long"), { status: 422 }); },
+      searchResults: { fetchAllRates: async () => ({ data: {} }) },
+    };
+    const search = createDuffelStaysSearch({ client: client as never });
+    await expect(search.search({ near: { lat: 0, lng: 0 }, checkIn: "2026-10-03", checkOut: "2026-10-05", guests: 1, maxResults: 1 }))
+      .rejects.toMatchObject({ retryable: false });
+  });
+
+  it("expands at most twice as many results as it needs", async () => {
+    const results = Array.from({ length: 6 }, (_, i) => ({ id: `srr_${i}`, accommodation: {
+      location: { geographic_coordinates: { latitude: -24.38, longitude: -128.32 } } } }));
+    const fetchAllRates = vi.fn(async () => { throw Object.assign(new Error("gone"), { status: 404 }); });
+    const client = { search: async () => ({ data: { results } }), searchResults: { fetchAllRates } };
+    const search = createDuffelStaysSearch({ client: client as never });
+    await search.search({ near: { lat: -24.38, lng: -128.32 }, checkIn: "2026-10-03", checkOut: "2026-10-05", guests: 1, maxResults: 1 });
+    expect(fetchAllRates).toHaveBeenCalledTimes(2);
+  });
+
   it("does not cache a rate with an invalid expiry", async () => {
     const result = {
       id: "srr_1", check_in_date: "2026-10-03", check_out_date: "2026-10-05", expires_at: "2026-10-01T15:00:00Z",

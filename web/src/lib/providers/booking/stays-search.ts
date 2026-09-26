@@ -20,7 +20,8 @@ export interface StayOffer {
   address: string;
   lat: number;
   lng: number;
-  rating: number;
+  /** Null when the provider has no rating for the hotel, rather than zero stars. */
+  rating: number | null;
   tags: string[];
   /** For every night of the stay, one guest's even share. */
   pricePerGuestCents: number;
@@ -107,13 +108,24 @@ function eligibleRate(result: DuffelSearchResult, now: number) {
   }).sort((a, b) => a.cents - b.cents)[0];
 }
 
+/** An HTTP status from a Duffel error, whichever shape it arrived in. */
+function statusOf(error: unknown): number | undefined {
+  if (error instanceof DuffelError) return error.status ?? error.meta?.status;
+  const status = (error as { status?: unknown; meta?: { status?: unknown } } | null)?.status ?? (error as { meta?: { status?: unknown } } | null)?.meta?.status;
+  return typeof status === "number" ? status : undefined;
+}
+
+const accessDenied = (error: unknown) => statusOf(error) === 401 || statusOf(error) === 403;
+
+/** Only a 429, a 5xx, or no answer at all is worth trying again; Duffel rejected anything else. */
 function staysError(error: unknown): never {
   if (error instanceof AppError) throw error;
-  if (error instanceof DuffelError) {
-    const status = error.status ?? error.meta?.status;
-    if (status === 401 || status === 403) {
-      throw new AppError("provider_unavailable", "Duffel Stays access is unavailable for this account.", { retryable: false, cause: error });
-    }
+  if (accessDenied(error)) {
+    throw new AppError("provider_unavailable", "Hotel search isn't available right now.", { retryable: false, cause: error });
+  }
+  const status = statusOf(error);
+  if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
+    throw new AppError("provider_unavailable", "The hotel provider couldn't search these dates.", { retryable: false, cause: error });
   }
   throw new AppError("provider_unavailable", "Hotel search is unavailable. Try again.", { retryable: true, cause: error });
 }
@@ -147,12 +159,17 @@ export function createDuffelStaysSearch(options: { token?: string; client?: Duff
           const bc = b.accommodation.location.geographic_coordinates!;
           return distanceKm(near, { lat: ac.latitude, lng: ac.longitude }) - distanceKm(near, { lat: bc.latitude, lng: bc.longitude });
         });
-      for (const result of nearby) {
+      // Each expansion is a call of its own, so stop after twice as many as the search needs.
+      for (const result of nearby.slice(0, maxResults * 2)) {
         if (offers.length >= maxResults) break;
         let expanded: DuffelSearchResult;
         try {
           ({ data: expanded } = await withPolicy(() => client.searchResults.fetchAllRates(result.id), RATE_POLICY));
-        } catch (error) { return staysError(error); }
+        } catch (error) {
+          // A result can go stale between search and expansion; only lost access ends the search.
+          if (accessDenied(error)) return staysError(error);
+          continue;
+        }
         if (expanded.id !== result.id || expanded.check_in_date !== params.check_in_date || expanded.check_out_date !== params.check_out_date ||
           expanded.guests.length !== guests) continue;
         const best = eligibleRate(expanded, now());
@@ -169,7 +186,7 @@ export function createDuffelStaysSearch(options: { token?: string; client?: Duff
           name: hotel.name,
           address: [address?.line_one, address?.city_name, address?.region].filter(Boolean).join(", "),
           lat: coords.latitude, lng: coords.longitude,
-          rating: hotel.rating ?? 0,
+          rating: hotel.rating ?? null,
           tags: [],
           pricePerGuestCents: Math.ceil(best.cents / guests),
           distanceKm: Math.round(km * 10) / 10,

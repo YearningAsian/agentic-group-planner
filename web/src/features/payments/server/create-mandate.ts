@@ -3,15 +3,13 @@ import { randomUUID } from "node:crypto";
 import { ApprovalCard, type ApprovalHold, ApprovalShare, holdFees } from "@agp/shared";
 import { z } from "zod";
 import { capFor, splitEvenly } from "@/lib/money";
-import { bookingKindOf, bookingOptionId, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
+import { approvalDeadline, bookingKindOf, bookingOptionId, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
 import { AppError } from "@/lib/reliability";
 import type { RunContext } from "@/lib/tools/define-tool";
 import { mandateSummary } from "../lib/mandate-summary";
 import { loadLeadGuest, MISSING_GUEST_MESSAGE } from "./lead-guest";
 import { readError, rpcError } from "./rpc-error";
 
-/** How long the group has to approve before the mandate expires (design §2.1). */
-const APPROVAL_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface CreateMandateInput {
   ctx: Pick<RunContext, "tripId" | "runId" | "toolCallId" | "actorMemberId" | "admin">;
@@ -101,7 +99,7 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
   const { admin } = ctx;
 
   const [tripResult, organizerResult, itemResult, optionResult, attendeeResult] = await Promise.all([
-    admin.from("trips").select("price_threshold_percent").eq("id", ctx.tripId).single(),
+    admin.from("trips").select("price_threshold_percent, timezone").eq("id", ctx.tripId).single(),
     admin
       .from("trip_members")
       .select("id, display_name, status, sort_order, profile_id")
@@ -155,12 +153,15 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
     optionId: bookingOptionId({
       bookingProvider: booking.id, optionId: input.optionId, place: option.places,
       itemId: input.itemId, tripId: ctx.tripId, startsAt: item.starts_at,
-      endsAt: item.ends_at, guests: attendees.length, now: Date.now(),
+      endsAt: item.ends_at, guests: attendees.length, timezone: trip.timezone, now: Date.now(),
     }),
     partySize: attendees.length,
     startsAt: item.starts_at,
   });
   if (quote.currency !== "usd") throw new AppError("domain_rule", "Only purchases in US dollars are supported.");
+  // A Duffel rate can expire before the usual 24 hours; approvals must finish while it can be quoted.
+  const rateExpiresAt = booking.id === "duffel_stays" ? (option.places?.raw as { expires_at?: string } | null)?.expires_at : null;
+  const deadline = approvalDeadline({ now: Date.now(), rateExpiresAt });
 
   const capPercent = input.capPercent ?? trip.price_threshold_percent;
   // The organizer absorbs leftover cents; when they aren't attending, the first attendee does.
@@ -189,7 +190,7 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
     cap_cents: rows.filter((r) => r.kind === "own").reduce((sum, r) => sum + r.cap_cents, 0),
     holds: holdsFor(attendees, organizer, amounts, capPercent),
     currency: "usd",
-    expires_at: new Date(Date.now() + APPROVAL_WINDOW_MS).toISOString(),
+    expires_at: deadline,
     shares: attendees.map((a) => ({
       member_id: a.id,
       display_name: a.displayName,

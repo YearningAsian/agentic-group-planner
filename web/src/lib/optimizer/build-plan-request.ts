@@ -237,7 +237,8 @@ function candidatesFor(
       const raw = place.raw as Record<string, unknown> | null;
       if (typeof raw?.rate_id !== "string") return true;
       return slot.items.length === 1 && raw.item_id === slot.items[0]!.id &&
-        raw.check_in_date === starts_at.slice(0, 10) && raw.check_out_date === ends_at.slice(0, 10) &&
+        // Stays are matched by the trip's local dates, which is how search_stays scoped the rate.
+        raw.check_in_date === localDay(starts_at, input.timezone).date && raw.check_out_date === localDay(ends_at, input.timezone).date &&
         raw.guests === guests;
     })
     .flatMap((place) => {

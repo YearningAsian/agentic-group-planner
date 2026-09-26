@@ -1,3 +1,4 @@
+import { AppError } from "@/lib/reliability";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { approveHold, finalizeMandate } from "@/features/payments/server";
@@ -153,6 +154,24 @@ describe("a lodging item books through the stays adapter", () => {
 
     expect(await finalizeMandate(s.mandateId, { booking })).toEqual({ status: "cancelled" });
     expect(quote).not.toHaveBeenCalled();
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "booking_failed" });
+    const holds = await select<{ status: string }>("payment_holds", "status", s.mandateId);
+    expect(holds.map((h) => h.status)).toEqual(Array(holds.length).fill("released"));
+  });
+
+  it("a quote the hotel provider rejects at finalization cancels and releases every hold", async () => {
+    const s = await lodgingMandate();
+    await approveAll(s);
+    const stays = getBookingProvider("stays");
+    const booking = {
+      ...stays,
+      quote: async () => {
+        throw new AppError("conflict", "That rate is no longer available.", { retryable: false });
+      },
+    };
+
+    expect(await finalizeMandate(s.mandateId, { booking })).toEqual({ status: "cancelled" });
+
     expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "booking_failed" });
     const holds = await select<{ status: string }>("payment_holds", "status", s.mandateId);
     expect(holds.map((h) => h.status)).toEqual(Array(holds.length).fill("released"));

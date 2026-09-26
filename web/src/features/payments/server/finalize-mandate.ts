@@ -237,12 +237,13 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
       await cancelMandate(admin, payments, mandateId, rows, mandate.cancel_reason);
       return { status: "cancelled" };
     }
-    const [itemResult, optionResult, organizerResult] = await Promise.all([
+    const [itemResult, optionResult, organizerResult, tripResult] = await Promise.all([
       admin.from("itinerary_items").select("starts_at, ends_at, category").eq("id", mandate.item_id).single(),
       admin.from("item_options").select("place_id, places(provider, raw)").eq("id", mandate.option_id).single(),
       admin.from("trip_members").select("id, display_name, profile_id").eq("trip_id", mandate.trip_id).eq("role", "organizer").single(),
+      admin.from("trips").select("timezone").eq("id", mandate.trip_id).single(),
     ]);
-    for (const result of [itemResult, optionResult, organizerResult]) {
+    for (const result of [itemResult, optionResult, organizerResult, tripResult]) {
       if (result.error) throw readError(result.error, "the purchase");
     }
     const organizer = organizerResult.data!;
@@ -270,18 +271,27 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
         providerOptionId = bookingOptionId({
           bookingProvider: booking.id, optionId: mandate.option_id, place: optionResult.data!.places,
           itemId: mandate.item_id, tripId: mandate.trip_id, startsAt,
-          endsAt: itemResult.data!.ends_at, guests: partySize, now: Date.now(),
+          endsAt: itemResult.data!.ends_at, guests: partySize, timezone: tripResult.data!.timezone, now: Date.now(),
         });
       } catch (error) {
         if (!(error instanceof AppError) || error.code !== "conflict") throw error;
         await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
         return { status: "cancelled" };
       }
-      const quote = await booking.quote({
-        kind, placeId: optionResult.data!.place_id,
-        optionId: providerOptionId,
-        partySize, startsAt,
-      });
+      let quote: Awaited<ReturnType<BookingProvider["quote"]>>;
+      try {
+        quote = await booking.quote({
+          kind, placeId: optionResult.data!.place_id,
+          optionId: providerOptionId,
+          partySize, startsAt,
+        });
+      } catch (error) {
+        // The merchant refused the rate (sold out, changed terms): nothing will book it, so release
+        // the holds now rather than leave them authorized until the card network lets them lapse.
+        if (!(error instanceof AppError) || error.retryable) throw error;
+        await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
+        return { status: "cancelled" };
+      }
       const changed = quoteChangeReason({
         approvedCents: mandate.quote_cents,
         capCents: mandate.cap_cents,

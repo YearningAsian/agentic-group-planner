@@ -186,6 +186,35 @@ describe("create_mandate", () => {
     }));
   });
 
+  it("a Duffel rate that expires soon ends the approval window before it, and one about to expire is refused", async () => {
+    for (const [minutes, expectRefusal] of [[180, false], [20, true]] as const) {
+      const trip = await decidedTrip();
+      const { ctx } = await toolCall(trip);
+      const rateExpiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
+      const { placeId } = await createPlace(batch, {
+        provider: "duffel_stays", category: "lodging", name: "Short Rate Hotel",
+        raw: { source: "search_stays", rate_id: `rat_${minutes}`, item_id: trip.itemId, trip_id: trip.tripId,
+          check_in_date: "2026-10-03", check_out_date: "2026-10-05", guests: 4, expires_at: rateExpiresAt, total_cents: 16800, price_cents: 4200 },
+      });
+      await admin.from("itinerary_items").update({ category: "lodging", starts_at: "2026-10-03T22:00:00Z", ends_at: "2026-10-05T15:00:00Z" }).eq("id", trip.itemId);
+      await admin.from("item_options").update({ place_id: placeId }).eq("id", trip.optionId);
+      const booking: BookingProvider = {
+        id: "duffel_stays", merchantName: "Duffel Stays", needsGuest: false,
+        quote: async () => ({ quoteId: "quo_test", totalCents: 16800, currency: "usd", expiresAt: rateExpiresAt }),
+        book: async () => ({ status: "confirmed", providerRef: "bok_test" }),
+        cancel: async () => ({ status: "cancelled" }),
+      };
+      const create = createMandate({ ctx, itemId: trip.itemId, optionId: trip.optionId, booking });
+      if (expectRefusal) {
+        await expect(create).rejects.toMatchObject({ code: "conflict" });
+      } else {
+        const { mandateId } = await create;
+        const { data } = await admin.from("mandates").select("expires_at").eq("id", mandateId).single();
+        expect(Date.parse(data!.expires_at)).toBe(Date.parse(rateExpiresAt) - 10 * 60_000);
+      }
+    }
+  });
+
   it("four attendees with Person 4 as a placeholder give own rows pending for Persons 1–3, Person 4's own row awaiting_member, and a fronted row for Person 4's share whose payer is Person 1", async () => {
     const trip = await decidedTrip();
     const { ctx } = await toolCall(trip);
