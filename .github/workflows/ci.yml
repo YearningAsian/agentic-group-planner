@@ -48,6 +48,28 @@ jobs:
       - run: ruff check
       - run: pytest -q
 
+  database:
+    name: database and mock payments
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The local stack generates ephemeral keys and applies every migration. Its output contains
+      # those keys, so keep it out of the public Actions log.
+      - name: Start local Supabase
+        run: pnpm exec supabase start >/dev/null 2>&1
+      - name: Configure database tests
+        run: pnpm exec supabase status -o json | node scripts/ci/write-local-supabase-env.mjs
+      - run: pnpm --filter web test:db
+      - run: pnpm db:types
+      - run: git diff --exit-code packages/shared/src/db/database.types.ts
+
   contracts:
     name: contracts drift
     runs-on: ubuntu-latest
