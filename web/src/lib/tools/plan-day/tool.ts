@@ -64,7 +64,7 @@ async function loadTrip(ctx: RunContext) {
     admin.from("trips").select("timezone").eq("id", tripId).single(),
     admin
       .from("itinerary_items")
-      .select("id, slot_key, label, category, starts_at, ends_at, together, status, pinned, position, chosen_option_id")
+      .select("id, slot_key, label, category, starts_at, ends_at, together, status, pinned, position, chosen_option_id, shifted_min")
       .eq("trip_id", tripId)
       .not("status", "in", "(cancelled,superseded)")
       .order("starts_at")
@@ -376,7 +376,7 @@ export async function runPlanDay(input: PlanDayInput, ctx: RunContext, deps: Pla
     describe,
     timezone: trip.timezone,
     ...(input.mode === "replan"
-      ? { timeShifts: Object.fromEntries([...timeShifts(items)].map(([id, t]) => [id, { starts_at: t.starts_at, ends_at: t.ends_at }])) }
+      ? { timeShifts: Object.fromEntries(timeShifts(items)) }
       : {}),
   });
   if (!result.replayed) Object.assign(ctx.handles, handles);

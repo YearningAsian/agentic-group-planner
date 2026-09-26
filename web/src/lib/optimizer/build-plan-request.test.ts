@@ -256,6 +256,15 @@ describe("buildPlanRequest", () => {
     expect(timeShifts(onTime.items).size).toBe(0);
   });
 
+  it("a slot already shifted for a booking moves only by what's left, so a later replan doesn't shift it again", () => {
+    const booked = { slot_key: "booked", status: "booked", pinned: true, starts_at: "2026-10-03T14:00:00Z", ends_at: "2026-10-03T15:00:00Z", booked_starts_at: "2026-10-03T14:45:00Z" };
+    const done = syntheticTrip([{}, { slot_key: "slot1", starts_at: "2026-10-03T12:45:00Z", ends_at: "2026-10-03T13:45:00Z", shifted_min: 45 }, booked]);
+    expect(timeShifts(done.items).size).toBe(0);
+
+    const partly = syntheticTrip([{}, { slot_key: "slot1", starts_at: "2026-10-03T12:30:00Z", ends_at: "2026-10-03T13:30:00Z", shifted_min: 30 }, booked]);
+    expect([...timeShifts(partly.items).values()]).toEqual([{ starts_at: "2026-10-03T12:45:00.000Z", ends_at: "2026-10-03T13:45:00.000Z", delta_min: 15 }]);
+  });
+
   it("candidates come from the places cache by category, at most 6 per slot", () => {
     const input = syntheticTrip([{ category: "activity" }]);
     const activity = (n: number, extra: Partial<RequestPlace> = {}): RequestPlace => ({

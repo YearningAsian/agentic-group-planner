@@ -54,6 +54,8 @@ export interface RequestItem {
   price_cents?: number | null;
   /** A booked item's confirmed start (`bookings.details.starts_at`); it may differ from the slot's. */
   booked_starts_at?: string | null;
+  /** Minutes earlier replans already shifted this item (`itinerary_items.shifted_min`). */
+  shifted_min?: number;
 }
 
 /** A `places` row as the builder reads it. The per-person price and visit length live in `raw` (design §11.7). */
@@ -135,12 +137,14 @@ export function timeShifts(items: readonly RequestItem[]): Map<string, { starts_
     const before = slots[i - 1];
     if (!booked || !before || isFixed(before)) return;
     const delta = Date.parse(booked.booked_starts_at!) - Date.parse(booked.starts_at);
-    if (delta === 0) return;
     for (const item of before.items) {
+      // The booked item never moves, so its Δ stays; only the part not yet applied is left.
+      const left = delta - (item.shifted_min ?? 0) * 60_000;
+      if (left === 0) continue;
       shifts.set(item.id, {
-        starts_at: toIso(Date.parse(item.starts_at) + delta),
-        ends_at: toIso(Date.parse(item.ends_at) + delta),
-        delta_min: minutes(delta),
+        starts_at: toIso(Date.parse(item.starts_at) + left),
+        ends_at: toIso(Date.parse(item.ends_at) + left),
+        delta_min: minutes(left),
       });
     }
   });

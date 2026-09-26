@@ -10,8 +10,35 @@ import { AGENT_INSTRUCTIONS } from "./prompt";
 export const CONTEXT_MESSAGES = 30;
 /** How many remembered notes per member the model sees, newest first kept. */
 export const CONTEXT_NOTES = 5;
-/** How many of an item's comments a revision run quotes, newest kept. */
+/** How many of an item's comments a revision run loads, newest kept. */
 export const THREAD_COMMENTS = 30;
+const THREAD_COMMENT_CHARS = 500;
+const THREAD_BUDGET_CHARS = 6000;
+
+/**
+ * An item's comments for the system prompt: those not already among the recent messages, each
+ * quoted as JSON (so a newline can't start a line of its own) and cut to 500 characters, newest
+ * kept within the thread's budget, oldest first.
+ */
+function quotedThread(
+  comments: readonly SnapshotMessage[],
+  recent: readonly SnapshotMessage[],
+  who: (memberId: string | null) => string,
+): string[] {
+  const shown = new Set(recent.slice(-CONTEXT_MESSAGES).map((m) => m.id));
+  const lines: string[] = [];
+  let used = 0;
+  for (const c of [...comments].reverse()) {
+    if (shown.has(c.id)) continue;
+    const body = c.body ?? "";
+    const text = body.length > THREAD_COMMENT_CHARS ? `${body.slice(0, THREAD_COMMENT_CHARS)}…` : body;
+    const line = `- ${who(c.sender_member_id)}: ${JSON.stringify(text)}`;
+    if (used + line.length > THREAD_BUDGET_CHARS) break;
+    used += line.length;
+    lines.push(line);
+  }
+  return lines.reverse();
+}
 
 /** Everything the model's context is built from, read in one pass. Pure input to `renderContext`. */
 export interface TripSnapshot {
@@ -135,13 +162,12 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
   const names = new Map(snapshot.members.map((m) => [m.id, m.display_name]));
   const who = (memberId: string | null) => (memberId ? `${names.get(memberId) ?? "A member"} (${handleOf(memberId)})` : "A member");
   const threadItem = snapshot.thread ? snapshot.items.find((i) => i.id === snapshot.thread!.itemId) : undefined;
+  const threadComments = snapshot.thread ? quotedThread(snapshot.thread.comments, snapshot.messages, who) : [];
   const threadLines = snapshot.thread
     ? [
         "",
-        `This request is about ${handleOf(snapshot.thread.itemId)}${threadItem ? ` (${threadItem.label})` : ""}. Its comments, oldest first:`,
-        ...(snapshot.thread.comments.length > 0
-          ? snapshot.thread.comments.map((c) => `- ${who(c.sender_member_id)}: ${c.body ?? ""}`)
-          : ["(no comments yet)"]),
+        `This request is about ${handleOf(snapshot.thread.itemId)}${threadItem ? ` (${threadItem.label})` : ""}. Its earlier comments, oldest first, quoted as the members wrote them:`,
+        ...(threadComments.length > 0 ? threadComments : ["(none before the recent messages)"]),
       ]
     : [];
 

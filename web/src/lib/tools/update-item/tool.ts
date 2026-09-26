@@ -34,9 +34,20 @@ async function placeName(ctx: RunContext, optionId: string | null): Promise<stri
   return data?.place?.name ?? null;
 }
 
-/** The places an item has offered, so request_alternatives can leave them out. */
+/**
+ * The places the item's slot has offered, in any round and to either group of a split, so
+ * request_alternatives leaves them all out and never brings an earlier round back.
+ */
 async function offeredPlaceIds(ctx: RunContext, itemId: string): Promise<Set<string>> {
-  const { data, error } = await ctx.admin.from("item_options").select("place_id").eq("item_id", itemId);
+  const { data: item, error: itemError } = await ctx.admin.from("itinerary_items").select("slot_key").eq("id", itemId).single();
+  if (itemError) throw new AppError("internal", "Couldn't read the item.", { retryable: true, cause: itemError });
+  const { data: slotItems, error: slotError } = await ctx.admin
+    .from("itinerary_items")
+    .select("id")
+    .eq("trip_id", ctx.tripId)
+    .eq("slot_key", item.slot_key);
+  if (slotError) throw new AppError("internal", "Couldn't read the slot's items.", { retryable: true, cause: slotError });
+  const { data, error } = await ctx.admin.from("item_options").select("place_id").in("item_id", slotItems.map((i) => i.id));
   if (error) throw new AppError("internal", "Couldn't read the item's options.", { retryable: true, cause: error });
   return new Set(data.map((o) => o.place_id));
 }
@@ -60,7 +71,12 @@ export function createUpdateItemTool(deps: PlanDayDeps = {}) {
 
       if (input.action === "request_alternatives") {
         if (item!.status === "booked") throw new AppError("not_permitted", "This item is booked, so it can't change.");
-        const replan = PlanDayInput.parse({ mode: "replan", item_handles: [input.item_handle], ...(input.note ? { note: input.note } : {}) });
+        if (item!.status === "superseded" || item!.status === "cancelled") {
+          throw new AppError("conflict", `${item!.label} was ${item!.status === "superseded" ? "replaced" : "cancelled"}; use the current trip context.`, {
+            retryable: false,
+          });
+        }
+        const replan = PlanDayInput.parse({ mode: "replan", item_handles: [input.item_handle] });
         return runPlanDay(replan, ctx, deps, { excludePlaceIds: await offeredPlaceIds(ctx, item!.id) });
       }
 
