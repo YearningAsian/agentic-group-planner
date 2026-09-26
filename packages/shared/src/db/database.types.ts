@@ -1272,6 +1272,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_item_change: { Args: { payload: Json }; Returns: Json }
       apply_plan: { Args: { payload: Json }; Returns: Json }
       audit_definer_functions: {
         Args: never
