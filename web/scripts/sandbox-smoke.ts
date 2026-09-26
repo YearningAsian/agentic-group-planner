@@ -10,6 +10,7 @@
  * printed `whsec_…` in web/.env.local as STRIPE_WEBHOOK_SECRET yourself — this script never writes it.
  */
 import { randomUUID } from "node:crypto";
+import type { components } from "@agp/shared/optimizer";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { applyPlan } from "@/features/itinerary/server";
 import {
@@ -25,6 +26,9 @@ import { summarizeTool } from "@/lib/tools/summarize/tool";
 import { assignHandles } from "@/lib/agent/handles";
 import { reset } from "./demo/reset";
 import { claimPlaceholder, paymentsKit, shareRows, mandateRow } from "../tests/payments/kit";
+
+type PlanRequest = components["schemas"]["PlanRequest"];
+type PlanResponse = components["schemas"]["PlanResponse"];
 
 const BATCH = `smoke:${randomUUID().slice(0, 8)}`;
 
@@ -149,8 +153,8 @@ describe("sandbox smoke", () => {
       const candidate = (placeId: string, price: number) => ({
         place_id: placeId,
         price_cents: price,
-        tags: [] as string[],
-        dietary_tags: [] as string[],
+        tags: [],
+        dietary_tags: [],
         duration_min: 90,
       });
       const option = (placeId: string, rank: number) => ({
@@ -162,10 +166,10 @@ describe("sandbox smoke", () => {
         travel: 0.2,
         fairness: 0.7,
       });
-      const request = {
+      const request: PlanRequest = {
         request_id: toolCallId,
-        mode: "initial" as const,
-        members: memberIds.map((id) => ({ id, dietary: [] as string[], interests: [] as string[] })),
+        mode: "initial",
+        members: memberIds.map((id) => ({ id, dietary: [], interests: [] })),
         slots: [
           {
             key: "morning",
@@ -178,10 +182,10 @@ describe("sandbox smoke", () => {
         ],
         travel: [],
       };
-      const response = {
+      const response: PlanResponse = {
         request_id: toolCallId,
-        engine: "enumeration" as const,
-        status: "feasible" as const,
+        engine: "enumeration",
+        status: "feasible",
         solve_ms: 1,
         plans: [
           {
@@ -199,7 +203,7 @@ describe("sandbox smoke", () => {
             groups: [{ member_ids: memberIds, options: [option(placeAquarium, 1), option(placeMuseum, 2), option(placePark, 3)] }],
           },
         ],
-        infeasible_reasons: [] as string[],
+        infeasible_reasons: [],
       };
 
       const result = await applyPlan({
@@ -373,10 +377,10 @@ describe("sandbox smoke", () => {
         ends_at: new Date(Date.parse(open.data.ends_at) + 45 * 60_000).toISOString(),
         delta_min: 45,
       };
-      const request = {
+      const request: PlanRequest = {
         request_id: toolCallId,
-        mode: "replan" as const,
-        members: memberIds.map((id) => ({ id, dietary: [] as string[], interests: [] as string[] })),
+        mode: "replan",
+        members: memberIds.map((id) => ({ id, dietary: [], interests: [] })),
         slots: [
           {
             key: open.data.slot_key,
@@ -392,10 +396,10 @@ describe("sandbox smoke", () => {
         ],
         travel: [],
       };
-      const response = {
+      const response: PlanResponse = {
         request_id: toolCallId,
-        engine: "enumeration" as const,
-        status: "feasible" as const,
+        engine: "enumeration",
+        status: "feasible",
         solve_ms: 1,
         plans: [
           {
@@ -421,7 +425,7 @@ describe("sandbox smoke", () => {
             ],
           },
         ],
-        infeasible_reasons: [] as string[],
+        infeasible_reasons: [],
       };
       await applyPlan({
         tripId,
