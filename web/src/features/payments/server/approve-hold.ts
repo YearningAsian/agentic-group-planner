@@ -3,14 +3,17 @@ import type { HoldStatus } from "@agp/shared";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
+import { type FinalizeDeps, finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 
 /** Long enough for an authorization with its retries; short enough that a crash only delays a retry. */
 const PROVIDER_LEASE_MS = 60_000;
 
-export interface PaymentsDeps {
+export interface PaymentsDeps extends FinalizeDeps {
   /** The payments provider; tests pass a wrapped one to count or reorder calls. */
   payments?: PaymentsProvider;
+  /** Runs once the approval that satisfies the last share wins open → authorized; defaults to finalizeMandate. */
+  finalize?: (mandateId: string) => Promise<unknown>;
 }
 
 export interface ApproveHoldResult {
@@ -166,7 +169,9 @@ export async function isSatisfied(admin: AdminClient, mandateId: string): Promis
  * A member approves their hold on a mandate (design §4.2, §5.4). One PaymentIntent is authorized
  * per payer, for the sum of the caps of the rows they may pay: the organizer's covers their own
  * share and every share they front. A declined card moves the payer's rows to `declined` and the
- * mandate to `partially_declined`. Approving again, or concurrently, changes nothing.
+ * mandate to `partially_declined`. Once every share is satisfied, exactly one caller wins the
+ * conditional update open → authorized and finalizes the mandate. Approving again, or
+ * concurrently, changes nothing.
  */
 export async function approveHold(input: { mandateId: string; memberId: string }, deps: PaymentsDeps = {}): Promise<ApproveHoldResult> {
   const admin = getAdminClient();
@@ -198,9 +203,18 @@ export async function approveHold(input: { mandateId: string; memberId: string }
     await authorizeHold(admin, payments, mandate, member);
   }
 
+  const satisfied = await isSatisfied(admin, mandate.id);
+  if (satisfied) {
+    const { data: won, error: winError } = await admin
+      .from("mandates")
+      .update({ status: "authorized" })
+      .eq("id", mandate.id)
+      .eq("status", "open")
+      .select("id");
+    if (winError) throw readError(winError, "the purchase");
+    if (won.length > 0) await (deps.finalize ?? ((id: string) => finalizeMandate(id, deps)))(mandate.id);
+  }
+
   const after = await payerRows(admin, mandate.id, member.id);
-  return {
-    holds: after.map((r) => ({ hold_id: r.id, status: r.status as HoldStatus })),
-    satisfied: await isSatisfied(admin, mandate.id),
-  };
+  return { holds: after.map((r) => ({ hold_id: r.id, status: r.status as HoldStatus })), satisfied };
 }

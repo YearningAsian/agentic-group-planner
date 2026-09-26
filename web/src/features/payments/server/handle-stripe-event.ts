@@ -58,6 +58,16 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
     case "payment_intent.canceled":
       result = await rows.update({ status: "released" }).in("status", ["pending", "authorized"]);
       break;
+    case "payment_intent.succeeded": {
+      // finalizeMandate stored which rows pay before it captured, so both paths agree in any order.
+      const captured = await rows
+        .update({ status: "captured", captured_at: new Date().toISOString() })
+        .eq("pays_share", true)
+        .eq("status", "authorized");
+      if (captured.error) throw readError(captured.error, "the holds");
+      result = await rows.update({ status: "released" }).eq("pays_share", false).eq("status", "authorized");
+      break;
+    }
     default:
       return false;
   }

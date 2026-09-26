@@ -164,6 +164,26 @@ export async function mandateScenario(batch: string, payers: [TestUser, TestUser
   return { tripId, itemId, optionId, runId, mandateId, person: memberIds as MandateScenario["person"] };
 }
 
+/**
+ * Person 4 claims their lane as `user`, the way an invite claim does: the member joins, and their
+ * `awaiting_member` share rows wait for their approval instead.
+ */
+export async function claimPlaceholder(s: MandateScenario, user: TestUser): Promise<void> {
+  const admin = adminClient();
+  const person4 = s.person[3];
+  const joined = await admin
+    .from("trip_members")
+    .update({ profile_id: user.userId, status: "joined", claimed_at: new Date().toISOString(), invite_token: null })
+    .eq("id", person4);
+  if (joined.error) throw joined.error;
+  const pending = await admin
+    .from("payment_holds")
+    .update({ status: "pending", payer_member_id: person4 })
+    .eq("share_member_id", person4)
+    .eq("status", "awaiting_member");
+  if (pending.error) throw pending.error;
+}
+
 /** The mandate's share rows, keyed `${share member}:${kind}`. */
 export async function shareRows(mandateId: string) {
   const { data, error } = await adminClient().from("payment_holds").select("*").eq("mandate_id", mandateId);
