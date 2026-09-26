@@ -1,16 +1,49 @@
 import "server-only";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { generateText, isStepCount, type LanguageModel, Output } from "ai";
+import {
+  generateText,
+  isStepCount,
+  type LanguageModel,
+  type LanguageModelMiddleware,
+  Output,
+  wrapLanguageModel,
+} from "ai";
 import { z } from "zod";
+import { AppError, withPolicy } from "@/lib/reliability";
 import type { LlmProvider, LlmProviderName } from "./types";
 
-// Design §7.4: 25 s per model step, 90 s per run, and one retry of a failed model call. The SDK
-// retries only the model request, never a tool, so a retry can't repeat a side effect.
-const STEP_MS = 25_000;
+// Design §7.4: each model call gets 25 s and one retry; a whole run gets 90 s. The budget is per
+// model call, not per SDK step, because a step also runs its tools (plan_day alone may take 16 s).
+const MODEL_CALL_MS = 25_000;
 const RUN_MS = 90_000;
 const MODEL_RETRIES = 1;
 const DEFAULT_MAX_STEPS = 6;
+
+/** The SDK marks 429s, 5xx responses, and dropped connections retryable; withPolicy retries AppErrors. */
+function retryableAsAppError(error: unknown): unknown {
+  if ((error as { isRetryable?: unknown } | null)?.isRetryable !== true) return error;
+  return new AppError("provider_unavailable", "The model isn't responding. Try again.", { retryable: true, cause: error });
+}
+
+/** Runs every model request through withPolicy. Only the request is retried, never a tool. */
+const modelCallPolicy: LanguageModelMiddleware = {
+  wrapGenerate: ({ model, params }) =>
+    withPolicy(
+      async (signal) => {
+        try {
+          return await model.doGenerate({
+            ...params,
+            abortSignal: params.abortSignal ? AbortSignal.any([params.abortSignal, signal]) : signal,
+          });
+        } catch (error) {
+          throw retryableAsAppError(error);
+        }
+      },
+      { timeoutMs: MODEL_CALL_MS, retries: MODEL_RETRIES },
+    ),
+};
+
 
 const ImageDescription = z.object({
   caption: z.string().min(1).max(200),
@@ -29,8 +62,7 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, v
       ],
       // JSON-schema mode (response_format), never a forced tool call: Meta rejects forced tools.
       output: Output.object({ schema }),
-      timeout: STEP_MS,
-      maxRetries: MODEL_RETRIES,
+      maxRetries: 0,
     });
     // Output.object validates against `schema` at runtime; its type can't see through the generic.
     return result.output as z.output<typeof schema>;
@@ -48,8 +80,8 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, v
         // Meta returns 400 for any tool_choice but "auto" (ADR 0017), so the loop never forces one.
         toolChoice: "auto",
         stopWhen: isStepCount(input.maxSteps ?? DEFAULT_MAX_STEPS),
-        timeout: { totalMs: RUN_MS, stepMs: STEP_MS },
-        maxRetries: MODEL_RETRIES,
+        timeout: { totalMs: RUN_MS },
+        maxRetries: 0,
         abortSignal: input.signal,
       });
       const steps = result.steps.flatMap((step) =>
@@ -88,11 +120,19 @@ export function createMetaProvider(options: MetaProviderOptions): LlmProvider {
     supportsStructuredOutputs: true,
     fetch: options.fetch,
   });
-  return createAiSdkProvider("meta", meta.chatModel(options.agentModel), meta.chatModel(options.visionModel));
+  return createAiSdkProvider(
+    "meta",
+    wrapLanguageModel({ model: meta.chatModel(options.agentModel), middleware: modelCallPolicy }),
+    wrapLanguageModel({ model: meta.chatModel(options.visionModel), middleware: modelCallPolicy }),
+  );
 }
 
 /** Gemini, the fallback when `LLM_PROVIDER=google`. The env loader requires its own model IDs. */
 export function createGoogleProvider(options: { apiKey?: string; agentModel: string; visionModel: string }): LlmProvider {
   const google = createGoogleGenerativeAI({ apiKey: options.apiKey });
-  return createAiSdkProvider("google", google(options.agentModel), google(options.visionModel));
+  return createAiSdkProvider(
+    "google",
+    wrapLanguageModel({ model: google(options.agentModel), middleware: modelCallPolicy }),
+    wrapLanguageModel({ model: google(options.visionModel), middleware: modelCallPolicy }),
+  );
 }

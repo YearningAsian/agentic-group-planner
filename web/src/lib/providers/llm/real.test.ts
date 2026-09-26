@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createMetaProvider } from "./real";
 
@@ -29,6 +29,29 @@ function scriptedFetch(bodies: unknown[]) {
   };
   return { fetch, requests };
 }
+
+/** A fetch that never answers; it rejects only when the request is aborted. */
+function hangingFetch() {
+  const requests: RequestInit[] = [];
+  const fetch = (_: RequestInfo | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      requests.push(init ?? {});
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    });
+  return { fetch, requests };
+}
+
+/** Lets pending I/O and promise chains run without moving the fake clock. */
+async function until(condition: () => boolean) {
+  while (!condition()) await new Promise((resolve) => setImmediate(resolve));
+}
+
+const toolCall = (name: string, args: string) =>
+  completion({ content: null, tool_calls: [{ id: "call_1", type: "function", function: { name, arguments: args } }] }, "tool_calls");
+
+const planPrompt = { system: "You plan trips.", messages: [{ role: "user" as const, content: "plan saturday" }] };
+
+afterEach(() => vi.useRealTimers());
 
 function metaWith(fetch: typeof globalThis.fetch) {
   return createMetaProvider({
@@ -110,5 +133,45 @@ describe("meta LLM provider", () => {
     expect(description).toEqual({ caption: "Four friends at the pier", aesthetic_score: 0.8 });
     expect(requests[0].body.model).toBe("vision-test");
     expect(JSON.stringify(requests[0].body.messages)).toContain("iVBORw0KGgo=");
+  });
+
+  it("a model call that hangs past 25 s is retried once, then fails with a timeout", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { fetch, requests } = hangingFetch();
+
+    const outcome = metaWith(fetch).runAgent({ ...planPrompt, tools: {} }).catch((error: unknown) => error);
+    await until(() => requests.length === 1);
+    await vi.advanceTimersByTimeAsync(25_000 + 400);
+    await until(() => requests.length === 2);
+    await vi.advanceTimersByTimeAsync(25_000);
+
+    expect(await outcome).toMatchObject({ name: "AppError", code: "timeout" });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("a tool that runs longer than 25 s doesn't cut the run short", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { fetch, requests } = scriptedFetch([
+      toolCall("plan_day", '{"mode":"initial"}'),
+      completion({ content: "Here's a plan for Saturday." }, "stop"),
+    ]);
+    let toolDone = false;
+    const slowPlanDay = tool({
+      description: "Plan the day.",
+      inputSchema: z.object({ mode: z.enum(["initial", "replan"]) }),
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30_000));
+        toolDone = true;
+        return { ok: true };
+      },
+    });
+
+    const run = metaWith(fetch).runAgent({ ...planPrompt, tools: { plan_day: slowPlanDay } });
+    await until(() => requests.length === 1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await until(() => toolDone);
+
+    await expect(run).resolves.toMatchObject({ text: "Here's a plan for Saturday.", steps: [{ toolName: "plan_day" }] });
+    expect(requests).toHaveLength(2);
   });
 });
