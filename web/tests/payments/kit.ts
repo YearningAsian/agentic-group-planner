@@ -4,12 +4,14 @@
  * suite runs under `test:db` (mock) and `test:stripe` (real).
  */
 import { randomUUID } from "node:crypto";
+import Stripe from "stripe";
 import { POST as stripeWebhook } from "@/app/api/webhooks/stripe/route";
 import { createMandate, onPlaceholderClaimed } from "@/features/payments/server";
-import { NotBuiltError } from "@/lib/not-built";
+import { getServerEnv } from "@/lib/env/server";
 import type { BookingProvider } from "@/lib/providers/booking";
-import { getPaymentsProvider } from "@/lib/providers/payments";
+import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { type MockPaymentsProvider, signMockWebhook } from "@/lib/providers/payments/mock";
+import { STRIPE_OPTIONS } from "@/lib/providers/payments/real";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { adminClient, createPlace, createTrip, createUser, type TestUser } from "../db/helpers";
 
@@ -29,11 +31,16 @@ export interface PaymentsKit {
   /** Replaces a payer's saved card, e.g. to make their next authorization decline. */
   setCard(profileId: string, card: TestCard): Promise<void>;
   /** Every event the provider sent about a PaymentIntent, oldest first. */
-  eventsFor(paymentIntentId: string): Promise<ProviderEvent[]>;
+  eventsFor(paymentIntentId: string, expectedTypes?: string[]): Promise<ProviderEvent[]>;
   /** Delivers an event to `POST /api/webhooks/stripe`, signed the way the provider signs it. */
   deliver(event: ProviderEvent): Promise<Response>;
   /** Delivers any body with any signature, for signature tests. */
   deliverRaw(rawBody: string, signature: string): Promise<Response>;
+  /** Direct Stripe-side evidence; absent on the mock kit. */
+  stripe?: {
+    intentsFor(profileId: string, mandateId: string): Promise<{ id: string; amountReceivedCents: number }[]>;
+    refundsFor(paymentIntentId: string): Promise<{ id: string; amountCents: number }[]>;
+  };
 }
 
 function post(rawBody: string, signature: string): Promise<Response> {
@@ -46,10 +53,121 @@ function post(rawBody: string, signature: string): Promise<Response> {
   );
 }
 
+interface StripeKitOptions {
+  provider: PaymentsProvider;
+  stripe: Stripe;
+  webhookSecret: string;
+  createUser: typeof createUser;
+  readProfile(profileId: string): Promise<{ customerId: string | null; displayName: string }>;
+  saveCard(profileId: string, customerId: string, paymentMethodId: string): Promise<void>;
+  post: typeof post;
+  eventWaitMs?: number;
+}
+
+function referencesIntent(event: Stripe.Event, paymentIntentId: string): boolean {
+  const object = event.data.object as unknown as Record<string, unknown>;
+  const reference = object.object === "payment_intent" ? object.id : object.payment_intent;
+  return (typeof reference === "string" ? reference : (reference as { id?: unknown } | null)?.id) === paymentIntentId;
+}
+
+/** A Stripe test-mode kit with external calls injected for database-free contract tests. */
+export function createStripePaymentsKit(options: StripeKitOptions): PaymentsKit {
+  const { provider, stripe, webhookSecret } = options;
+
+  const setCard = async (profileId: string, card: TestCard) => {
+    const profile = await options.readProfile(profileId);
+    const customerId = profile.customerId ?? (await provider.ensureCustomer({ profileId, name: profile.displayName })).customerId;
+    const { paymentMethodId } = await provider.attachTestCard({ customerId, card });
+    await options.saveCard(profileId, customerId, paymentMethodId);
+  };
+
+  return {
+    provider: "real",
+    async createPayer(batch, displayName, card = "visa") {
+      const user = await options.createUser({ batch, displayName });
+      await setCard(user.userId, card);
+      return user;
+    },
+    setCard,
+    async eventsFor(paymentIntentId, expectedTypes = []) {
+      const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const eventByStatus: Record<string, string | undefined> = {
+        requires_capture: "payment_intent.amount_capturable_updated",
+        requires_payment_method: "payment_intent.payment_failed",
+        succeeded: "payment_intent.succeeded",
+        canceled: "payment_intent.canceled",
+      };
+      const currentEvent = eventByStatus[intent.status];
+      const expected = new Set([...(currentEvent ? [currentEvent] : []), ...expectedTypes]);
+      const deadline = Date.now() + (options.eventWaitMs ?? 10_000);
+      while (true) {
+        const events: ProviderEvent[] = [];
+        // The Events API is account-wide and newest first; scan all pages in the test's time window.
+        for await (const event of stripe.events.list({ created: { gte: intent.created }, limit: 100 })) {
+          if (referencesIntent(event, paymentIntentId)) events.push(event as unknown as ProviderEvent);
+        }
+        if ([...expected].every((type) => events.some((event) => event.type === type))) return events.reverse();
+        if (Date.now() >= deadline) {
+          throw new Error(`Stripe did not list ${[...expected].join(", ")} for ${paymentIntentId} before the test timeout.`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+      }
+    },
+    deliver(event) {
+      const raw = JSON.stringify(event);
+      const signature = stripe.webhooks.generateTestHeaderString({ payload: raw, secret: webhookSecret });
+      return options.post(raw, signature);
+    },
+    deliverRaw: options.post,
+    stripe: {
+      async intentsFor(profileId, mandateId) {
+        const { customerId } = await options.readProfile(profileId);
+        if (!customerId) throw new Error(`Profile ${profileId} has no Stripe customer to inspect.`);
+        const intents: { id: string; amountReceivedCents: number }[] = [];
+        for await (const intent of stripe.paymentIntents.list({ customer: customerId, limit: 100 })) {
+          if (intent.metadata.mandate_id === mandateId) {
+            intents.push({ id: intent.id, amountReceivedCents: intent.amount_received });
+          }
+        }
+        return intents;
+      },
+      async refundsFor(paymentIntentId) {
+        const refunds: { id: string; amountCents: number }[] = [];
+        for await (const refund of stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 })) {
+          refunds.push({ id: refund.id, amountCents: refund.amount });
+        }
+        return refunds;
+      },
+    },
+  };
+}
+
 /** The kit for the provider `PAYMENTS_PROVIDER` selects. */
 export function paymentsKit(): PaymentsKit {
   const provider = getPaymentsProvider();
-  if (provider.name !== "mock") throw new NotBuiltError("The Stripe test-mode branch of the payments kit (CO-305)");
+  if (provider.name === "real") {
+    const env = getServerEnv();
+    const admin = adminClient();
+    return createStripePaymentsKit({
+      provider,
+      stripe: new Stripe(env.STRIPE_SECRET_KEY!, STRIPE_OPTIONS),
+      webhookSecret: env.STRIPE_WEBHOOK_SECRET!,
+      createUser,
+      async readProfile(profileId) {
+        const { data, error } = await admin.from("profiles").select("stripe_customer_id, display_name").eq("id", profileId).single();
+        if (error) throw error;
+        return { customerId: data.stripe_customer_id, displayName: data.display_name };
+      },
+      async saveCard(profileId, customerId, paymentMethodId) {
+        const { error } = await admin
+          .from("profiles")
+          .update({ stripe_customer_id: customerId, default_payment_method_id: paymentMethodId })
+          .eq("id", profileId);
+        if (error) throw error;
+      },
+      post,
+    });
+  }
   const mock = provider as MockPaymentsProvider;
   const admin = adminClient();
 

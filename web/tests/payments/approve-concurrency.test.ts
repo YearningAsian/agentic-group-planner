@@ -41,6 +41,11 @@ describe("approval concurrency", () => {
     expect(own.status).toBe("authorized");
     const events = await kit.eventsFor(own.stripe_payment_intent_id!);
     expect(events.filter((e) => e.type === "payment_intent.amount_capturable_updated")).toHaveLength(1);
+    if (kit.stripe) {
+      expect(await kit.stripe.intentsFor(payers[1].userId, s.mandateId)).toEqual([
+        { id: own.stripe_payment_intent_id, amountReceivedCents: 0 },
+      ]);
+    }
   });
 
   it("a duplicate amount_capturable_updated is recorded once and changes nothing", async () => {

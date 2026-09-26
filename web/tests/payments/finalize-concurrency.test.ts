@@ -61,6 +61,17 @@ describe("finalize concurrency", () => {
     expect(await bookingCount(s.mandateId)).toBe(1);
     const captures = await capturesByIntent(s.mandateId);
     expect(Object.values(captures)).toEqual([1, 1, 1]);
+    if (kit.stripe) {
+      const rows = [...(await shareRows(s.mandateId)).values()];
+      for (let index = 0; index < payers.length; index++) {
+        const memberId = s.person[index]!;
+        const payerRows = rows.filter((row) => row.payer_member_id === memberId && row.pays_share);
+        const expectedCents = payerRows.reduce((sum, row) => sum + row.captured_cents!, 0);
+        expect(await kit.stripe.intentsFor(payers[index]!.userId, s.mandateId)).toEqual([
+          { id: payerRows[0]!.stripe_payment_intent_id, amountReceivedCents: expectedCents },
+        ]);
+      }
+    }
   });
 
   it("a duplicate payment_intent.succeeded changes nothing", async () => {
