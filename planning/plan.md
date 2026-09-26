@@ -1632,11 +1632,12 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** CO-301, VO-105
 - **Produces:** `ensurePayer(memberId) → { customerId, paymentMethodId }`, which `approveHold` now uses to get the payer. `seed.ts` step 2 calls `stripe-customers.ts`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/ensure-payer.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/ensure-payer.test.ts` passes:
     - `reuses a stored customer and payment method`
     - `in dev mode, a claimer without one gets a customer and pm_card_visa`
     - `outside dev mode, a member without a payment method gets not_permitted`
-  - [ ] Check: `pnpm seed:demo` with `PAYMENTS_PROVIDER=real` creates 3 customers the first time and none on a second run.
+  - [x] Check: `pnpm seed:demo` with `PAYMENTS_PROVIDER=real` creates 3 customers the first time and none on a second run.
+- **Status:** done (2026-09-26). Proof: `PAYMENTS_PROVIDER=real pnpm seed:demo --batch dev-co` on Stripe test mode and the hosted dev project printed `Stripe customers created: 3`, then `0` on the second run. Unit: `pnpm --filter web test scripts/demo src/features/payments src/lib/providers/payments` → 69 passed (RED first for the review fixes: mock IDs sent to Stripe, a deleted customer kept, a stale card paired with a new customer). The database cases run in CI. Real mode treats the mock provider's `cus_mock_` / `pm_mock_` IDs as missing, so a batch first used on mock payments still gets real customers. Outside dev mode, a payer without a card gets `not_permitted` before any Stripe call.
 - **Commit:** `feat(payments): seeded customers and one-tap cards for claimers`
 
 #### CO-303 · Switch payments to Stripe · Must
