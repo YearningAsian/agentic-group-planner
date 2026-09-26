@@ -1,18 +1,22 @@
-# Three jobs (checklist B11), every provider mocked and no real keys. Database tests need a
-# Supabase stack and run locally (`pnpm --filter web test:db`), not here.
+# The testing pipeline: every provider mocked and no real keys. It runs for pull requests into
+# `testing`, pushes to `testing`, and on demand; other branches get CI through their PR into `testing`.
 name: CI
 
 on:
-  push:
-    branches: [main, testing]
   pull_request:
+    branches: [testing]
+  push:
+    branches: [testing]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer commit on a PR replaces its older run. Pushes to `testing` never cancel each other: each
+# merge's push run is its only CI after merging.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   web:
