@@ -7,6 +7,8 @@ import { type LeadGuest, leadGuestFrom } from "../lib/lead-guest";
 export async function loadLeadGuest(admin: AdminClient, organizer: { display_name: string; profile_id: string | null }): Promise<LeadGuest | null> {
   if (!organizer.profile_id) return null;
   const { data, error } = await admin.auth.admin.getUserById(organizer.profile_id);
+  // A deleted account has no contact details; anything else may pass on a retry.
+  if (error && (error.status === 404 || error.code === "user_not_found")) return null;
   if (error) throw new AppError("provider_unavailable", "Couldn't read the organizer's contact details.", { cause: error });
   const metadataPhone = data.user.user_metadata?.phone;
   return leadGuestFrom({

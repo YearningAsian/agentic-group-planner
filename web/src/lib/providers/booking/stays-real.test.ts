@@ -188,11 +188,23 @@ describe("Duffel Stays provider: book", () => {
     expect(client.bookings.listWithGenerator).toHaveBeenCalledTimes(1);
   });
 
-  it("needs a quote and a lead guest to book", async () => {
+  it("needs a quote to book", async () => {
     const client = fakeClient();
-    await expect(provider(client).book({ ...bookInput, guest: undefined })).rejects.toMatchObject({ code: "invalid_input" });
     await expect(provider(client).book({ ...bookInput, quoteId: undefined })).rejects.toMatchObject({ code: "invalid_input" });
     expect(client.bookings.create).not.toHaveBeenCalled();
+  });
+
+  it("without a lead guest it still returns a booking an earlier attempt made, and otherwise fails without booking", async () => {
+    const earlier = fakeClient({ list: pages([booking("bok_first", KEY)]) });
+    await expect(provider(earlier).book({ ...bookInput, guest: undefined })).resolves.toMatchObject({ status: "confirmed", providerRef: "bok_first" });
+
+    const none = fakeClient();
+    await expect(provider(none).book({ ...bookInput, guest: undefined })).resolves.toEqual({
+      status: "failed",
+      providerRef: null,
+      failureReason: "missing_guest",
+    });
+    expect(none.bookings.create).not.toHaveBeenCalled();
   });
 });
 

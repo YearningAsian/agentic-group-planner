@@ -203,7 +203,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
 
   const { data: mandate, error } = await admin
     .from("mandates")
-    .select("id, trip_id, item_id, option_id, status, title, quote_cents, cap_cents, currency, cancel_reason, booking_quote_id, booking_provider_ref, booking_confirmation_code")
+    .select("id, trip_id, item_id, option_id, status, title, merchant, quote_cents, cap_cents, currency, cancel_reason, booking_quote_id, booking_provider_ref, booking_confirmation_code")
     .eq("id", mandateId)
     .maybeSingle();
   if (error) throw readError(error, "the purchase");
@@ -249,6 +249,15 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
     const kind = bookingKindOf(itemResult.data!.category);
     const booking = deps.booking ?? getBookingProvider(kind);
     const { rows, plan, release } = await capturePlan(admin, mandateId);
+    // The group approved one merchant. If the adapter changed since (the item's category or
+    // STAYS_PROVIDER), cancel while nothing is quoted there; after that it needs a person.
+    if (booking.merchantName !== mandate.merchant && !mandate.booking_provider_ref) {
+      if (!mandate.booking_quote_id) {
+        await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
+        return { status: "cancelled" };
+      }
+      throw new AppError("internal", `This purchase was quoted by ${mandate.merchant}, not ${booking.merchantName}.`, { retryable: false });
+    }
 
     const partySize = new Set(rows.map((r) => r.share_member_id)).size;
     const startsAt = itemResult.data!.starts_at;
@@ -286,12 +295,8 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
         confirmationCode: mandate.booking_confirmation_code ?? undefined,
       };
     } else {
+      // A missing guest is the adapter's call: it first returns any booking an earlier attempt made.
       const guest = booking.needsGuest ? await loadLeadGuest(admin, organizer) : null;
-      if (booking.needsGuest && !guest) {
-        // The organizer's contact details went missing after the mandate was created.
-        await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
-        return { status: "cancelled" };
-      }
       booked = await booking.book({
         kind,
         quoteId,
