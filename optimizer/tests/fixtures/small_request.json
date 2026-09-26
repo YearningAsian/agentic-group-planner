@@ -1,0 +1,43 @@
+{
+  "request_id": "call_small",
+  "mode": "initial",
+  "members": [
+    { "id": "00000000-0000-4000-8000-000000000001", "budget_cents": 5000, "dietary": [], "interests": ["art", "food"] },
+    { "id": "00000000-0000-4000-8000-000000000002", "budget_cents": 5000, "dietary": ["vegetarian"], "interests": ["food"] },
+    { "id": "00000000-0000-4000-8000-000000000003", "budget_cents": null, "dietary": [], "interests": ["history"] },
+    { "id": "00000000-0000-4000-8000-000000000004", "budget_cents": 4000, "dietary": [], "interests": [] }
+  ],
+  "slots": [
+    {
+      "key": "lunch",
+      "starts_at": "2026-10-03T12:00:00Z",
+      "ends_at": "2026-10-03T13:00:00Z",
+      "together": false,
+      "pinned": null,
+      "candidates": [
+        { "place_id": "00000000-0000-4000-8000-000000000101", "price_cents": 2000, "tags": ["food"], "dietary_tags": ["vegetarian"], "rating": 4.0, "open_from": "2026-10-03T11:00:00Z", "open_until": "2026-10-03T15:00:00Z", "duration_min": 60 },
+        { "place_id": "00000000-0000-4000-8000-000000000102", "price_cents": 1000, "tags": ["food", "art"], "dietary_tags": [], "rating": 5.0, "open_from": null, "open_until": null, "duration_min": 60 }
+      ]
+    },
+    {
+      "key": "afternoon",
+      "starts_at": "2026-10-03T13:30:00Z",
+      "ends_at": "2026-10-03T16:00:00Z",
+      "together": true,
+      "pinned": null,
+      "candidates": [
+        { "place_id": "00000000-0000-4000-8000-000000000103", "price_cents": 2000, "tags": ["art"], "dietary_tags": [], "rating": 4.5, "open_from": "2026-10-03T10:00:00Z", "open_until": "2026-10-03T17:00:00Z", "duration_min": 120 },
+        { "place_id": "00000000-0000-4000-8000-000000000104", "price_cents": 0, "tags": ["history"], "dietary_tags": [], "rating": 3.0, "open_from": null, "open_until": null, "duration_min": 90 },
+        { "place_id": "00000000-0000-4000-8000-000000000105", "price_cents": 1500, "tags": ["art", "history"], "dietary_tags": [], "rating": null, "open_from": "2026-10-03T09:00:00Z", "open_until": "2026-10-03T14:00:00Z", "duration_min": 60 }
+      ]
+    }
+  ],
+  "travel": [
+    { "from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000103", "minutes": 20 },
+    { "from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000104", "minutes": 10 },
+    { "from_place_id": "00000000-0000-4000-8000-000000000101", "to_place_id": "00000000-0000-4000-8000-000000000105", "minutes": 10 },
+    { "from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000103", "minutes": 50 },
+    { "from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000104", "minutes": 30 },
+    { "from_place_id": "00000000-0000-4000-8000-000000000102", "to_place_id": "00000000-0000-4000-8000-000000000105", "minutes": 30 }
+  ]
+}

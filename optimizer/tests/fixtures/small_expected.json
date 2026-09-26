@@ -1,0 +1,32 @@
+[
+  {
+    "rank": 1,
+    "assignment": [[{ "candidate": 0, "members": [0, 1, 2, 3] }], [{ "candidate": 1, "members": [0, 1, 2, 3] }]],
+    "total": 0.766875,
+    "fairness": 0.3652777778,
+    "split_slots": 0,
+    "member_scores": [0.4527777778, 0.5402777778, 0.5402777778, 0.3652777778]
+  },
+  {
+    "rank": 2,
+    "assignment": [
+      [{ "candidate": 0, "members": [1, 2] }, { "candidate": 1, "members": [0, 3] }],
+      [{ "candidate": 1, "members": [0, 1, 2, 3] }]
+    ],
+    "total": 0.5772222222,
+    "fairness": 0.4333333333,
+    "split_slots": 1,
+    "member_scores": [0.6083333333, 0.5402777778, 0.5402777778, 0.4333333333]
+  },
+  {
+    "rank": 3,
+    "assignment": [
+      [{ "candidate": 0, "members": [0, 1] }, { "candidate": 1, "members": [2, 3] }],
+      [{ "candidate": 1, "members": [0, 1, 2, 3] }]
+    ],
+    "total": 0.5553472222,
+    "fairness": 0.4333333333,
+    "split_slots": 1,
+    "member_scores": [0.4527777778, 0.5402777778, 0.6083333333, 0.4333333333]
+  }
+]
