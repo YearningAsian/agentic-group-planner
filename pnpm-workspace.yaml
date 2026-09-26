@@ -1,0 +1,37 @@
+packages:
+  - web
+  - packages/*
+
+# pnpm ships as an x64 binary, so on Windows on Arm it resolves "current" as x64, while node
+# itself runs as arm64 and loads arm64 native packages (Supabase CLI, SWC, lightningcss, esbuild).
+supportedArchitectures:
+  os: [ current ]
+  cpu: [ current, arm64 ]
+
+# Install scripts stay off unless a package needs one (pnpm asks before running any).
+allowBuilds:
+  # esbuild's script only re-checks its binary; the platform binary comes as an optional dependency.
+  esbuild: false
+  sharp: false
+  unrs-resolver: false
+  # Downloads the Sentry CLI for source-map upload, which isn't set up yet (needs SENTRY_AUTH_TOKEN).
+  '@sentry/cli': false
+
+# Exact versions only: `pnpm add` writes "1.2.3", never "^1.2.3".
+savePrefix: ""
+
+minimumReleaseAgeExclude:
+  - prettier@3.9.9
+  - '@sentry/browser-utils@10.75.3'
+  - '@sentry/browser@10.75.3'
+  - '@sentry/core@10.75.3'
+  - '@sentry/feedback@10.75.3'
+  - '@sentry/nextjs@10.75.3'
+  - '@sentry/node-core@10.75.3'
+  - '@sentry/node@10.75.3'
+  - '@sentry/opentelemetry@10.75.3'
+  - '@sentry/react@10.75.3'
+  - '@sentry/replay-canvas@10.75.3'
+  - '@sentry/replay@10.75.3'
+  - '@sentry/server-utils@10.75.3'
+  - '@sentry/vercel-edge@10.75.3'

@@ -1,0 +1,19 @@
+{
+  "name": "agentic-group-planner",
+  "private": true,
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:types": "supabase gen types typescript --local > packages/shared/src/db/database.types.ts",
+    "api:types": "pnpm --filter @agp/shared exec openapi-typescript http://localhost:8000/openapi.json --default-non-nullable false -o src/optimizer/openapi.ts"
+  },
+  "devDependencies": {
+    "supabase": "2.117.0"
+  }
+}

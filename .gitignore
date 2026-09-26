@@ -1,0 +1,83 @@
+# Private working notes and agent instructions, at every depth
+AGENTS.md
+CLAUDE.md
+/skills/
+scratchpad/
+
+# Planning docs are public except the decision records and the original master plan,
+# which predates the Person 1–4 labels
+/planning/adr/
+/planning/master-plan.docx
+.claude/
+.codex/
+.superpowers/
+.agents/
+.mcp.json
+.ssh/
+.aws/
+.azure/
+.railway/
+
+# Secrets and environment
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+credentials.*.json
+*-credentials.json
+service-account*.json
+*-service-account.json
+token.json
+tokens.json
+secrets.json
+secrets.*
+signing_keys.json
+.secrets/
+.npmrc
+.netrc
+.pypirc
+id_rsa*
+id_ed25519*
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Build output and caches
+.next/
+out/
+dist/
+coverage/
+.turbo/
+.vercel/
+.ruff_cache/
+.pytest_cache/
+playwright-report/
+test-results/
+*.tsbuildinfo
+next-env.d.ts
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# Demo recordings captured locally (committed fixtures live in web/scripts/demo/fixtures/)
+*.local.json
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local command logs may include credentials or personal information
+*.log
