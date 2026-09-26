@@ -117,13 +117,16 @@ describe("search_stays", () => {
     const { data: seen } = await outsider.client.from("places").select("id").eq("id", placeId);
     expect(seen).toEqual([]);
 
-    const incomplete = await admin.from("places").insert({
-      provider: "duffel_stays", provider_place_id: `srr_${randomUUID()}:rat_none`, name: "No Rate", category: "lodging",
+    // Identical rows but for rate_id, so only the scope check can tell them apart.
+    const row = (raw: Record<string, unknown>) => ({
+      provider: "duffel_stays", provider_place_id: `srr_${randomUUID()}`, name: "Scope Check", category: "lodging",
+      lat: 33.78, lng: -84.38, fetched_at: new Date().toISOString(), seed_batch: batch,
       raw: { price_cents: 100, item_id: ctx.handles.I1, trip_id: ctx.tripId, check_in_date: "2026-09-26", check_out_date: "2026-09-27",
-        guests: 1, expires_at: "2099-01-01T00:00:00.000Z", total_cents: 100 },
-      seed_batch: batch,
+        guests: 1, expires_at: "2099-01-01T00:00:00.000Z", total_cents: 100, ...raw },
     });
-    expect(incomplete.error?.code).toBe("23514");
+    expect((await admin.from("places").insert(row({ rate_id: "rat_complete" }))).error).toBeNull();
+    expect((await admin.from("places").insert(row({}))).error?.code).toBe("23514");
+    expect((await admin.from("places").insert(row({ rate_id: "rat_string_guests", guests: "1" }))).error?.code).toBe("23514");
   });
 
   it("caches nearby hotels as lodging places with a per-guest price, so plan_day can offer them", async () => {
