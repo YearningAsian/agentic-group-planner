@@ -10,6 +10,8 @@ import { AGENT_INSTRUCTIONS } from "./prompt";
 export const CONTEXT_MESSAGES = 30;
 /** How many remembered notes per member the model sees, newest first kept. */
 export const CONTEXT_NOTES = 5;
+/** How many of an item's comments a revision run quotes, newest kept. */
+export const THREAD_COMMENTS = 30;
 
 /** Everything the model's context is built from, read in one pass. Pure input to `renderContext`. */
 export interface TripSnapshot {
@@ -42,16 +44,23 @@ export interface TripSnapshot {
   }[];
   options: { id: string; item_id: string; rank: number; place_id: string; place_name: string; price_cents: number }[];
   /** Oldest first. */
-  messages: {
-    id: string;
-    created_at: string;
-    sender_type: SenderType;
-    sender_member_id: string | null;
-    kind: MessageKind;
-    body: string | null;
-    card_type: CardType | string | null;
-    item_id: string | null;
-  }[];
+  messages: SnapshotMessage[];
+  /**
+   * For a revision run (one started by a comment on an item): that item's comments, oldest first,
+   * even ones older than the last 30 messages (plan AI-210).
+   */
+  thread?: { itemId: string; comments: SnapshotMessage[] };
+}
+
+export interface SnapshotMessage {
+  id: string;
+  created_at: string;
+  sender_type: SenderType;
+  sender_member_id: string | null;
+  kind: MessageKind;
+  body: string | null;
+  card_type: CardType | string | null;
+  item_id: string | null;
 }
 
 export interface AgentContext {
@@ -123,6 +132,19 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
     ];
   });
 
+  const names = new Map(snapshot.members.map((m) => [m.id, m.display_name]));
+  const who = (memberId: string | null) => (memberId ? `${names.get(memberId) ?? "A member"} (${handleOf(memberId)})` : "A member");
+  const threadItem = snapshot.thread ? snapshot.items.find((i) => i.id === snapshot.thread!.itemId) : undefined;
+  const threadLines = snapshot.thread
+    ? [
+        "",
+        `This request is about ${handleOf(snapshot.thread.itemId)}${threadItem ? ` (${threadItem.label})` : ""}. Its comments, oldest first:`,
+        ...(snapshot.thread.comments.length > 0
+          ? snapshot.thread.comments.map((c) => `- ${who(c.sender_member_id)}: ${c.body ?? ""}`)
+          : ["(no comments yet)"]),
+      ]
+    : [];
+
   const requester = members.find((m) => m.id === requesterMemberId);
   const system = [
     AGENT_INSTRUCTIONS,
@@ -134,13 +156,13 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
     "",
     "Itinerary:",
     ...(itemLines.length > 0 ? itemLines : ["(nothing planned yet)"]),
+    ...threadLines,
     "",
     requester
       ? `This request is from ${handleOf(requester.id)} (${requester.display_name}).`
       : "This run was started by the server, not by a member.",
   ].join("\n");
 
-  const names = new Map(snapshot.members.map((m) => [m.id, m.display_name]));
   const messages = snapshot.messages.slice(-CONTEXT_MESSAGES).map((m): ModelMessage => {
     if (m.kind === "card") {
       const card = `${String(m.card_type).replaceAll("_", " ")} card`;
@@ -150,7 +172,7 @@ export function renderContext(snapshot: TripSnapshot, requesterMemberId: string 
     }
     if (m.sender_type === "agent") return { role: "assistant", content: m.body ?? "" };
     if (m.sender_type === "system") return { role: "user", content: `(app) ${m.body ?? ""}` };
-    const sender = m.sender_member_id ? `${names.get(m.sender_member_id) ?? "A member"} (${handleOf(m.sender_member_id)})` : "A member";
+    const sender = who(m.sender_member_id);
     const on = m.item_id ? `, commenting on ${byId[m.item_id] ?? "an earlier item"}` : "";
     return { role: "user", content: `${sender}${on}: ${m.body ?? ""}` };
   });
@@ -167,8 +189,15 @@ function noteTexts(notes: unknown): string[] {
   });
 }
 
+/** What a run is about beyond the trip: for a revision run, the item its trigger comments on. */
+export interface ContextOptions {
+  itemId?: string | null;
+}
+
+const MESSAGE_COLUMNS = "id, created_at, sender_type, sender_member_id, kind, body, card_type, item_id";
+
 /** Reads what `renderContext` needs for one trip with the admin client. */
-export async function loadTripSnapshot(admin: AdminClient, tripId: string): Promise<TripSnapshot> {
+export async function loadTripSnapshot(admin: AdminClient, tripId: string, about: ContextOptions = {}): Promise<TripSnapshot> {
   const fail = (what: string, cause: unknown) =>
     new AppError("internal", `Couldn't read the trip's ${what}.`, { retryable: true, cause });
 
@@ -184,7 +213,7 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
     admin.from("item_attendees").select("item_id, member_id").eq("trip_id", tripId),
     admin
       .from("messages")
-      .select("id, created_at, sender_type, sender_member_id, kind, body, card_type, item_id")
+      .select(MESSAGE_COLUMNS)
       .eq("trip_id", tripId)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
@@ -215,6 +244,24 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
       : await admin.from("person_preferences").select("profile_id, notes").in("profile_id", profileIds);
   if (preferences.error) throw fail("remembered preferences", preferences.error);
 
+  const thread = about.itemId
+    ? await admin
+        .from("messages")
+        .select(MESSAGE_COLUMNS)
+        .eq("trip_id", tripId)
+        .eq("item_id", about.itemId)
+        .eq("kind", "text")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(THREAD_COMMENTS)
+    : null;
+  if (thread?.error) throw fail("item's comments", thread.error);
+  const asSnapshotMessage = (m: (typeof messages.data)[number]): SnapshotMessage => ({
+    ...m,
+    sender_type: m.sender_type as SenderType,
+    kind: m.kind as MessageKind,
+  });
+
   const constraintsByMember = new Map(constraints.data.map((c) => [c.member_id, c]));
   const notesByProfile = new Map(preferences.data.map((p) => [p.profile_id, noteTexts(p.notes)]));
   return {
@@ -238,11 +285,8 @@ export async function loadTripSnapshot(admin: AdminClient, tripId: string): Prom
       attendee_ids: attendees.data.filter((a) => a.item_id === i.id).map((a) => a.member_id),
     })),
     options: options.data.map(({ place, ...o }) => ({ ...o, place_name: place?.name ?? "Unknown place" })),
-    messages: [...messages.data].reverse().map((m) => ({
-      ...m,
-      sender_type: m.sender_type as SenderType,
-      kind: m.kind as MessageKind,
-    })),
+    messages: [...messages.data].reverse().map(asSnapshotMessage),
+    ...(thread && about.itemId ? { thread: { itemId: about.itemId, comments: [...thread.data!].reverse().map(asSnapshotMessage) } } : {}),
   };
 }
 
@@ -251,6 +295,7 @@ export async function buildContext(
   tripId: string,
   requesterMemberId: string | null,
   admin: AdminClient = getAdminClient(),
+  about: ContextOptions = {},
 ): Promise<AgentContext> {
-  return renderContext(await loadTripSnapshot(admin, tripId), requesterMemberId);
+  return renderContext(await loadTripSnapshot(admin, tripId, about), requesterMemberId);
 }

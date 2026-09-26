@@ -3,6 +3,8 @@ import type { Database } from "@agp/shared/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildContext, loadTripSnapshot } from "@/lib/agent/context";
+import { startAgentRun } from "@/lib/agent/runner";
+import type { LlmProvider } from "@/lib/providers/llm/types";
 import { adminClient, cleanup, createPlace, createTrip, createUser, testBatch } from "./helpers";
 
 const batch = testBatch();
@@ -10,6 +12,7 @@ const admin = adminClient() as SupabaseClient<Database>;
 let tripId: string;
 let memberIds: string[];
 let morning: string;
+let comment: string;
 
 async function insert(table: string, row: Record<string, unknown>): Promise<string> {
   const { data, error } = await adminClient().from(table).insert({ ...row, seed_batch: batch }).select("id").single();
@@ -55,6 +58,18 @@ beforeAll(async () => {
     source: "mock",
   });
 
+  // A comment on the morning, older than the last 30 messages, so only a revision run's thread shows it.
+  comment = await insert("messages", {
+    trip_id: tripId,
+    sender_type: "member",
+    sender_member_id: memberIds[1],
+    kind: "text",
+    body: "Can the morning start later?",
+    item_id: morning,
+    client_id: randomUUID(),
+    created_at: "2026-01-01T00:00:00Z",
+  });
+
   for (let i = 0; i < 32; i++) {
     await insert("messages", {
       trip_id: tripId,
@@ -94,5 +109,50 @@ describe("agent context from the database", () => {
     expect(context.system).toContain("This request is from M2 (Person 2).");
     expect(context.handles.I1).toBe(morning);
     expect(context.messages.at(-1)).toEqual({ role: "user", content: "Person 2 (M2): message 31" });
+  });
+
+  it("a revision run's context includes the item's comments and has a requester", async () => {
+    const context = await buildContext(tripId, memberIds[0]!, admin, { itemId: morning });
+
+    expect(context.system).toContain("This request is about I1 (Morning). Its comments, oldest first:");
+    expect(context.system).toContain("- Person 2 (M2): Can the morning start later?");
+    expect(context.system).toContain("This request is from M1 (Person 1).");
+    expect(context.messages.map((m) => String(m.content)).join(" ")).not.toContain("start later");
+  });
+
+  it("a run started by a comment on an item gets that item's thread", async () => {
+    const reply = await insert("messages", {
+      trip_id: tripId,
+      sender_type: "member",
+      sender_member_id: memberIds[0],
+      kind: "text",
+      body: "@agent can we push the morning back an hour?",
+      item_id: morning,
+      reply_to_message_id: comment,
+      client_id: randomUUID(),
+    });
+    const run = await insert("agent_runs", {
+      trip_id: tripId,
+      trigger: "mention",
+      trigger_message_id: reply,
+      requester_member_id: memberIds[0],
+      provider: "mock",
+      model: "m",
+    });
+    let system = "";
+    const llm: LlmProvider = {
+      name: "mock",
+      async runAgent(input) {
+        system = input.system;
+        return { text: "Looking into it.", steps: [], usage: null, provider: "mock", replayed: true };
+      },
+      async generateObject() {
+        throw new Error("not used");
+      },
+    };
+
+    expect(await startAgentRun(run, { llm, broadcast: async () => {} })).toBe("succeeded");
+    expect(system).toContain("- Person 2 (M2): Can the morning start later?");
+    expect(system).toContain("- Person 1 (M1): @agent can we push the morning back an hour?");
   });
 });

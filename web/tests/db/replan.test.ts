@@ -228,4 +228,30 @@ describe("apply_plan replan", () => {
     expect(raw).toBeNull();
     expect(await item(dinner)).toMatchObject({ status: "booked", starts_at: before.starts_at, ends_at: before.ends_at });
   });
+
+  it("apply_plan in replan mode rejects a non-member actor", async () => {
+    const trip = await newTrip();
+    const afternoon = await addItem(trip, "afternoon", "decided", 18);
+    const outsider = await newTrip();
+    const toolCallId = await startToolCall(trip);
+    const { request, response } = replanOf(trip, toolCallId, "afternoon", 18);
+
+    await expect(
+      applyPlan({
+        tripId: trip.tripId,
+        actorMemberId: outsider.memberIds[0]!,
+        runId: trip.runId,
+        toolCallId,
+        mode: "replan",
+        request,
+        response,
+        itemsBySlot: { afternoon },
+        reasoning: {},
+      }),
+    ).rejects.toMatchObject({ code: "not_permitted" });
+
+    expect(await item(afternoon)).toMatchObject({ status: "decided" });
+    const { count } = await admin.from("itinerary_items").select("*", { count: "exact", head: true }).eq("supersedes_item_id", afternoon);
+    expect(count).toBe(0);
+  });
 });

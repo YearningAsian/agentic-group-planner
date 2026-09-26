@@ -121,6 +121,21 @@ describe("renderContext", () => {
     ]);
   });
 
+  it("a revision run quotes the whole comment thread of its item, even past the last 30 messages", () => {
+    const thread = [
+      message(1, p2, "Can we find somewhere cheaper for the morning?", { item_id: uuid(11) }),
+      message(2, p3, "Anything under $20 works for me", { item_id: uuid(11) }),
+    ];
+    const later = Array.from({ length: 30 }, (_, i) => message(10 + i, p1, `chat ${i}`));
+    const { system, messages } = renderContext(snapshot({ messages: [...thread, ...later], thread: { itemId: uuid(11), comments: thread } }), p2);
+
+    expect(messages.map((m) => String(m.content)).join(" ")).not.toContain("cheaper");
+    expect(system).toContain("This request is about I1 (Morning). Its comments, oldest first:");
+    expect(system).toContain("- Person 2 (M2): Can we find somewhere cheaper for the morning?");
+    expect(system).toContain("- Person 3 (M3): Anything under $20 works for me");
+    expect(system).toContain("This request is from M2 (Person 2).");
+  });
+
   it("the same snapshot renders the same context every time", () => {
     const first = renderContext(snapshot(), p1);
     const shuffled = snapshot();
