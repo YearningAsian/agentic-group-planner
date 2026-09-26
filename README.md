@@ -34,6 +34,8 @@ pnpm --filter web dev                                            # http://localh
 cd optimizer && uvicorn app.main:app --reload --port 8000        # in a second terminal
 ```
 
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md): it covers the gitleaks pre-commit hook and the checks to run.
+
 ## Frameworks and services used
 
 Next.js, React, Tailwind CSS, shadcn/ui, mapcn, MapLibre GL (CARTO basemap), Vercel AI SDK with Grok (xAI) and Gemini, Zod, Supabase (Postgres, Auth, Realtime, Storage), Stripe (test mode), ElevenLabs Agents with Twilio, Google Places, OpenRouteService, Duffel (optional), TanStack Query, Motion, Sonner, FastAPI, OR-Tools, Pillow, ImageHash, Sentry, Vercel, and Railway. Exact versions are in the lockfiles (`pnpm-lock.yaml`, `optimizer/requirements.txt`).

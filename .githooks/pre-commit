@@ -1,0 +1,10 @@
+#!/bin/sh
+# Blocks a commit whose staged changes contain a secret. Setup and what to do on a finding: CONTRIBUTING.md.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks isn't installed, so this commit wasn't scanned for secrets." >&2
+  echo "Install it (see CONTRIBUTING.md), then commit again." >&2
+  exit 1
+fi
+
+exec gitleaks git --pre-commit --staged --redact --no-banner --verbose
