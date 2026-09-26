@@ -15,38 +15,42 @@ export function ProfileForm({ debounceMs = 300 }: { debounceMs?: number }) {
       ? { label: profile.homeAddress, lat: profile.homeLat, lng: profile.homeLng }
       : null,
   );
-  const [suggestions, setSuggestions] = useState<GeocodeSuggestion[]>([]);
+  const [fetched, setFetched] = useState<GeocodeSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [queryToken, setQueryToken] = useState("");
   const debounced = useDebouncedValue(query, debounceMs);
+  const q = debounced.trim();
+  const lookupActive = q.length >= 2 && picked?.label !== q;
+  if (q !== queryToken) {
+    setQueryToken(q);
+    setFetched([]);
+    setLoading(lookupActive);
+  }
+  const suggestions = lookupActive ? fetched : [];
 
   useEffect(() => {
-    const q = debounced.trim();
-    if (q.length < 2 || picked?.label === q) {
-      setSuggestions([]);
-      return;
-    }
+    if (!lookupActive) return;
     const controller = new AbortController();
-    setLoading(true);
     fetch(`/api/geocode?query=${encodeURIComponent(q)}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("lookup failed");
         const body = (await response.json()) as { suggestions?: GeocodeSuggestion[] };
-        setSuggestions(body.suggestions ?? []);
+        setFetched(body.suggestions ?? []);
       })
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === "AbortError") return;
-        setSuggestions([]);
+        setFetched([]);
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [debounced, picked?.label]);
+  }, [lookupActive, q]);
 
   function select(item: GeocodeSuggestion) {
     setQuery(item.label);
     setPicked(item);
-    setSuggestions([]);
+    setFetched([]);
     setSaved(false);
     setError("");
   }

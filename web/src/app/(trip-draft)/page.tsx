@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DashboardHome } from "@/features/trip-draft/components/dashboard-home";
+import { DashboardHome } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Home" };
 

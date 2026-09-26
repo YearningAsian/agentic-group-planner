@@ -7,7 +7,7 @@
  * Browse stays (gated on that same `destinationId`) swaps the chat feed for a Duffel listing grid and widens the left pane.
  * City detect is `chatCityDestination` in `fixtures.ts`. Nightly-vs-budget ranking is `splitStays` here; `/plan` uses nights in `plan-picker.tsx`.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Calendar, Check, ChevronLeft, Heart, Mic, Send, Sparkles, Users } from "lucide-react";
@@ -198,46 +198,71 @@ export function PlannerStudio() {
   const lockedStay = findStay(state.destinationId, state.lockedStayId);
   const featured = lockedStay ?? best;
   const rest = stays.filter((stay) => stay.id !== featured?.id);
-  const [selectedId, setSelectedId] = useState(featured?.id ?? "");
+  const featuredId = featured?.id ?? "";
+  const [selectedId, setSelectedId] = useState(featuredId);
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [voiceNoted, setVoiceNoted] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   const [stayCards, setStayCards] = useState<StayCard[]>([]);
   const [stayStatus, setStayStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [featuredToken, setFeaturedToken] = useState(featuredId);
+  const [destinationToken, setDestinationToken] = useState(destination?.id ?? "");
+  const [browseToken, setBrowseToken] = useState("");
+  const [loadedBrowseKey, setLoadedBrowseKey] = useState("");
   const feedRef = useRef<HTMLDivElement>(null);
+
+  // Adjust selection when the featured stay changes (allowed during render; avoids set-state-in-effect).
+  if (featuredId !== featuredToken) {
+    setFeaturedToken(featuredId);
+    setSelectedId(featuredId);
+  }
+  // Close browse mode when the destination clears.
+  const destinationKey = destination?.id ?? "";
+  if (destinationKey !== destinationToken) {
+    setDestinationToken(destinationKey);
+    if (!destinationKey && browsing) setBrowsing(false);
+  }
 
   const adults = Math.max(1, state.members.filter((member) => member.joined).length);
   const datesReady = validRange(state.startDate, state.endDate);
+  const canBrowse = Boolean(browsing && destination && datesReady);
+  const browseKey =
+    canBrowse && destination ? `${destination.id}|${state.startDate}|${state.endDate}|${adults}` : "";
+  if (browseKey !== browseToken) {
+    setBrowseToken(browseKey);
+    setStayCards([]);
+    setLoadedBrowseKey("");
+    setStayStatus(browseKey ? "loading" : "idle");
+  }
   const datesLabel = datesReady
     ? formatRange(state.startDate, state.endDate)
     : "Dates flexible";
   const budgetLabel = budget != null ? `${money(budget)} / person` : "Budget open";
   const title = destination ? `Trip to ${destination.label}` : "New trip";
 
-  const intro = useMemo(() => {
-    if (!destination || !featured) return "";
+  let intro = "";
+  if (destination && featured) {
     const total = featured.price * nights;
     const over = stayOverBudget(featured.price, nights, budget)
       ? `It's ${money(featured.price)} a night, or ${money(total)} for ${nights} ${nights === 1 ? "night" : "nights"}, over your ${money(budget ?? 0)} per-person target. It's still the strongest match I can confirm for the group.`
       : `It lands at ${money(featured.price)} a night in ${featured.neighborhood}, with a ${featured.rating} rating.`;
-    return `I found ${featured.name} for ${destination.label}. ${over} It's one of the clearer fits for this party size.`;
-  }, [budget, destination, featured, nights]);
+    intro = `I found ${featured.name} for ${destination.label}. ${over} It's one of the clearer fits for this party size.`;
+  }
 
-  const markers: MapMarker[] = useMemo(() => {
-    if (!destination) return [];
-    return stays.map((stay, index) => {
-      const offset = PIN_OFFSETS[index % PIN_OFFSETS.length];
-      return {
-        id: stay.id,
-        label: browsing ? money(stay.price) : stay.neighborhood,
-        lng: destination.lng + offset.lng,
-        lat: destination.lat + offset.lat,
-        selected: stay.id === selectedId,
-        variant: browsing ? "price" : "place",
-      };
-    });
-  }, [browsing, destination, selectedId, stays]);
+  const markers: MapMarker[] = !destination
+    ? []
+    : stays.map((stay, index) => {
+        const offset = PIN_OFFSETS[index % PIN_OFFSETS.length];
+        return {
+          id: stay.id,
+          label: browsing ? money(stay.price) : stay.neighborhood,
+          lng: destination.lng + offset.lng,
+          lat: destination.lat + offset.lat,
+          selected: stay.id === selectedId,
+          variant: browsing ? "price" : "place",
+        };
+      });
 
   useEffect(() => {
     const viewport = feedRef.current?.querySelector("[data-slot=scroll-area-viewport]");
@@ -245,32 +270,21 @@ export function PlannerStudio() {
   }, [lines]);
 
   useEffect(() => {
-    setSelectedId(featured?.id ?? "");
-  }, [featured?.id]);
-
-  useEffect(() => {
-    if (!destination) setBrowsing(false);
-  }, [destination]);
-
-  useEffect(() => {
-    if (!browsing || !destination || !datesReady) {
-      setStayCards([]);
-      setStayStatus("idle");
-      return;
-    }
+    if (!browseKey) return;
     const controller = new AbortController();
-    setStayStatus("loading");
+    const [destinationId, checkIn, checkOut, adultsParam] = browseKey.split("|");
     const params = new URLSearchParams({
-      destinationId: destination.id,
-      checkIn: state.startDate,
-      checkOut: state.endDate,
-      adults: String(adults),
+      destinationId,
+      checkIn,
+      checkOut,
+      adults: adultsParam,
     });
     fetch(`/api/stays/search?${params}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("search failed");
         const body = (await response.json()) as { stays?: StayCard[] };
         setStayCards(body.stays ?? []);
+        setLoadedBrowseKey(browseKey);
         setStayStatus("ready");
       })
       .catch((error: unknown) => {
@@ -278,7 +292,11 @@ export function PlannerStudio() {
         setStayStatus("error");
       });
     return () => controller.abort();
-  }, [adults, browsing, datesReady, destination, state.endDate, state.startDate]);
+  }, [browseKey]);
+
+  const browseReady = browseKey !== "" && loadedBrowseKey === browseKey;
+  const browseCards = browseReady ? stayCards : [];
+  const browseStatus = !browseKey ? "idle" : browseReady ? stayStatus : "loading";
 
   function push(role: Line["role"], text: string) {
     setLines((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, text }]);
@@ -379,8 +397,8 @@ export function PlannerStudio() {
 
           {browsing ? (
             <StayBrowseGrid
-              cards={stayCards}
-              status={stayStatus}
+              cards={browseCards}
+              status={browseStatus}
               datesReady={datesReady}
               selectedId={selectedId}
               lockedStayId={state.lockedStayId}

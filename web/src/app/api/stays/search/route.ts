@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { destinationById } from "@/features/trip-draft/fixtures";
+import { destinationById } from "@/lib/demo/trip-draft-fixtures";
 import { getStaysProvider } from "@/lib/providers/stays";
 import { AppError, toHttpError } from "@/lib/reliability/app-error";
 

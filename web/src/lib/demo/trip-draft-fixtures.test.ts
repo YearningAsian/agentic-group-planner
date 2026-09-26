@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatCityDestination } from "./fixtures";
+import { chatCityDestination } from "./trip-draft-fixtures";
 
 describe("chatCityDestination", () => {
   it("matches a city name to a new destination", () => {

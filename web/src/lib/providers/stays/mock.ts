@@ -1,4 +1,4 @@
-import { DESTINATIONS, staysFor, type Destination, type StayOption } from "@/features/trip-draft/fixtures";
+import { DESTINATIONS, staysFor, type Destination, type StayOption } from "@/lib/demo/trip-draft-fixtures";
 import type {
   StayAccommodation,
   StayCard,

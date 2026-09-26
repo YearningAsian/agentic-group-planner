@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { TripSummary } from "@/features/trip-draft/components/trip-summary";
+import { TripSummary } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Current trip" };
 

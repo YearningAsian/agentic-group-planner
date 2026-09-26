@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PlannerStudio } from "@/features/trip-draft/components/planner-studio";
+import { PlannerStudio } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Planner" };
 

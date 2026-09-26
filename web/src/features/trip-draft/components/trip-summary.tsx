@@ -57,6 +57,15 @@ const TONES = [
 
 const CARD_SHADOW = "var(--shadow)";
 
+/** Epoch ms outside render so nested event handlers stay pure for react-hooks/purity. */
+function nowMs(): number {
+  return Date.now();
+}
+
+function uniqueId(prefix: string): string {
+  return `${prefix}-${nowMs()}`;
+}
+
 export function TripSummary() {
   const { state } = useTrip();
   const destination = destinationById(state.destinationId);
@@ -185,7 +194,7 @@ function SummaryBody() {
   const stayPickCount = new Set(joined.map((member) => member.stayId).filter(Boolean)).size;
 
   function note(next: string) {
-    const at = Date.now();
+    const at = nowMs();
     setActivity({ detail: next, at });
     setNow(at);
   }
@@ -193,7 +202,7 @@ function SummaryBody() {
   function post(thread: Thread) {
     const text = drafts[thread].trim();
     if (!text) return;
-    const at = Date.now();
+    const at = nowMs();
     setPosted((current) => [
       ...current,
       {
@@ -240,7 +249,7 @@ function SummaryBody() {
   }
 
   function postSuggestion(thread: Thread, option: FlightOption | StayOption) {
-    const at = Date.now();
+    const at = nowMs();
     const suggestion = thread === "flight" ? flightSuggestion(option as FlightOption) : staySuggestion(option as StayOption);
     setPosted((current) => [
       ...current,
@@ -1018,7 +1027,7 @@ function leadingOption<T extends { id: string }>(
 
 function flightSuggestion(option: FlightOption): Suggestion {
   return {
-    id: `flight-${option.id}-${Date.now()}`,
+    id: uniqueId(`flight-${option.id}`),
     kind: "flight",
     optionId: option.id,
     title: `${option.airline} · ${option.stops.toLowerCase()}`,
@@ -1030,7 +1039,7 @@ function flightSuggestion(option: FlightOption): Suggestion {
 
 function staySuggestion(option: StayOption): Suggestion {
   return {
-    id: `stay-${option.id}-${Date.now()}`,
+    id: uniqueId(`stay-${option.id}`),
     kind: "stay",
     optionId: option.id,
     title: option.name,

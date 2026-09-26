@@ -16,32 +16,36 @@ export function DestinationSearch({
   onSelect: (place: PlaceSuggestion) => void;
   debounceMs?: number;
 }) {
-  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [fetched, setFetched] = useState<PlaceSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [pickedLabel, setPickedLabel] = useState<string | null>(null);
+  const [queryToken, setQueryToken] = useState("");
   const debounced = useDebouncedValue(value, debounceMs);
+  const q = debounced.trim();
+  const lookupActive = q.length >= 2 && pickedLabel !== q;
+  if (q !== queryToken) {
+    setQueryToken(q);
+    setFetched([]);
+    setLoading(lookupActive);
+  }
+  const suggestions = lookupActive ? fetched : [];
 
   useEffect(() => {
-    const q = debounced.trim();
-    if (q.length < 2 || pickedLabel === q) {
-      setSuggestions([]);
-      return;
-    }
+    if (!lookupActive) return;
     const controller = new AbortController();
-    setLoading(true);
     fetch(`/api/place-suggestions?query=${encodeURIComponent(q)}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("lookup failed");
         const body = (await response.json()) as { suggestions?: PlaceSuggestion[] };
-        setSuggestions(body.suggestions ?? []);
+        setFetched(body.suggestions ?? []);
       })
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === "AbortError") return;
-        setSuggestions([]);
+        setFetched([]);
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [debounced, pickedLabel]);
+  }, [lookupActive, q]);
 
   return (
     <SuggestField
@@ -55,7 +59,7 @@ export function DestinationSearch({
       loading={loading}
       onSelect={(item) => {
         setPickedLabel(item.name);
-        setSuggestions([]);
+        setFetched([]);
         onSelect(item);
       }}
       placeholder="City or airport — try Lisbon or LHR"

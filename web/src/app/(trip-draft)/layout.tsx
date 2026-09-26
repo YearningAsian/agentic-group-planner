@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
-import { TripProvider } from "@/features/trip-draft/trip-context";
+import { TripProvider } from "@/features/trip-draft";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],

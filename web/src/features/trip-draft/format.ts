@@ -1,8 +1,12 @@
 /**
  * Client-only formatting helpers (prototype port). `money` formats whole dollars for the
  * draft UI; real charges use integer cents computed on the server.
- * `nightsBetween` returns 3 when either date is missing. `isLiveMapboxToken` is what `trip-map.tsx` uses to pick Mapbox.
+ * `nightsBetween` returns 3 when either date is missing. `isLiveMapboxToken` lives in
+ * `lib/mapbox/token` (providers may not import features) and is re-exported here for UI code.
  */
+
+export { isLiveMapboxToken } from "@/lib/mapbox/token";
+
 
 /** Converts whole dollars to integer cents for the future server handoff. */
 export function dollarsToCents(dollars: number): number {
@@ -60,9 +64,3 @@ export function validRange(start: string, end: string): boolean {
   return Date.parse(`${end}T12:00:00`) > Date.parse(`${start}T12:00:00`);
 }
 
-export function isLiveMapboxToken(token: string | undefined): token is string {
-  if (!token) return false;
-  if (!token.startsWith("pk.")) return false;
-  if (token.includes("placeholder") || token.includes("dummy")) return false;
-  return token.length > 40;
-}

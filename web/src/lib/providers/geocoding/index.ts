@@ -1,5 +1,5 @@
 import "server-only";
-import { isLiveMapboxToken } from "@/features/trip-draft/format";
+import { isLiveMapboxToken } from "@/lib/mapbox/token";
 import { getClientEnv } from "@/lib/env/client";
 import { mockGeocodingProvider } from "./mock";
 import { createMapboxGeocoding } from "./real";

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TRIPS_DB_KEY, type TripRecord } from "./trips-db";
 import { TripProvider, useTrip, type TripState } from "./trip-context";
@@ -9,16 +10,19 @@ type TripApi = ReturnType<typeof useTrip>;
 let api: TripApi | null = null;
 
 function Probe() {
-  api = useTrip();
-  const organizer = api.state.members[0];
+  const value = useTrip();
+  useEffect(() => {
+    api = value;
+  });
+  const organizer = value.state.members[0];
   return (
     <div>
       <span data-testid="organizer-flight">{organizer?.flightId ?? "none"}</span>
       <span data-testid="organizer-stay">{organizer?.stayId ?? "none"}</span>
-      <span data-testid="destination">{api.state.destinationId ?? "none"}</span>
-      <span data-testid="destination-iata">{api.state.destinationIata ?? "none"}</span>
-      <span data-testid="destination-airports">{(api.state.destinationAirportIatas ?? []).join(",") || "none"}</span>
-      <span data-testid="destination-label">{api.state.destinationLabel || "none"}</span>
+      <span data-testid="destination">{value.state.destinationId ?? "none"}</span>
+      <span data-testid="destination-iata">{value.state.destinationIata ?? "none"}</span>
+      <span data-testid="destination-airports">{(value.state.destinationAirportIatas ?? []).join(",") || "none"}</span>
+      <span data-testid="destination-label">{value.state.destinationLabel || "none"}</span>
     </div>
   );
 }
@@ -31,7 +35,7 @@ function renderProvider(): TripApi {
     </TripProvider>,
   );
   if (!api) throw new Error("TripProvider did not expose context");
-  return api as TripApi;
+  return api;
 }
 
 function legacyRecord(overrides: Partial<Omit<TripState, "id">> = {}): TripRecord {

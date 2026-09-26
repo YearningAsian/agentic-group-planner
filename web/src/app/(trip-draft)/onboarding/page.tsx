@@ -1,7 +1,7 @@
 /** `/onboarding`. Suspense is required: `OnboardingEntry` reads `useSearchParams`. */
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { OnboardingEntry } from "@/features/trip-draft/components/onboarding-entry";
+import { OnboardingEntry } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Start a trip" };
 

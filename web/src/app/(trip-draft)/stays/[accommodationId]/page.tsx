@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { StayListing } from "@/features/trip-draft/components/stay-listing";
-import { formatRange, nightsBetween, validRange } from "@/features/trip-draft/format";
+import { StayListing, formatRange, nightsBetween, validRange } from "@/features/trip-draft";
 import { getStaysProvider } from "@/lib/providers/stays";
 
 export const metadata: Metadata = { title: "Stay" };

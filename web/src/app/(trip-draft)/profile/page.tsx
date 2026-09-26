@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ProfileScreen } from "@/features/trip-draft/components/profile-screen";
+import { ProfileScreen } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Profile" };
 
