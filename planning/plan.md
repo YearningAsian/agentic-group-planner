@@ -1922,13 +1922,13 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 #### CO-S05 · Hotels through Duffel Stays · Must
 
-- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,stays-mock.ts,stays-mock.test.ts,index.ts}`, `web/src/lib/money/decimal.ts`
+- **Files:** `web/src/lib/providers/booking/{stays-real.ts,stays-real.test.ts,mock-merchant.ts,index.ts}`, `packages/shared/src/money/decimal.ts`
 - **Depends on:** CO-204. The `real` check also needs Duffel Stays access on the account and a `duffel_test_` token.
 - **Produces:** `@duffel/api` 4.30.0 (server-only) behind the `BookingProvider` interface. Duffel's flow is search → fetch all rates → quote → booking; ours maps `optionId` to Duffel's `rate_id`, `quote()` to `stays.quotes.create(rate_id)`, `book()` to `stays.bookings.create({ quote_id, guests, email, phone_number })`, and `cancel()` to `stays.bookings.cancel(id)`. Duffel sends money as decimal strings (`total_amount`), which are parsed to integer cents without floats. Every call goes through `withPolicy`, because the client has no timeout setting. A booking isn't retried blindly: after an error, `book()` looks the booking up by quote before trying again. Search (`stays.search` by coordinates and radius) is a tool for Muse, not part of the adapter.
 - **Done when:**
-  - [ ] `pnpm --filter web test src/lib/providers/booking src/lib/money` passes: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
+  - [x] `pnpm --filter web test src/lib/providers/booking` and `pnpm --filter @agp/shared test src/money/decimal.test.ts` pass: decimal strings to cents (`"123.45"` → 12345, and rejecting `"1.234"`), quote and book through a fake Duffel client, an unavailable rate becoming a failed book, and `getBookingProvider("stays")` choosing the mock or real adapter from `STAYS_PROVIDER`.
   - [ ] Check: with `STAYS_PROVIDER=real` and a test token, a Duffel test property quotes and books.
-- **Status:** unit work can start now; the `real` check is blocked on the token and Stays access.
+- **Status:** adapter done (2026-09-26); the `real` check is blocked on the token and Stays access. Proof: `stays-real.test.ts` → 10 passed, `mock-merchant.test.ts` → 6 passed (RED first: no `selectStaysProvider`), `decimal.test.ts` → 17 passed (RED first: no module); web unit 224, shared 63, typecheck and lint clean. The hotel mock is the mock merchant with `kind: "stays"` (prices from `item_options`), so no separate mock file. Duffel's Stays booking has no idempotency key, so `book()` tags the booking's `metadata` with ours and looks for it before creating and again after an ambiguous failure; a create is never retried. Duffel quotes carry no expiry, so the adapter bounds a quote at 10 minutes. Not wired yet: `create_mandate` and `finalizeMandate` still ask for `tickets`, and a stays mandate needs a lead guest's email and phone (AI-217's profile data or the approval card).
 - **Commit:** `feat(booking): stays through duffel`
 
 #### AI-217 · Remember each person's preferences · Must

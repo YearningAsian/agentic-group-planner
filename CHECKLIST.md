@@ -13,7 +13,8 @@ Last updated: 2026-09-26.
 ## Next
 
 - [ ] AI-217: remember each person's preferences across trips, and feed them to Muse
-- [ ] CO-S05: Duffel Stays booking adapter plus a stays mock (unit tests first; the live check needs a token)
+- [ ] Stays mandates: `create_mandate` and `finalizeMandate` use `getBookingProvider("stays")` for hotels, with a lead guest's email and phone
+- [ ] Muse tool `search_stays`: Duffel `stays.search` by the trip's coordinates, results saved as places with rate options
 - [ ] AI-208: seeded-trip test checks invariants, not an exact plan
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
@@ -41,6 +42,8 @@ From the PR #3 review. Mock payments are unaffected.
 - [ ] Hosted Supabase and Vercel: VO-101, VO-107
 
 ## Done (recent)
+
+- [x] CO-S05: Duffel Stays booking adapter (`@duffel/api` 4.30.0) and the hotel mock; live check waits on a token
 
 - [x] CO-301: Stripe test-mode provider
 - [x] CO-209: late holds released only when no row pays a share
