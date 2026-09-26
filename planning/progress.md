@@ -26,3 +26,13 @@ The pivot (design §11.6) was docs only, so the code still had 7 tools, 11 card 
 | `fix(agent): stop asking the group to vote` | `plan_day` description, `applyPlan` summary, plan recording | copy test (RED first on the three strings), web 61 passed, `apply-plan` db 5 passed |
 
 Frontend impact: `cards.tsx` no longer maps `call_status` or `recap`; the feature barrels lost `VoteButton`, `GalleryView`, `RecapView`, and `CallStatusCard` (null stubs); `features/profile` and `features/itinerary` gained `ProfileForm`, `CommentThread`, and `MyItineraryView` stubs.
+
+### Feature 2 · Agent context and runner
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(agent): trip context with stable handles` | AI-105: `assignHandles`, `resolveHandle`, `renderContext`, `loadTripSnapshot`, `buildContext`, the standing prompt | unit 14 passed (RED first: missing modules); db `agent-context.test.ts` 2 passed |
+| `feat(db): finish_agent_run write function` | migration `20260926070135_finish_agent_run.sql`; types regenerated | covered by `runner.test.ts` (non-member, idempotent, client refused) and the definer audit |
+| `feat(agent): runner with leases, idempotent tool calls, and status broadcasts` | AI-106: `claimRun`, `startAgentRun`, `runTool`, `supabaseBroadcast` | db `runner.test.ts` 11 passed (RED first: missing runner); web unit 71, db 9 files / 44 passed |
+
+Decision: a run's end (message plus status) is one write function, `finish_agent_run`, added to design §3.4, so a crash can't split them.

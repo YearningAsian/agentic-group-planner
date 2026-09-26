@@ -59,6 +59,6 @@ The per-feature log, with proofs and blockers, is in `planning/progress.md`.
 
 - [x] Recovery: clean tree; AI-104 (`feat/agent-llm-provider`) merged into `colin-data-backend`; local Supabase stack up.
 - [x] Feature 1: code aligned with the journey pivot (AI-102, AI-103, VO-103 re-verified; cleanup migration).
-- [ ] Feature 2: agent context and runner (AI-105, AI-106).
+- [x] Feature 2: agent context and runner (AI-105, AI-106).
 - [ ] Feature 3: send-message route and the `plan_day` slice (FE-105, AI-107).
 - [ ] Feature 4: seed script and health route (VO-105, VO-107).

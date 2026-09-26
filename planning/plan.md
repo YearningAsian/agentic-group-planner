@@ -425,11 +425,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** AI-102, CO-102 (types generated)
 - **Produces:** `buildContext(tripId, requesterMemberId) → { system, messages, handles }`, and `resolveHandle(handles, 'I2') → uuid`. An unknown handle throws a `ToolError` with code `unknown_handle`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/agent` passes:
+  - [x] `pnpm --filter web test -- src/lib/agent` passes:
     - `assigns M# by sort_order, I# by starts_at, and O# by rank, identically on repeated calls`
     - `renders members as "M1 Person 1 (organizer)" with budgets, and "M4 Person 4 (placeholder)"`
     - `includes the last 30 messages with sender names, and the requester's handle`
     - `resolveHandle on an unknown handle throws unknown_handle`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test src/lib/agent` → 14 passed in `handles.test.ts` and `context.test.ts` (RED first: "Cannot find module ./handles" and "./context"); `pnpm --filter web test:db tests/db/agent-context.test.ts` → 2 passed (`loadTripSnapshot` against the local stack). The rendering is pure (`renderContext` over a `TripSnapshot`); `buildContext(tripId, requesterMemberId, admin?)` loads and renders.
 - **Commit:** `feat(agent): trip context with stable handles`
 
 #### AI-106 · Agent runner · Must
@@ -441,12 +442,13 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `runTool(ctx, toolName, input)`: returns a stored `succeeded` output without re-running the handler.
   - `agent.status` broadcasts. Any failure writes an `error` card and marks the run `failed`.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
+  - [x] `pnpm --filter web test:db -- tests/db/runner.test.ts` passes (mock LLM):
     - `a queued run is claimed once; a second claim for the same trip returns null while it's running`
     - `a succeeded tool_calls row is returned without calling the handler again`
     - `a handler that throws writes one error card and marks the run failed`
     - `a successful run ends succeeded with exactly one agent text message`
     - `a final text that makes the agent the payer (pairsAgentWithPaid, speaker agent) is replaced with "I proposed it. Each of you approves your own share."` (HumanInLoopLabel)
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/runner.test.ts` → 11 passed on the local stack (RED first: "Cannot find package @/lib/agent/runner"): the five listed, plus broadcasts in order, an unknown handle returned to the model, the recorded plan prompt replayed through the mock LLM, a missing recording ending in an error card, and `finish_agent_run` rejecting a non-member, finishing once, and refusing clients. The end of a run goes through a new write function, `finish_agent_run` (migration `20260926070135`; design §3.4). `runTool(ctx, tool, input)` takes the tool definition rather than its name.
 - **Commit:** `feat(agent): runner with leases, idempotent tool calls, and status broadcasts`
 
 #### AI-107 · Optimizer client and the `plan_day` slice · Must

@@ -987,6 +987,7 @@ revoke execute on function public.apply_plan(jsonb) from public, anon, authentic
 | `create_mandate(payload jsonb)` | `createMandate` (`propose_purchase`) | the mandate, its share rows (`own`, `awaiting_member`, and `fronted`), and the `approval` card | CO |
 | `complete_mandate(payload jsonb)` | `finalizeMandate`, after `book()` and the captures | the booking, the captured and released share rows (one paying row per share), `final_cents`, the item booked and pinned, and the `booking_confirmed` card | CO |
 | `apply_item_change(payload jsonb)` | `update_item` | the item change and the `itinerary_change` card | AI |
+| `finish_agent_run(payload jsonb)` | the runner (`startAgentRun`), at the end of every run | the run `succeeded` with one agent text message, or `failed` with one `error` card; step count, usage, replay flag, and error | AI |
 | `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer). | FE |
 
 ---
