@@ -186,12 +186,12 @@ describe("apply_plan replan", () => {
 
   it("booked items never change", async () => {
     const trip = await newTrip();
-    const dinner = await addItem(trip, "dinner", "booked", 23);
+    const dinner = await addItem(trip, "dinner", "booked", 20);
     const before = await item(dinner);
 
     const shiftCall = await startToolCall(trip);
-    const shift = replanOf(trip, shiftCall, "dessert", 20);
-    const dessert = await addItem(trip, "dessert", "tbd", 20);
+    const shift = replanOf(trip, shiftCall, "dessert", 17);
+    const dessert = await addItem(trip, "dessert", "tbd", 17);
     await expect(
       applyPlan({
         tripId: trip.tripId,
@@ -202,12 +202,12 @@ describe("apply_plan replan", () => {
         ...shift,
         itemsBySlot: { dessert },
         reasoning: {},
-        timeShifts: { [dinner]: { starts_at: "2026-09-27T00:00:00Z", ends_at: "2026-09-27T02:00:00Z" } },
+        timeShifts: { [dinner]: { starts_at: "2026-09-26T21:00:00Z", ends_at: "2026-09-26T23:00:00Z" } },
       }),
     ).rejects.toMatchObject({ code: "not_permitted" });
 
     const planCall = await startToolCall(trip);
-    const plan = replanOf(trip, planCall, "dinner", 23);
+    const plan = replanOf(trip, planCall, "dinner", 20);
     await expect(
       applyPlan({ tripId: trip.tripId, actorMemberId: trip.memberIds[0]!, runId: trip.runId, toolCallId: planCall, mode: "replan", ...plan, itemsBySlot: { dinner }, reasoning: {} }),
     ).rejects.toThrow();
