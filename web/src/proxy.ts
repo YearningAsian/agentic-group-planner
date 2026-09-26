@@ -1,12 +1,13 @@
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 /**
- * Refreshes the Supabase session on every page and API request, so Server Components and route
- * handlers always see a current session cookie. It doesn't gate access: pages and routes check
- * membership themselves.
+ * Clerk session + Supabase cookie refresh on every matched request.
+ * Routes stay public by default; protect handlers/pages with `await auth.protect()` where needed.
+ * Keep Supabase session refresh until third-party Clerk↔Supabase auth is fully wired.
  */
-export async function proxy(request: NextRequest) {
+async function refreshSupabaseSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -19,16 +20,20 @@ export async function proxy(request: NextRequest) {
         for (const { name, value } of toSet) request.cookies.set(name, value);
         response = NextResponse.next({ request });
         for (const { name, value, options } of toSet) response.cookies.set(name, value, options);
-        // Responses that set auth cookies must never be cached and served to another user.
         for (const [header, value] of Object.entries(headers)) response.headers.set(header, value);
       },
     },
   });
-  // Verifies the token and refreshes it when it's about to expire.
   await supabase.auth.getClaims();
   return response;
 }
 
+export default clerkMiddleware(async (_auth, request) => refreshSupabaseSession(request));
+
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|maplibre/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|maplibre/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/(api|trpc)(.*)",
+    "/__clerk/:path*",
+  ],
 };

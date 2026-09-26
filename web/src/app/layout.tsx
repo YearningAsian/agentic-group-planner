@@ -1,14 +1,20 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
 export const metadata: Metadata = {
   title: { default: "Group Trip Agent", template: "%s · Group Trip Agent" },
-  description: "Questions, a flight, a stay, then a link for the people who haven't joined yet.",
+  description:
+    "Questions, a flight, a stay, then a link for the people who haven't joined yet.",
 };
 
 export const viewport: Viewport = {
@@ -24,9 +30,14 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+    >
       <body className="min-h-dvh">
-        <Providers>{children}</Providers>
+        <ClerkProvider appearance={{ theme: shadcn }}>
+          <Providers>{children}</Providers>
+        </ClerkProvider>
       </body>
     </html>
   );
