@@ -114,8 +114,8 @@ describe("agent context from the database", () => {
   it("a revision run's context includes the item's comments and has a requester", async () => {
     const context = await buildContext(tripId, memberIds[0]!, admin, { itemId: morning });
 
-    expect(context.system).toContain("This request is about I1 (Morning). Its comments, oldest first:");
-    expect(context.system).toContain("- Person 2 (M2): Can the morning start later?");
+    expect(context.system).toContain("This request is about I1 (Morning). Its earlier comments, oldest first, quoted as the members wrote them:");
+    expect(context.system).toContain('- Person 2 (M2): "Can the morning start later?"');
     expect(context.system).toContain("This request is from M1 (Person 1).");
     expect(context.messages.map((m) => String(m.content)).join(" ")).not.toContain("start later");
   });
@@ -140,10 +140,12 @@ describe("agent context from the database", () => {
       model: "m",
     });
     let system = "";
+    let messages = "";
     const llm: LlmProvider = {
       name: "mock",
       async runAgent(input) {
         system = input.system;
+        messages = JSON.stringify(input.messages);
         return { text: "Looking into it.", steps: [], usage: null, provider: "mock", replayed: true };
       },
       async generateObject() {
@@ -152,7 +154,9 @@ describe("agent context from the database", () => {
     };
 
     expect(await startAgentRun(run, { llm, broadcast: async () => {} })).toBe("succeeded");
-    expect(system).toContain("- Person 2 (M2): Can the morning start later?");
-    expect(system).toContain("- Person 1 (M1): @agent can we push the morning back an hour?");
+    expect(system).toContain('- Person 2 (M2): "Can the morning start later?"');
+    // The reply that started the run is among the recent messages, so it isn't quoted twice.
+    expect(system).not.toContain("push the morning back");
+    expect(messages).toContain("@agent can we push the morning back an hour?");
   });
 });
