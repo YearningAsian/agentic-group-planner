@@ -74,3 +74,15 @@ The per-feature log, with proofs and blockers, is in `planning/progress.md`.
 - [x] Feature 2: agent context and runner (AI-105, AI-106).
 - [x] Feature 3: send-message route and the `plan_day` slice (FE-105, AI-107); AI-212 too.
 - [ ] Feature 4: seed script (VO-105, done) and health route (VO-107).
+
+## 7. Autonomous backend session (2026-09-26)
+
+Every change goes through a PR into `testing`, merged when CI is green. Never push to `main` or `at-frontend`.
+
+- [x] Phase 0: fetch, compare branches, check the worktrees (already gone), push two unpushed branches, delete merged ones, reconcile plan, progress, and checklist.
+- [ ] Phase 1: CI runs only for `testing` (PR, then branch protection if allowed).
+- [ ] Phase 2: cron expiry (ADR), CO-S02, `request_alternatives`, stays in finalize plus a hotel search tool, AI-210's open cases, replan keeps unchanged slots (Should, last).
+- [ ] Phase 3: `pnpm sandbox:smoke` against the configured sandbox; Stripe webhook secret steps.
+- [ ] Phase 4: review `at-frontend` (review only), PR into `testing`, and an open PR from `testing` into `at-frontend`.
+- [ ] Phase 5: ui-ux-pro-max design system (docs only) and the UI review.
+- [ ] Phase 6: plan, checklist, and one GitHub issue per open frontend Must task.
