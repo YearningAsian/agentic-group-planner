@@ -11,9 +11,14 @@ candidate `c` is `table.slots[s].candidates[c]`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
-from app.models import Weights
+from app.models import MAX_UNPINNED_SLOTS, Weights
+
+# Engine limits (design §2.2). Beyond them the engine answers too_large.
+MAX_MEMBERS = 6
+MAX_OPEN_SLOTS = MAX_UNPINNED_SLOTS
+MAX_CANDIDATES = 6
 
 Assignment = tuple[tuple[int | None, ...], ...]
 """`assignment[s][m]` is member m's candidate index in slot s, or None when m isn't part of a pinned slot."""
@@ -191,6 +196,79 @@ def combine(weights: Weights, member_scores: list[float], split_slots: int) -> f
     """The plan score from its member scores and split count."""
     mean = sum(member_scores) / len(member_scores)
     return mean + weights.fairness * min(member_scores) - weights.split_penalty * split_slots
+
+
+@dataclass(frozen=True)
+class RankedPlan:
+    """One plan an engine found, with its objective value."""
+
+    assignment: Assignment
+    score: PlanScore
+
+
+@dataclass(frozen=True)
+class EngineResult:
+    """What an engine returns: up to `max_plans` plans, best first.
+
+    `status` is optimal when the plans are proven best, feasible when a time limit cut the search short,
+    infeasible when no plan exists, and too_large beyond the engine limits. The table's infeasible reasons
+    pass through unchanged.
+    """
+
+    engine: Literal["cp_sat", "enumeration"]
+    status: Literal["optimal", "feasible", "infeasible", "too_large"]
+    plans: list[RankedPlan]
+    infeasible_reasons: list[str]
+
+
+def too_large(table: ScoreTable) -> bool:
+    """Beyond the engine limits: 6 members, 3 open slots, 6 candidates per slot."""
+    open_slots = sum(1 for s in table.slots if not s.pinned)
+    most_candidates = max((len(s.candidates) for s in table.slots), default=0)
+    return len(table.members) > MAX_MEMBERS or open_slots > MAX_OPEN_SLOTS or most_candidates > MAX_CANDIDATES
+
+
+def slot_groups(choice: tuple[int | None, ...]) -> list[tuple[int, list[int]]]:
+    """The groups in one slot as (candidate, member indices), ordered by each group's first member."""
+    groups: dict[int, list[int]] = {}
+    for m, c in enumerate(choice):
+        if c is not None:
+            groups.setdefault(c, []).append(m)
+    return list(groups.items())
+
+
+def is_feasible(table: ScoreTable, assignment: Assignment, min_group_size: int, max_groups_per_slot: int) -> bool:
+    """Whether an assignment meets every hard constraint (design §2.2).
+
+    Pinned slots keep their place and members. In an open slot, everyone attends a candidate that's allowed
+    for them, in at most `max_groups_per_slot` groups (one when together) of at least `min_group_size`.
+    Consecutive stops must arrive in time, and each member's total price must fit their budget.
+    """
+    n = len(table.members)
+    if len(assignment) != len(table.slots):
+        return False
+    spent = [0] * n
+    for s, (slot, choice) in enumerate(zip(table.slots, assignment, strict=True)):
+        if len(choice) != n:
+            return False
+        if slot.pinned_members is not None:
+            if choice != tuple(0 if m in slot.pinned_members else None for m in range(n)):
+                return False
+        else:
+            if any(c is None or not table.allowed[(m, s, c)] for m, c in enumerate(choice)):
+                return False
+            groups = slot_groups(choice)
+            limit = 1 if slot.together else max_groups_per_slot
+            if len(groups) > limit or any(len(members) < min_group_size for _, members in groups):
+                return False
+        for m, c in enumerate(choice):
+            if c is None:
+                continue
+            spent[m] += table.price[(s, c)]
+            previous = assignment[s - 1][m] if s > 0 else None
+            if previous is not None and not table.arrival_ok[(s, previous, c)]:
+                return False
+    return all(budget is None or total <= budget for total, budget in zip(spent, table.budget, strict=True))
 
 
 def _group_count(choice: tuple[int | None, ...]) -> int:
