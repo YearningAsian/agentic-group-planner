@@ -79,3 +79,21 @@ The commerce worker's follow-ups:
 - `PaymentsEvent` needs metadata for CO-209 and CO-212.
 - Price-change re-approval (CO-S01) needs a `create_mandate` variant without a tool call.
 - The `lib/reliability` barrel is server-only now that it exports the webhook ledger; no client module imports it.
+
+### Round 2 (lead): CI, seed stages, reset, and the itinerary export
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `ci: lint, typecheck, tests, pytest, and contracts drift` | CO-106 | lint 6 passed (RED first); three jobs green on GitHub (PR #3) |
+| `feat(demo): seed stages for isolated development` | VO-201 | args 3 listed tests pass |
+| `feat(demo): batch reset under 30 seconds` | VO-216 | reset-plan 3, db 1; `reset:demo --batch dev-vo` 0.3 to 1.1 s |
+| `feat(shared): one share status for every money surface` | `shareStatus` (FE-404, CO-213) | shared 5 passed |
+| `feat(itinerary): per-person itinerary export and calendar download` | FE-404, backend half | unit 7, db 2 |
+| Merge `AI-202 to AI-206` | the optimizer engines, from a parallel worktree | pytest 57 passed, ruff clean |
+| `feat(optimizer): send each slot's category to the engines` | the regenerated OpenAPI types | the real engines ran the seeded plan prompt end to end |
+| `fix(demo): a re-seed keeps constraints the trip has since changed` | review follow-up | db seed 5 passed (RED first) |
+
+The batch 2 review (`f1885fb..b79eb46`) found the range **mergeable as is**, with non-blocking follow-ups:
+- the webhook ledger, the mock webhook secret, and create_mandate's tests and hardening went to the commerce worker;
+- `plan_day`'s $0 fallback, the rounded summary prices, and a slice-test assertion went to the AI worker;
+- the seed's constraint revert I fixed myself.

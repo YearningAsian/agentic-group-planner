@@ -587,12 +587,13 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** FE-102, AI-101, AI-102
 - **Produces:** the three CI jobs from checklist B11, and the `no-restricted-imports` rules from design §1. The VO engineer owns both files from Milestone 2 on.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- tests/lint/boundaries.test.ts` passes (ESLint Node API):
+  - [x] `pnpm --filter web test -- tests/lint/boundaries.test.ts` passes (ESLint Node API):
     - `app/ deep-importing features/payments/server/approve-hold is an error`
     - `app/ importing features/payments/server is allowed`
     - `lib/optimizer importing any feature is an error`
     - `a client component importing lib/providers is an error`
   - [ ] Check: a push to `main` runs all three jobs green.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test tests/lint/boundaries.test.ts` → 6 passed (RED first: all four listed cases); the three jobs ran green on GitHub on PR #3 (web and shared, optimizer, contracts drift). A local ESLint rule stops a "use client" module from importing server-only code.
 - **Commit:** `ci: lint, typecheck, tests, pytest, and contracts drift`
 
 #### CO-107 · Fee breakdown function · Must
@@ -946,11 +947,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 
   `plan_score` is implemented here, because it is the objective. `build_score_table` is only declared here, and AI-203 implements it.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_score_table.py` passes:
+  - [x] `cd optimizer && pytest tests/test_score_table.py` passes:
     - `test_small_table_round_trips_from_json`
     - `test_plan_score_matches_the_hand_computed_values_in_small_expected`
     - `test_plan_score_adds_fairness_and_subtracts_the_split_penalty`
   - [ ] Check: `small_expected.json` lists the top 3 plans for `small_table.json`, worked out by hand in a comment block at the top of the test.
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_score_table.py` → 5 passed (RED first: "No module named app.score_table"). A brute-force script confirms the hand-computed top 3 (0.86925, 0.818375, 0.8165).
 - **Commit:** `feat(optimizer): score table interface, objective, and planner fixtures`
 
 #### AI-203 · Rules and scoring: build the score table · Must
@@ -959,7 +961,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `build_score_table(request) → ScoreTable`, using the hard-constraint predicates `dietary_ok`, `budget_ok`, `open_ok`, and `arrival_ok`, and the design §2.2 terms `preference`, `cost`, and `travel`.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
+  - [x] `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` passes:
     - `test_dietary_needs_tags_on_food_slots_only`
     - `test_null_budget_means_unlimited`
     - `test_open_through_start_plus_duration`
@@ -969,6 +971,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `test_travel_caps_at_45_minutes`
     - `test_build_score_table_on_small_request_equals_small_table` (within 1e-6)
     - `test_infeasible_reason_names_the_member`: a vegetarian with no vegetarian lunch option
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_rules.py tests/test_scoring.py` → 11 passed (RED first: missing modules). `Slot` gained an optional `category` (design §11.7), so dietary rules know the food slots.
 - **Commit:** `feat(optimizer): rules and scoring build the score table`
 
 #### AI-204 · Enumeration engine · Must
@@ -977,7 +980,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `enumerate_plans(table, params) → EngineResult` with `engine = "enumeration"`. It reads only the `ScoreTable`, and passes the table's infeasible reasons through. They name members as `{member:<uuid>}` tokens, which `plan_day` replaces with display names.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_enumerate.py` passes:
+  - [x] `cd optimizer && pytest tests/test_enumerate.py` passes:
     - `test_top3_sorted_by_plan_score`
     - `test_together_slot_has_one_group`
     - `test_groups_have_at_least_two_members_and_at_most_two_groups`
@@ -985,6 +988,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `test_top_plan_on_small_table_equals_small_expected`
     - `test_too_large_beyond_limits`: 7 members, 4 unpinned slots, or 7 candidates → `too_large`
     - `test_no_plan_returns_infeasible_with_the_table_reasons`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_enumerate.py` → 19 passed (RED first: missing module). An exact branch-and-bound search; it matched brute force on 158 random tables.
 - **Commit:** `feat(optimizer): exhaustive enumeration engine`
 
 #### AI-205 · CP-SAT engine · Must
@@ -993,11 +997,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-202
 - **Produces:** `solve_plans(table, params) → EngineResult` with `engine = "cp_sat"`, the top 3 through no-good cuts, and a time limit of `time_limit_ms ÷ max_plans` per solve. It reads only the `ScoreTable`.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_cpsat.py` passes:
+  - [x] `cd optimizer && pytest tests/test_cpsat.py` passes:
     - `test_top_plan_on_small_table_equals_small_expected`
     - `test_three_distinct_plans_via_nogood_cuts`
     - `test_fairness_term_raises_the_lowest_member`
     - `test_respects_the_time_limit`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_cpsat.py` → 6 passed (RED first: missing module). It agreed with enumeration on 120 random tables.
 - **Commit:** `feat(optimizer): cp-sat engine with top-3 plans`
 
 #### AI-206 · Engine selection, parity, and fallback · Must
@@ -1006,11 +1011,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-203, AI-204, AI-205
 - **Produces:** `/v1/plan`: it builds the `ScoreTable`, runs CP-SAT, falls back to enumeration per design §2.2, and turns the engine result into a PlanResponse.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` passes:
+  - [x] `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` passes:
     - `test_parity_top_plan_on_three_fixtures`
     - `test_engine_enumeration_param_forces_the_fallback`
     - `test_ortools_import_failure_falls_back` (monkeypatched)
     - `test_unknown_solver_status_falls_back`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `cd optimizer && pytest tests/test_parity.py tests/test_fallback.py` → 7 passed; whole optimizer 57 passed, ruff clean. The recorded plan prompt on a seeded trip ran through the real engines (cp_sat, 30 ms) and the run succeeded.
 - **Commit:** `feat(optimizer): engine selection with enumeration fallback`
 
 #### AI-207 · Plan request builder · Must
@@ -1339,10 +1345,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-105
 - **Produces:** `--stage planned|discussed|booked` (design §10.3). Do it early: stages let the other workstreams build their flows without waiting on each other.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/args.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/args.test.ts` passes:
     - `reads --batch and --stage, and the batch defaults to demo`
     - `runs stages in order up to the one requested`
     - `refuses --stage on the demo batch`
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test scripts/demo/lib/args.test.ts` → the three listed pass (RED first: "Cannot find module ../stages"). The stage files throw "stage not implemented" naming AI-214, FE-222, and CO-214.
 - **Commit:** `feat(demo): seed stages for isolated development`
 
 #### VO-203 · Webhook recorder · Must
@@ -1444,10 +1451,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-201
 - **Produces:** `reset({ batch, all })`, per design §10.5.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/reset-plan.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/reset-plan.test.ts` passes:
     - `deletes only the batch's trips and claimers, never seeded users or other batches`
     - `--all adds seeded users, places, routes, and storage objects`
   - [ ] Check: `pnpm reset:demo --batch dev-vo` finishes in under 30 s. An open browser on the trip reloads on `demo.reset`, and seeded users stay signed in.
+- **Status:** done (2026-09-26), except the browser half of the Check. Proof: `pnpm --filter web test scripts/demo/lib/reset-plan.test.ts` → 3 passed (RED first: missing module); `pnpm --filter web test:db tests/db/reset.test.ts` → 1 passed (another batch untouched, the claimer removed, seeded users kept). `pnpm reset:demo --batch dev-vo` → 0.3 to 1.1 s. "An open browser reloads on demo.reset" needs FE-107. `--all` deletes the shared seed places, so it fails while another batch's options still point at them.
 - **Commit:** `feat(demo): batch reset under 30 seconds`
 
 #### VO-217 · e2e harness · Should
@@ -1701,12 +1709,13 @@ The per-person export is built here, then all five core flows run end to end on 
 - **Depends on:** FE-206, FE-208, CO-213
 - **Produces:** `MyItineraryView` and `buildItineraryExport({ tripId, memberId }) → { stops, totals }`, plus the download route serving one `VEVENT` per attended item as a calendar file.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/itinerary/components/my-itinerary-view.test.tsx src/features/itinerary/server/build-itinerary-export.test.ts src/app/api/trips` passes:
+  - [x] `pnpm --filter web test -- src/features/itinerary/components/my-itinerary-view.test.tsx src/features/itinerary/server/build-itinerary-export.test.ts src/app/api/trips` passes:
     - `shows only the signed-in member's attended items, in time order, each with place, time, attendees, and payment status`
     - `the calendar file has one event per attended item, with the place and start/end times`
     - `the download route returns 403 for a non-member`
     - `totals show the member's committed share and status`
   - [ ] Check: the page prints to one clean hand-off per member.
+- **Status:** in progress (2026-09-26): the backend half is done; the page and components are FE's. Proof: `pnpm --filter web test src/features/itinerary/server src/app/api/trips` → 7 passed (RED first: missing modules), covering "the calendar file has one event per attended item…", "the download route returns 403 for a non-member", and "totals show…"; `pnpm --filter web test:db tests/db/itinerary-export.test.ts` → 2 passed through row-level security. `shareStatus` in `@agp/shared` gives every money surface the same words.
 - **Commit:** `feat(itinerary): per-person itinerary with calendar download`
 
 #### FE-405 · e2e 05-itinerary · Should

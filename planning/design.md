@@ -1803,4 +1803,5 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 2. **The end of a run is a write function.** `finish_agent_run` (§3.4) writes the run's one message and its final status together.
 3. **Members' messages link only within their trip.** The insert policy requires `item_id` and `reply_to_message_id` on the message's own trip (migration `20260926071157`).
 4. **A run at the step cap fails** (§4.4), on both the live and the replay provider, rather than ending with empty text.
-
+5. **`Slot.category` in the plan request.** §2.2's dietary rule applies to "food slots", but the request had no way to say which slots are food. `Slot` has an optional `category` (the `place_category` values), and `food` and `dessert` count as food.
+6. **Open for AI-208: repeats and the target plan.** With the default weights (`split_penalty` 0.3), the engines put everyone together at Piedmont Park for both the morning and the afternoon of the seeded trip. The §10.2 target plan (the aquarium, then a split afternoon) needs fixture or weight tuning, and nothing yet stops a place from filling two slots in a day.
