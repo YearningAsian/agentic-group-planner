@@ -69,7 +69,7 @@ pnpm init
   - `"private": true` and `"engines": { "node": ">=24" }`.
   - Scripts:
     - `dev`, `lint`, `typecheck`, `test`: fan out with `pnpm -r`.
-    - `seed:demo`, `reset:demo`, `demo:process-photos`: run `pnpm --filter web exec tsx scripts/demo/<name>.ts`.
+    - `seed:demo`, `reset:demo`, `demo:process-photos`: run `pnpm --filter web exec tsx scripts/demo/<name>.ts`. Each is added with its script (VO-105, VO-216, VO-401), so the root never points at a missing file.
     - `db:types`: `supabase gen types typescript --linked > packages/shared/src/db/database.types.ts`.
     - `api:types`: `pnpm --filter @agp/shared exec openapi-typescript http://localhost:8000/openapi.json -o src/optimizer/openapi.ts`.
 - [x] `pnpm-workspace.yaml` lists `web` and `packages/*`. — *done; also `supportedArchitectures` (arm64) and `savePrefix: ""`*

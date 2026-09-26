@@ -9,21 +9,21 @@ Started 2026-09-25. This file is tracked; keep it free of secrets and personal n
 - [x] gitleaks over the files git would publish: clean.
 - [x] Decision: publish task_plan.md and planning/, except planning/adr/.
 - [x] Hold back planning/master-plan.docx: personal names in its body and metadata.
-- [ ] .gitignore and check_plan.py follow the new tracked set; check_plan.py prints UTF-8 on Windows.
-- [ ] README status line tells the truth; drop create-next-app boilerplate and starter SVGs.
-- [ ] Verification: typecheck, lint, tests (web, shared, optimizer), check_plan.py.
-- [ ] First commits (Conventional Commits), then create the public repo and push.
-- [ ] Remote tree has none of the ignored paths; gitleaks over full history.
-- [ ] Secret scanning and push protection on; report status.
-- [ ] gitleaks pre-commit hook; CONTRIBUTING.md.
-- [ ] supabase/config.toml: explain the non-default settings.
+- [x] .gitignore and check_plan.py follow the new tracked set; check_plan.py prints UTF-8 on Windows.
+- [x] README status line tells the truth; drop create-next-app boilerplate and starter SVGs.
+- [x] Verification: typecheck, lint, tests (web, shared, optimizer), check_plan.py.
+- [x] First commits (Conventional Commits), then push. The repo appeared (empty) between checks; pushed into it, no second repo.
+- [x] Remote tree has none of the ignored paths; gitleaks over full history.
+- [x] Secret scanning and push protection on; report status.
+- [x] gitleaks pre-commit hook; CONTRIBUTING.md.
+- [x] supabase/config.toml: explain the non-default settings.
 
 ## 2. Audit fixes
 
-- [ ] Reset M1 tasks that fail their done criteria, with a one-line reason each.
-- [ ] Remove false claims: "no scaffold", health check done, session persistence verified.
-- [ ] Homepage links only to routes that exist.
-- [ ] Seed commands point at real scripts or are removed.
+- [x] Reset M1 tasks that fail their done criteria: VO-101, VO-102, VO-104, CO-101, CO-102, CO-103. FE-103 reset, fixed, re-verified.
+- [x] Remove false claims: "no scaffold" (README), health check (design §11.4), session persistence (VO-104).
+- [x] Homepage links only to routes that exist; src/app/routes.test.ts guards it.
+- [x] Seed commands removed until VO-105, VO-216, and VO-401 add them.
 - [ ] Delete anonymous and password auth helpers (magic links replace them).
 - [ ] DB_TEST_TARGET option with keys in a gitignored .env.test.local.
 - [ ] Stripe mock-mode suites and a Playwright smoke test, or plan tasks with owners.

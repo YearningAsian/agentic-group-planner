@@ -40,7 +40,7 @@ Every task's requirements include these. Values are copied from the design.
 - **External calls** go through a provider adapter and `withPolicy`. A failure becomes an error card with Try again, never a silent switch to a mock.
 - **Idempotency keys** are exactly the ones in design §7.1. Webhooks read the raw body, verify the signature, and record in `webhook_events` before processing.
 - **Imports:** no deep imports across features. Server-only modules start with `import 'server-only'`.
-- **Tracked files never link into `planning/`.** That covers code comments, `README.md`, and anything under `web/`, `optimizer/`, `packages/`, or `supabase/`.
+- **Tracked files never depend on local-only files.** `planning/adr/`, `planning/master-plan.docx`, `skills/`, and `AGENTS.md` are gitignored: code never refers to them, and no tracked doc outside `planning/` links to them.
 - **UI:** mobile first. Targets are at least 44 × 44 px. Use design tokens only (design §8.2). Every control has hover, active, focus-visible, disabled, and pending states. Lane colors never carry meaning alone; always show initials too.
 - **Test data:** database tests use a `test:<uuid>` seed batch and delete their trips afterward. e2e runs use `e2e-<random>`. Each engineer develops in their own batch (`dev-fe`, `dev-ai`, `dev-co`, `dev-vo`). The `demo` batch is for checks on the deployed app.
 - **CI** runs with every provider mocked and needs no real keys.
@@ -50,7 +50,7 @@ Every task's requirements include these. Values are copied from the design.
 
 ## The task loop
 
-Every task follows the same loop. It applies the repo's `superpowers` (TDD), `spartan-ai-toolkit` (quality gates), and `git-guardrails` skills. UI tasks also follow `frontend-design` and `vercel-react-best-practices`. A task touching 3 or more files keeps a `task_plan.md` at the repo root (`planning-with-files`; it's gitignored).
+Every task follows the same loop. It applies the repo's `superpowers` (TDD), `spartan-ai-toolkit` (quality gates), and `git-guardrails` skills. UI tasks also follow `frontend-design` and `vercel-react-best-practices`. A task touching 3 or more files keeps a `task_plan.md` at the repo root (`planning-with-files`; it's tracked, so keep it free of secrets).
 
 1. Write the tests named under **Done when**.
 2. Run them, and see each one fail for the reason you expect.
@@ -70,7 +70,7 @@ Every task follows the same loop. It applies the repo's `superpowers` (TDD), `sp
 | e2e | `pnpm --filter web e2e -- <file>` (Playwright, mocks, against the local dev server) |
 | Shared contracts | `pnpm --filter @agp/shared test -- <file>` |
 | Optimizer | `cd optimizer && pytest tests/<file>.py` |
-| Seed or reset a batch | `pnpm seed:demo --batch <name> [--stage planned\|voted\|booked]` · `pnpm reset:demo --batch <name>` |
+| Seed or reset a batch | `pnpm seed:demo --batch <name> [--stage planned\|voted\|booked]` · `pnpm reset:demo --batch <name>` (added by VO-105 and VO-216) |
 | Regenerate types | `pnpm db:types` after a migration · `pnpm api:types` after an optimizer model change |
 | Check the planning docs | `python planning/tools/check_plan.py` |
 
@@ -143,11 +143,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `package.json`, `pnpm-workspace.yaml`, `supabase/config.toml`
 - **Depends on:** nothing
-- **Produces:** the root scripts in [checklist](checklist.md) B2 (`dev`, `lint`, `typecheck`, `test`, `seed:demo`, `reset:demo`, `demo:process-photos`, `db:types`, `api:types`), and a linked Supabase project.
+- **Produces:** the root scripts in [checklist](checklist.md) B2 (`dev`, `lint`, `typecheck`, `test`, `db:types`, `api:types`), and a linked Supabase project. `seed:demo` and `reset:demo` arrive with VO-105, and `demo:process-photos` with its photo task.
 - **Done when:**
-  - [ ] Checklist B2 and the first half of B7 are done. `git log --oneline` shows `chore: add readme, gitignore, and agent skills` as the first commit, and `git check-ignore planning AGENTS.md` prints both paths.
+  - [x] Checklist B2 and the first half of B7 are done. `git log --oneline` shows `chore: add workspace config, license, and ignore rules` as the first commit, and `git check-ignore AGENTS.md skills planning/adr` prints all three paths.
   - [ ] Check: `node -v` prints 24 or later, `pnpm -v` prints 11.x, and `pnpm exec supabase projects list` shows the linked project.
-- **Status:** done (2026-09-23). Proof: `pnpm install` → "Done"; `pnpm exec supabase --version` → 2.117.0; `pnpm exec supabase start` → local stack up (DB 127.0.0.1:55322). Not done here: git commit/`git log` (no git, by instruction) and `supabase link` (no hosted project; local stack instead, design §11.4).
+- **Status:** not done. Reset 2026-09-25: no hosted Supabase project is linked (local stack only, design §11.4 item 1), so the `supabase projects list` check fails.
 - **Commit:** `chore: init pnpm workspace and link supabase`
 
 #### VO-102 · Migration 1 (foundation) and the database test harness · Must
@@ -163,7 +163,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `trip_members rejects status joined with a null profile_id`
     - `a trip can't have two organizers`
   - [ ] The migration is pushed first, before files 2–4, and `pnpm db:types` is committed with it.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db -- tests/db/foundation.test.ts` → 6 passed (RED first: "Could not find the table public.trips" before `supabase db reset`); `pnpm db:types` → wrote packages/shared/src/db/database.types.ts. "Pushed" = applied locally with `supabase db reset` (design §11.4).
+- **Status:** not done. Reset 2026-09-25: the migration was never pushed to a hosted project (only applied to a local stack); the foundation tests passed there on 2026-09-23.
 - **Commit:** `feat(db): foundation tables, membership helpers, and db test harness`
 
 #### VO-103 · Env loader and env examples · Must
@@ -190,12 +190,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/supabase/admin.test.ts` passes: `getAdminClient throws a named error when SUPABASE_SECRET_KEY is missing`.
   - [ ] Check: `admin.ts` starts with `import 'server-only'`. A signed-in session survives a page reload (verified in VO-106).
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/supabase` → 2 passed (RED first: "Cannot find module ./admin"); `head -1 web/src/lib/supabase/admin.ts` → import "server-only"; typecheck and lint exit 0. Session survival across reload: checked in VO-106.
+- **Status:** not done. Reset 2026-09-25: the session-survives-reload check was never run, because VO-106 (sign-in) doesn't exist yet; the admin test and the `server-only` check pass.
 - **Commit:** `feat(supabase): browser, server, and admin clients with session proxy`
 
 #### VO-105 · Seed script with batches · Must
 
-- **Files:** `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/{ids.ts,ids.test.ts,args.ts}`, `web/scripts/demo/fixtures/users.ts`, `web/scripts/demo/fixtures/saturday-trip.json` (the first version, from the venue list gathered before the event)
+- **Files:** `package.json` (the root `seed:demo` script), `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/{ids.ts,ids.test.ts,args.ts}`, `web/scripts/demo/fixtures/users.ts`, `web/scripts/demo/fixtures/saturday-trip.json` (the first version, from the venue list gathered before the event)
 - **Depends on:** VO-102, CO-101 (pushed)
 - **Produces:** `seed({ batch, stage? })` running design §10.4 steps 1, 3, 4, and 7. Step 4 sets dinner's area to Midtown (`area_label`, `area_lat`, `area_lng`). Step 3 also loads `fixtures/routes.json` when it exists (FE-305 writes it). Step 2 comes in CO-302, step 5 in VO-402, and step 6 in VO-201. `uuidFor(batch, name)` and `inviteTokenFor(batch)` come from `ids.ts`.
 - **Done when:**
@@ -259,11 +259,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `web/src/app/globals.css`, `web/src/app/layout.tsx`, `web/src/app/providers.tsx`, `web/src/app/providers.test.tsx`, `web/src/app/page.tsx`
 - **Depends on:** FE-102, VO-104
-- **Produces:** the design §8.2 tokens as CSS variables with `@theme`, light and dark. `Providers` wraps `QueryClientProvider`, the Supabase browser client, and VO's `SessionGuard`. `/` redirects to `/trips` or `/login`.
+- **Produces:** the design §8.2 tokens as CSS variables with `@theme`, light and dark. `Providers` wraps `QueryClientProvider`, the Supabase browser client, and VO's `SessionGuard`. `/` is a static landing page that links nowhere; FE-202 turns it into the `/trips` or `/login` redirect once both routes exist.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/app/providers.test.tsx` passes: `query defaults are staleTime 30 s, retry 2, and refetchOnWindowFocus true`.
   - [ ] Check: the viewport meta includes `interactive-widget=resizes-content`, and toggling the OS dark mode switches the tokens.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/app` → providers test passed (RED first: "Failed to resolve import ./providers"); typecheck and lint exit 0. Viewport meta: `interactiveWidget: "resizes-content"` in layout.tsx (checked in the rendered HTML during the slice run).
+- **Status:** done (2026-09-25, re-verified). The 2026-09-23 proof cited a slice run that never happened, and `/` redirected to routes that didn't exist. Now `/` is a static page, `src/app/routes.test.ts` fails on any internal path with no page or route (RED first: `/trips` and `/login`), and Playwright against `next start` read `interactive-widget=resizes-content` in the viewport meta and `--bg` switching from `#f6f5f1` (light) to `#121412` (dark).
 - **Commit:** `feat(ui): design tokens, root layout, and providers`
 
 #### FE-104 · Card frame, error card, and card map · Must
@@ -448,7 +448,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `members select items; non-members select none`
     - `ends_at must be after starts_at`
   - [ ] Pushed right after file 1. `pnpm db:types` committed.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db tests/db/itinerary-schema.test.ts` → 5 passed (RED first: "Could not find the table public.places"); applied with `supabase migration up --local`; `pnpm db:types` regenerated.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
 - **Commit:** `feat(db): places, routes, and itinerary tables`
 
 #### CO-102 · Migration 3 (agent and chat) · Must
@@ -463,7 +463,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `messages.client_id is unique`
     - `card_type is required exactly when kind = card`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db tests/db/agent-chat-schema.test.ts` → 5 passed (RED first: PGRST205, tables missing); applied with `supabase migration up --local`; `pnpm db:types` regenerated.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
 - **Commit:** `feat(db): agent runs, messages, and tool calls`
 
 #### CO-103 · Migration 4 (commerce, calls, and webhooks) · Must
@@ -479,7 +479,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `an authenticated user can't read webhook_events`
     - `a share has at most one own row and one fronted row`
   - [ ] Pushed. `pnpm db:types` committed.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db tests/db/commerce-schema.test.ts` → 5 passed (RED first: 5 failed, tables missing); full `pnpm --filter web test:db` → 4 files, 21 passed; `pnpm db:types` regenerated.
+- **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
 - **Commit:** `feat(db): mandates, holds, bookings, calls, and webhook events`
 
 #### CO-104 · `apply_plan`, first version, and the function audit · Must
@@ -528,7 +528,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   ```
 
   `planPayload` and `countOptions` are small helpers in the same test file; `createTrip` and `adminClient` come from VO-102's `web/tests/db/helpers.ts`.
-- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db tests/db/apply-plan.test.ts tests/db/function-hardening.test.ts` → 7 passed (RED first: 7 failed, function missing and applyPlan a stub); full `test:db` → 6 files, 28 passed; typecheck and lint exit 0. Migrations: 20260925200600_apply_plan.sql, 20260925200700_audit_definer_functions.sql.
+- **Status:** done (2026-09-23). Proof: `pnpm --filter web test:db tests/db/apply-plan.test.ts tests/db/function-hardening.test.ts` → 7 passed (RED first: 7 failed, function missing and applyPlan a stub); full `test:db` → 6 files, 28 passed; typecheck and lint exit 0. Migrations: 20260925200600_apply_plan.sql, 20260925200700_audit_definer_functions.sql. Verified on the local stack; not re-run since it went down (2026-09-25).
 - **Commit:** `feat(db): apply_plan write function and definer-function audit`
 
 #### CO-105 · `withPolicy` and `AppError` · Must
@@ -593,13 +593,14 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 #### FE-202 · Trip list and root redirect · Must
 
-- **Files:** `web/src/app/trips/page.tsx`, `web/src/app/trips/trip-list.tsx`, `web/src/app/trips/trip-list.test.tsx`
-- **Depends on:** FE-103
+- **Files:** `web/src/app/trips/page.tsx`, `web/src/app/trips/trip-list.tsx`, `web/src/app/trips/trip-list.test.tsx`, `web/src/app/page.tsx`
+- **Depends on:** FE-103, VO-106
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/app/trips` passes:
     - `active trips come first, then past trips`
     - `each trip links to /trip/<slug>`
     - `no trips shows an empty state`
+  - [ ] `/` redirects a signed-in user to `/trips` and anyone else to `/login`, and `src/app/routes.test.ts` still passes.
 - **Commit:** `feat(ui): trip list with active and past trips`
 
 #### FE-203 · `cast_vote` and the votes route · Must
@@ -1487,7 +1488,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 #### VO-216 · Reset script · Should
 
-- **Files:** `web/scripts/demo/reset.ts`, `web/scripts/demo/lib/{reset-plan.ts,reset-plan.test.ts}`
+- **Files:** `package.json` (the root `reset:demo` script), `web/scripts/demo/reset.ts`, `web/scripts/demo/lib/{reset-plan.ts,reset-plan.test.ts}`
 - **Depends on:** VO-201
 - **Produces:** `reset({ batch, all })`, per design §10.5.
 - **Done when:**
@@ -1793,7 +1794,7 @@ The recap flow is built here, then all six core flows run end to end on real pro
 
 #### VO-401 · Photo pipeline · Must
 
-- **Files:** `web/src/features/gallery/server/process-photos.ts`, `web/scripts/demo/process-photos.ts`, `web/scripts/demo/fixtures/past-trip-photos.json`, `web/tests/db/process-photos.test.ts`
+- **Files:** `package.json` (the root `demo:process-photos` script), `web/src/features/gallery/server/process-photos.ts`, `web/scripts/demo/process-photos.ts`, `web/scripts/demo/fixtures/past-trip-photos.json`, `web/tests/db/process-photos.test.ts`
 - **Depends on:** AI-215, AI-401, VO-202
 - **Produces:** `processPhotos(tripId) → { processed }`, and `pnpm demo:process-photos`.
 - **Done when:**
