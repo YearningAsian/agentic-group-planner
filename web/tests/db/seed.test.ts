@@ -65,6 +65,9 @@ describe("seed:demo", () => {
   it("a re-run leaves a trip that moved on alone", async () => {
     const { tripId } = await seed({ batch, now });
     await admin.from("itinerary_items").update({ status: "proposing" }).eq("trip_id", tripId).eq("slot_key", "morning");
+    // A plan_day run saved new constraints for Person 2.
+    const { data: person2 } = await admin.from("trip_members").select("id").eq("trip_id", tripId).eq("display_name", "Person 2").single();
+    await admin.from("member_constraints").update({ budget_cents: 5000, dietary: ["vegan"] }).eq("member_id", person2!.id);
 
     // Person 4 claimed their lane since the last seed.
     const claimer = await createUser({ batch, displayName: "Person 4" });
@@ -79,5 +82,7 @@ describe("seed:demo", () => {
     expect(data!.status).toBe("proposing");
     const { data: person4 } = await admin.from("trip_members").select("status, profile_id").eq("trip_id", tripId).eq("display_name", "Person 4").single();
     expect(person4).toEqual({ status: "joined", profile_id: claimer.userId });
+    const { data: constraints } = await admin.from("member_constraints").select("budget_cents, dietary").eq("member_id", person2!.id).single();
+    expect(constraints).toEqual({ budget_cents: 5000, dietary: ["vegan"] });
   });
 });

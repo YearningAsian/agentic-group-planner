@@ -177,7 +177,8 @@ async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<Seede
         set_by_member_id: memberId(organizer.key),
         seed_batch: batch,
       })),
-      { onConflict: "member_id" },
+      // Like the rows above: a re-run keeps what the trip has since changed (plan_day saves these).
+      { onConflict: "member_id", ignoreDuplicates: true },
     ),
     "constraints",
   );
