@@ -7,42 +7,61 @@ import type { BookingProvider, BookResult, Quote } from "./types";
 /** The slice of the Duffel client this adapter calls, so tests can pass a double. */
 export interface DuffelStaysClient {
   quotes: Pick<Duffel["stays"]["quotes"], "create">;
-  bookings: Pick<Duffel["stays"]["bookings"], "create" | "list" | "get" | "cancel">;
+  bookings: Pick<Duffel["stays"]["bookings"], "create" | "listWithGenerator" | "get" | "cancel">;
 }
 
 export interface DuffelStaysProviderOptions {
   token?: string;
   client?: DuffelStaysClient;
   now?: () => number;
+  /** Waits between lookups after an ambiguous create; tests pass zeros. */
+  lookupDelaysMs?: readonly number[];
 }
 
-// Duffel's quotes carry no expiry, so the approval window is ours.
+// Our approval window only: Duffel's quote has no expiry field, and the rate behind it can lapse
+// sooner, in which case the booking is rejected and the holds are released.
 const QUOTE_TTL_MS = 10 * 60_000;
 const KEY_FIELD = "agp_idempotency_key";
-// The SDK has no timeout setting; a create is never retried because Duffel has no idempotency key.
+// The SDK has no timeout or abort; a timed-out create keeps running at Duffel, and it is never
+// retried because Stays bookings take no idempotency key.
 const READ_POLICY: Policy = { timeoutMs: 15_000, retries: 1 };
 const CREATE_POLICY: Policy = { timeoutMs: 30_000, retries: 0 };
-// Only the newest page is searched for a retried booking; a retry comes minutes after the first try.
-const LOOKUP_LIMIT = 200;
+const SCAN_POLICY: Policy = { timeoutMs: 60_000, retries: 1 };
+const LOOKUP_DELAYS_MS = [0, 2_000, 5_000, 10_000] as const;
 
-function rejection(error: unknown): { code: string } | null {
-  if (!(error instanceof DuffelError)) return null;
-  const status = error.status ?? error.meta?.status;
-  if (status === undefined || status === 429 || status >= 500) return null;
-  return { code: error.errors[0]?.code ?? "rejected" };
+function statusOf(error: InstanceType<typeof DuffelError>): number | undefined {
+  return error.status ?? error.meta?.status;
+}
+
+/** Duffel's error code when it refused the request itself (a 4xx other than auth or rate limits). */
+function rejectionCode(error: unknown): string | null {
+  const cause = error instanceof AppError ? error.cause : error;
+  if (!(cause instanceof DuffelError)) return null;
+  const status = statusOf(cause);
+  if (status === undefined || status === 401 || status === 403 || status === 429 || status >= 500) return null;
+  return cause.errors?.[0]?.code ?? "rejected";
 }
 
 async function duffelCall<T>(call: () => Promise<T>, policy: Policy): Promise<T> {
   try {
     return await withPolicy(() => call(), policy);
   } catch (error) {
-    if (error instanceof AppError || rejection(error)) throw error;
+    if (error instanceof AppError) throw error;
+    if (error instanceof DuffelError && (statusOf(error) === 401 || statusOf(error) === 403)) {
+      throw new AppError("internal", "The hotel provider refused our credentials.", { retryable: false, cause: error });
+    }
+    const code = rejectionCode(error);
+    if (code) throw new AppError("conflict", `The hotel provider refused the request (${code}).`, { retryable: false, cause: error });
     throw new AppError("provider_unavailable", "The hotel provider isn't responding. Try again.", { retryable: true, cause: error });
   }
 }
 
 function assertStays(kind: string): void {
   if (kind !== "stays") throw new AppError("invalid_input", "Duffel Stays books hotels only.", { retryable: false });
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
 
 /**
@@ -52,20 +71,35 @@ function assertStays(kind: string): void {
  */
 export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): BookingProvider {
   const now = options.now ?? Date.now;
+  const lookupDelays = options.lookupDelaysMs ?? LOOKUP_DELAYS_MS;
   const client =
     options.client ??
     (() => {
-      if (!options.token) throw new AppError("invalid_input", "DUFFEL_ACCESS_TOKEN is missing.", { retryable: false });
+      if (!options.token) throw new AppError("internal", "DUFFEL_ACCESS_TOKEN is missing.", { retryable: false });
       return new Duffel({ token: options.token }).stays;
     })();
 
+  // Duffel doesn't document the list order, so every page is read until our key turns up.
   async function findBooking(idempotencyKey: string): Promise<BookResult | null> {
-    const { data } = await duffelCall(() => client.bookings.list({ limit: LOOKUP_LIMIT }), READ_POLICY);
-    const found = data.find((b) => b.metadata?.[KEY_FIELD] === idempotencyKey);
-    return found ? confirmed(found) : null;
+    return duffelCall(async () => {
+      for await (const { data } of client.bookings.listWithGenerator()) {
+        if (data.metadata?.[KEY_FIELD] === idempotencyKey) return outcome(data);
+      }
+      return null;
+    }, SCAN_POLICY);
   }
 
-  function confirmed(booking: { id: string; status: string; reference: string | null }): BookResult {
+  async function findBookingPatiently(idempotencyKey: string): Promise<BookResult | null> {
+    for (const delay of lookupDelays) {
+      await sleep(delay);
+      const found = await findBooking(idempotencyKey);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // A booking found cancelled counts as failed, so the mandate is cancelled and its holds released.
+  function outcome(booking: { id: string; status: string; reference: string | null }): BookResult {
     if (booking.status !== "confirmed") return { status: "failed", providerRef: booking.id, failureReason: booking.status };
     return { status: "confirmed", providerRef: booking.id, ...(booking.reference ? { confirmationCode: booking.reference } : {}) };
   }
@@ -74,7 +108,7 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
     async quote(input): Promise<Quote> {
       assertStays(input.kind);
       const { data } = await duffelCall(() => client.quotes.create(input.optionId), READ_POLICY).catch((error: unknown) => {
-        if (rejection(error)) {
+        if (rejectionCode(error)) {
           throw new AppError("conflict", "That room rate is no longer available.", { retryable: false, cause: error });
         }
         throw error;
@@ -84,6 +118,10 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
       }
       if (data.guests.length !== input.partySize) {
         throw new AppError("invalid_input", `That rate is for ${data.guests.length} guests, not ${input.partySize}.`, { retryable: false });
+      }
+      // The group approves one total; a fee owed at the hotel would be a charge they never saw.
+      if (data.due_at_accommodation_amount && decimalToCents(data.due_at_accommodation_amount) > 0) {
+        throw new AppError("conflict", "That rate adds fees paid at the hotel; pick another rate.", { retryable: false });
       }
       return {
         quoteId: data.id,
@@ -113,12 +151,15 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
             }),
           CREATE_POLICY,
         );
-        return confirmed(data);
+        return outcome(data);
       } catch (error) {
-        const rejected = rejection(error);
-        if (rejected) return { status: "failed", providerRef: null, failureReason: rejected.code };
-        // A timeout or 5xx may still have booked the room.
-        const landed = await findBooking(idempotencyKey);
+        const code = rejectionCode(error);
+        if (code) {
+          // A retry's quote may be spent because an earlier, timed-out attempt booked it.
+          return (await findBooking(idempotencyKey)) ?? { status: "failed", providerRef: null, failureReason: code };
+        }
+        if (error instanceof AppError && !error.retryable) throw error;
+        const landed = await findBookingPatiently(idempotencyKey);
         if (landed) return landed;
         throw error;
       }
@@ -128,7 +169,7 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
       try {
         await duffelCall(() => client.bookings.cancel(providerRef), READ_POLICY);
       } catch (error) {
-        if (!rejection(error)) throw error;
+        if (!rejectionCode(error)) throw error;
         const { data } = await duffelCall(() => client.bookings.get(providerRef), READ_POLICY);
         if (data.status !== "cancelled") {
           throw new AppError("conflict", "The hotel booking can't be cancelled.", { retryable: false, cause: error });
