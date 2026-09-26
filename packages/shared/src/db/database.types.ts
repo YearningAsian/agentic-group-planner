@@ -701,6 +701,7 @@ export type Database = {
           id: string
           idempotency_key: string
           kind: string
+          lease_expires_at: string | null
           mandate_id: string
           payer_member_id: string | null
           pays_share: boolean | null
@@ -723,6 +724,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           kind: string
+          lease_expires_at?: string | null
           mandate_id: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -745,6 +747,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           kind?: string
+          lease_expires_at?: string | null
           mandate_id?: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -1100,6 +1103,7 @@ export type Database = {
       trip_members: {
         Row: {
           claimed_at: string | null
+          claimed_token_hash: string | null
           created_at: string
           display_name: string
           id: string
@@ -1115,6 +1119,7 @@ export type Database = {
         }
         Insert: {
           claimed_at?: string | null
+          claimed_token_hash?: string | null
           created_at?: string
           display_name: string
           id?: string
@@ -1130,6 +1135,7 @@ export type Database = {
         }
         Update: {
           claimed_at?: string | null
+          claimed_token_hash?: string | null
           created_at?: string
           display_name?: string
           id?: string
@@ -1278,6 +1284,7 @@ export type Database = {
           search_path_pinned: boolean
         }[]
       }
+      claim_invite: { Args: { p_token: string }; Returns: Json }
       create_mandate: { Args: { payload: Json }; Returns: Json }
       finish_agent_run: { Args: { payload: Json }; Returns: Json }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }
