@@ -20,6 +20,8 @@ Last updated: 2026-09-26.
   - [ ] CI db tests green (`person-preferences.test.ts`)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
+  - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
+  - [ ] CI db test green (`after-claim.test.ts`); card component is frontend
 - [ ] CO-S04: expire open mandates (`expireMandates`; CI db test pending; needs a scheduler caller)
 - [ ] CO-S02: declines and covering the shortfall
 
