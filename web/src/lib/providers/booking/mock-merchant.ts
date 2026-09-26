@@ -28,6 +28,8 @@ export interface MockMerchantOptions {
   /** A ticket's price; defaults to `item_options.price_cents`, read with the admin client. */
   priceOf?: (input: { optionId: string; placeId: string }) => Promise<number>;
   now?: () => number;
+  /** What it sells; `stays` is the hotel mock (`STAYS_PROVIDER=mock`). */
+  kind?: Extract<BookingKind, "tickets" | "stays">;
 }
 
 async function optionPrice({ optionId, placeId }: { optionId: string; placeId: string }): Promise<number> {
@@ -61,8 +63,8 @@ function digest(seed: string): string {
   return createHash("sha256").update(seed).digest("hex");
 }
 
-function assertTickets(kind: BookingKind): void {
-  if (kind !== "tickets") throw new AppError("invalid_input", "The mock merchant sells tickets only.");
+function assertKind(kind: BookingKind, sells: BookingKind): void {
+  if (kind !== sells) throw new AppError("invalid_input", `The mock merchant sells ${sells} only.`);
 }
 
 /**
@@ -74,13 +76,14 @@ function assertTickets(kind: BookingKind): void {
 export function createMockMerchant(options: MockMerchantOptions = {}): MockMerchant {
   const priceOf = options.priceOf ?? optionPrice;
   const now = options.now ?? Date.now;
+  const sells = options.kind ?? "tickets";
   const nextTotals = new Map<string, number>();
   const bookings = new Map<string, BookResult>();
   const overrideKey = (s: Pick<QuoteState, "optionId" | "partySize">) => `${s.optionId}:${s.partySize}`;
 
   return {
     async quote(input): Promise<Quote> {
-      assertTickets(input.kind);
+      assertKind(input.kind, sells);
       if (!Number.isSafeInteger(input.partySize) || input.partySize < 1) {
         throw new AppError("invalid_input", "A quote needs a party of at least one.");
       }
@@ -100,7 +103,7 @@ export function createMockMerchant(options: MockMerchantOptions = {}): MockMerch
     },
 
     async book(input): Promise<BookResult> {
-      assertTickets(input.kind);
+      assertKind(input.kind, sells);
       const previous = bookings.get(input.idempotencyKey);
       if (previous) return previous;
 
