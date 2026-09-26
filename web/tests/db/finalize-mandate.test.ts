@@ -113,6 +113,100 @@ describe("finalizeMandate", () => {
     expect(item!.status).toBe("decided");
   });
 
+  it("a changed merchant price cancels the unbooked mandate and releases every authorization", async () => {
+    const s = await authorizedMandate();
+    const merchant = getBookingProvider("tickets");
+    const booking = {
+      ...merchant,
+      quote: async (input: Parameters<typeof merchant.quote>[0]) => ({ ...(await merchant.quote(input)), totalCents: 17_000 }),
+      book: vi.fn(merchant.book.bind(merchant)),
+    };
+    const { payments, capture } = counted();
+    const release = vi.fn(payments.release.bind(payments));
+
+    expect(await finalizeMandate(s.mandateId, { payments: { ...payments, release }, booking })).toEqual({ status: "cancelled" });
+    expect(booking.book).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(3);
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "price_changed" });
+    expect([...((await shareRows(s.mandateId)).values())].map((r) => r.status)).toEqual(Array(5).fill("released"));
+    expect(await bookings(s.mandateId)).toEqual([]);
+  });
+
+  it("a merchant currency change also cancels before booking or capture", async () => {
+    const s = await authorizedMandate();
+    const merchant = getBookingProvider("tickets");
+    const booking = {
+      ...merchant,
+      quote: async (input: Parameters<typeof merchant.quote>[0]) => ({ ...(await merchant.quote(input)), currency: "eur" }),
+      book: vi.fn(merchant.book.bind(merchant)),
+    };
+    const { payments, capture } = counted();
+
+    expect(await finalizeMandate(s.mandateId, { payments, booking })).toEqual({ status: "cancelled" });
+    expect(booking.book).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "price_changed" });
+  });
+
+  it("keeps the cancellation decision if releasing a hold fails and retries the release", async () => {
+    const s = await authorizedMandate();
+    const merchant = getBookingProvider("tickets");
+    const booking = {
+      ...merchant,
+      quote: vi.fn(async (input: Parameters<typeof merchant.quote>[0]) => ({ ...(await merchant.quote(input)), totalCents: 17_000 })),
+      book: vi.fn(merchant.book.bind(merchant)),
+    };
+    const real = getPaymentsProvider();
+    let failed = false;
+    const payments: PaymentsProvider = {
+      ...real,
+      parseWebhook: real.parseWebhook.bind(real),
+      release: async (input) => {
+        if (!failed) {
+          failed = true;
+          throw new Error("temporary release failure");
+        }
+        return real.release(input);
+      },
+    };
+
+    await expect(finalizeMandate(s.mandateId, { payments, booking })).rejects.toThrow("temporary release failure");
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "price_changed" });
+    expect(await finalizeMandate(s.mandateId, { payments, booking })).toEqual({ status: "cancelled" });
+    expect(booking.quote).toHaveBeenCalledTimes(1);
+    expect(booking.book).not.toHaveBeenCalled();
+    expect([...((await shareRows(s.mandateId)).values())].map((r) => r.status)).toEqual(Array(5).fill("released"));
+  });
+
+  it("a retry uses its persisted booking quote after booking and a partial capture", async () => {
+    const s = await authorizedMandate();
+    const merchant = getBookingProvider("tickets");
+    const quote = vi.fn(merchant.quote.bind(merchant));
+    const book = vi.fn(merchant.book.bind(merchant));
+    const booking = { ...merchant, quote, book };
+    const real = getPaymentsProvider();
+    let captureCalls = 0;
+    const payments: PaymentsProvider = {
+      ...real,
+      parseWebhook: real.parseWebhook.bind(real),
+      capture: async (input) => {
+        captureCalls++;
+        if (captureCalls === 2) throw new Error("temporary capture failure");
+        return real.capture(input);
+      },
+    };
+
+    await expect(finalizeMandate(s.mandateId, { payments, booking })).rejects.toThrow("temporary capture failure");
+    expect((await mandateRow(s.mandateId)).status).toBe("authorized");
+    expect(await finalizeMandate(s.mandateId, { payments: real, booking })).toEqual({ status: "captured" });
+    expect(quote).toHaveBeenCalledTimes(1);
+    expect(book).toHaveBeenCalledTimes(2);
+    expect(book.mock.calls[1]?.[0].quoteId).toBe(book.mock.calls[0]?.[0].quoteId);
+    expect(await bookings(s.mandateId)).toHaveLength(1);
+    expect((await mandateRow(s.mandateId)).final_cents).toBe(8682 + 4357 * 2);
+  });
+
   it("the item ends booked and pinned, with exactly one booking_confirmed card", async () => {
     const s = await mandateScenario(batch, payers);
     // The approval that satisfies the last share finalizes the mandate.

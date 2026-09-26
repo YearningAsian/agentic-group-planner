@@ -60,6 +60,11 @@ export async function settleFrontedShare(
     const status = new Map(current.map((r) => [r.id, r.status]));
     if (status.get(fronted.id) !== "captured") return nothing;
 
+    const refundedCents = fronted.captured_cents;
+    if (typeof refundedCents !== "number" || !Number.isSafeInteger(refundedCents) || refundedCents <= 0) {
+      throw new AppError("internal", "The fronted share has no recorded capture amount.");
+    }
+
     if (status.get(own.id) === "authorized") {
       const amountCents = holdFees({ sharesCents: [own.share_cents], capPercent: 100 }).totalCents;
       // Marked first, so the payment_intent.succeeded webhook captures the row too, in any order.
@@ -80,10 +85,6 @@ export async function settleFrontedShare(
 
     // The capture plan allocated the hold's one fixed fee across its paying rows. Using that
     // stored allocation makes each refund independent of other placeholders' settlement order.
-    const refundedCents = fronted.captured_cents;
-    if (typeof refundedCents !== "number" || !Number.isSafeInteger(refundedCents) || refundedCents <= 0) {
-      throw new AppError("internal", "The fronted share has no recorded capture amount.");
-    }
     await payments.refund({
       paymentIntentId: fronted.stripe_payment_intent_id!,
       amountCents: refundedCents,

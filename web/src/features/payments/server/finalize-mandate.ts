@@ -5,6 +5,7 @@ import { type BookingProvider, getBookingProvider } from "@/lib/providers/bookin
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
+import { quoteChangeReason } from "../lib/approved-quote";
 import { type CapturePlan, planCaptures, type ShareRow } from "../lib/plan-captures";
 import { readError, rpcError } from "./rpc-error";
 
@@ -121,13 +122,12 @@ async function capturePlan(admin: AdminClient, mandateId: string): Promise<Store
 
 const payerOf = (rows: HoldRow[], intentId: string) => rows.find((r) => r.stripe_payment_intent_id === intentId)?.payer_member_id;
 
-/** Releases every hold and cancels the mandate, when the booking can't go ahead. */
-async function cancelMandate(
+/** Idempotent cleanup after a cancellation, including a retry after provider release failed. */
+async function releaseCancelledHolds(
   admin: AdminClient,
   payments: PaymentsProvider,
   mandateId: string,
   rows: HoldRow[],
-  reason: "booking_failed" | "price_above_cap",
 ): Promise<void> {
   const intents = [...new Set(rows.filter((r) => r.status === "authorized").map((r) => r.stripe_payment_intent_id!))];
   for (const intentId of intents) {
@@ -139,12 +139,25 @@ async function cancelMandate(
     .eq("mandate_id", mandateId)
     .in("status", ["awaiting_member", "pending", "authorized"]);
   if (released.error) throw readError(released.error, "the holds");
+}
+
+/** Persist the cancellation before any provider call so a release failure cannot later book it. */
+async function cancelMandate(
+  admin: AdminClient,
+  payments: PaymentsProvider,
+  mandateId: string,
+  rows: HoldRow[],
+  reason: "booking_failed" | "price_above_cap" | "price_changed",
+): Promise<void> {
   const cancelled = await admin
     .from("mandates")
     .update({ status: "cancelled", cancel_reason: reason, lease_expires_at: null })
     .eq("id", mandateId)
-    .eq("status", "authorized");
+    .eq("status", "authorized")
+    .select("id");
   if (cancelled.error) throw readError(cancelled.error, "the purchase");
+  if (cancelled.data.length !== 1) throw new AppError("conflict", "The purchase changed while it was being cancelled.", { retryable: true });
+  await releaseCancelledHolds(admin, payments, mandateId, rows);
 }
 
 /**
@@ -163,11 +176,17 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
 
   const { data: mandate, error } = await admin
     .from("mandates")
-    .select("id, trip_id, item_id, option_id, status, title, cap_cents, currency")
+    .select("id, trip_id, item_id, option_id, status, title, quote_cents, cap_cents, currency, booking_quote_id")
     .eq("id", mandateId)
     .maybeSingle();
   if (error) throw readError(error, "the purchase");
   if (!mandate) throw new AppError("not_found", "That purchase doesn't exist.");
+  if (mandate.status === "cancelled") {
+    const { data: rows, error: rowsError } = await admin.from("payment_holds").select(HOLD_COLUMNS).eq("mandate_id", mandateId);
+    if (rowsError) throw readError(rowsError, "the holds");
+    await releaseCancelledHolds(admin, payments, mandateId, rows);
+    return { status: "cancelled" };
+  }
   if (mandate.status !== "authorized") return { status: mandate.status as MandateStatus };
 
   const now = new Date();
@@ -195,15 +214,35 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
 
     const partySize = new Set(rows.map((r) => r.share_member_id)).size;
     const startsAt = itemResult.data!.starts_at;
-    // The mandate's quote expired long ago; book() works from a fresh one.
-    const quote = await booking.quote({ kind: "tickets", placeId: optionResult.data!.place_id, optionId: mandate.option_id, partySize, startsAt });
-    if (quote.totalCents > mandate.cap_cents) {
-      await cancelMandate(admin, payments, mandateId, rows, "price_above_cap");
-      return { status: "cancelled" };
+    let quoteId = mandate.booking_quote_id;
+    if (!quoteId) {
+      // The first attempt needs a fresh quote. A retry after booking may have captured only some
+      // intents, so it must use the quote saved before that booking instead of re-pricing it.
+      const quote = await booking.quote({ kind: "tickets", placeId: optionResult.data!.place_id, optionId: mandate.option_id, partySize, startsAt });
+      const changed = quoteChangeReason({
+        approvedCents: mandate.quote_cents,
+        capCents: mandate.cap_cents,
+        currency: mandate.currency,
+        currentCents: quote.totalCents,
+        currentCurrency: quote.currency,
+      });
+      if (changed) {
+        await cancelMandate(admin, payments, mandateId, rows, changed);
+        return { status: "cancelled" };
+      }
+      const saved = await admin.from("mandates")
+        .update({ booking_quote_id: quote.quoteId })
+        .eq("id", mandateId)
+        .eq("status", "authorized")
+        .is("booking_quote_id", null)
+        .select("id");
+      if (saved.error) throw readError(saved.error, "the booking quote");
+      if (saved.data.length !== 1) throw new AppError("conflict", "The purchase changed while booking began.", { retryable: true });
+      quoteId = quote.quoteId;
     }
     const booked = await booking.book({
       kind: "tickets",
-      quoteId: quote.quoteId,
+      quoteId,
       partySize,
       startsAt,
       contactName: organizer.display_name,
@@ -230,7 +269,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
       title: mandate.title,
       starts_at: startsAt,
       party_size: partySize,
-      total_cents: quote.totalCents,
+      total_cents: mandate.quote_cents,
       payer: "split",
       confirmation_code: booked.confirmationCode ?? null,
     });
@@ -244,7 +283,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
           provider: "mock_merchant",
           provider_ref: booked.providerRef,
           confirmation_code: booked.confirmationCode ?? null,
-          total_cents: quote.totalCents,
+          total_cents: mandate.quote_cents,
           currency: mandate.currency,
           details: { party_size: partySize, starts_at: startsAt, name: mandate.title, notes: null },
         },

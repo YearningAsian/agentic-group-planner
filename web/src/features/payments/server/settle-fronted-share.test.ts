@@ -34,8 +34,9 @@ function scenario(fronted: { memberId: string; capturedCents: number | null }[],
     },
   ]);
   const refunds: { memberId: string; amountCents: number; idempotencyKey: string }[] = [];
+  const captures: string[] = [];
   const payments = {
-    async capture() { return { paymentIntentId: "captured" }; },
+    async capture(input: { paymentIntentId: string }) { captures.push(input.paymentIntentId); return { paymentIntentId: "captured" }; },
     async refund(input: { paymentIntentId: string; amountCents: number; idempotencyKey: string; metadata: { share_member_id: string } }) {
       if (input.paymentIntentId !== "pi_organizer") throw new Error("wrong PaymentIntent");
       const prior = refunds.find((r) => r.idempotencyKey === input.idempotencyKey);
@@ -72,17 +73,18 @@ function scenario(fronted: { memberId: string; capturedCents: number | null }[],
     return builder;
   }
   vi.mocked(getAdminClient).mockReturnValue({ from: query } as unknown as ReturnType<typeof getAdminClient>);
-  return { holds, payments, refunds };
+  return { holds, payments, refunds, captures };
 }
 
 beforeEach(() => vi.resetAllMocks());
 
 describe("settleFrontedShare refunds", () => {
   it("does not refund when the original fronted capture allocation is missing", async () => {
-    const { payments, refunds } = scenario([{ memberId: "person4", capturedCents: null }], 4357);
+    const { payments, refunds, captures } = scenario([{ memberId: "person4", capturedCents: null }], 4357);
     await expect(settleFrontedShare({ mandateId: "mandate", memberId: "person4" }, { payments }))
       .rejects.toThrow(/no recorded capture amount/);
     expect(refunds).toEqual([]);
+    expect(captures).toEqual([]);
   });
 
   it("keeps the existing one-placeholder amount of 4325 cents", async () => {
