@@ -11,7 +11,7 @@ Status: Phase 3 review applied, 2026-09-23 (§11). Source of truth: the master p
 | Frontend | §2.1 cards, §6 Realtime, §8 Frontend |
 | Agent and ML | §2.1 tools, §2.2 FastAPI, §2.3 LLM, places |
 | Commerce | §2.1 `propose_purchase`, §2.3 payments and booking, §3 money tables, §4.2 |
-| Voice, media, and operations | §2.1 `call_restaurant`, §2.3 voice, §7 Reliability, §9 Env, §10 Seed data |
+| Voice, media, and operations | §2.1 approval cards, §2.3 transcription (Should), §7 Reliability, §9 Env, §10 Seed data |
 
 **Glossary**
 
@@ -22,6 +22,7 @@ Status: Phase 3 review applied, 2026-09-23 (§11). Source of truth: the master p
 | Share | One attendee's part of a mandate. Each share is paid by exactly one hold (§4.2). A `payment_holds` row records a share and the hold that may pay it. |
 | Fronted share | A placeholder's share that the organizer's hold covers until the placeholder pays. If the organizer's hold paid it, the organizer is refunded when the placeholder pays. |
 | Card | A chat message row with `kind = card`. Every member renders the same card from the database. |
+| Comment | A chat message row with `item_id` set, shown under its item. Comments are how the group revises the plan. |
 | Handle | A short, per-run reference the model uses instead of a UUID: `M1` (member), `I1` (item), `O1` (option), `P1` (place). |
 | Agent run | One execution of the agent loop, triggered by an @agent mention or by a server event such as a completed call. |
 | Slot | A time block in the day (`slot_key` such as `morning`). A split slot has two concurrent items with different attendees. |
@@ -58,9 +59,7 @@ packages/shared/src/
 ├── handles.ts               handle formats (M#, I#, O#, P#) and parsers                  AI
 ├── tool-result.ts           ToolResult envelope and ToolErrorCode                        AI
 ├── tools/                   one Zod input schema per tool
-│   ├── search-places.ts  plan-day.ts  update-item.ts  summarize.ts  generate-recap.ts     AI
-│   ├── propose-purchase.ts                                                               CO
-│   └── call-restaurant.ts                                                                VO
+│   ├── search-places.ts  plan-day.ts  update-item.ts  summarize.ts  propose-purchase.ts     AI/CO
 ├── cards/                   one Zod payload schema per card type, plus the CardPayload union   card owner (§2.1)
 ├── events.ts                Realtime broadcast event schemas                             FE
 ├── api/                     request and response schemas for Next.js routes              route owner (§2.4)
@@ -84,10 +83,9 @@ web/
 │   │   ├── layout.tsx, globals.css  root layout, design tokens                                    FE
 │   │   ├── login/                   magic-link sign-in; seeded-user picker in dev mode            VO
 │   │   ├── auth/confirm/            magic-link landing: verifyOtp, then redirect to next          VO
+│   │   ├── profile/                 display name and avatar, for the signed-in member             VO
 │   │   ├── trips/                   trip list                                                     FE
-│   │   ├── trip/[slug]/             chat (default), plan/, map/                                   FE
-│   │   ├── trip/[slug]/gallery/                                                                   VO
-│   │   ├── trip/[slug]/recap/       member view, or public by share slug                          AI
+│   │   ├── trip/[slug]/             chat (default), plan/, map/, mine/ (per-person itinerary)     FE
 │   │   ├── invite/[token]/          placeholder claim                                             VO
 │   │   └── api/                     route handlers; owners in §2.4
 │   ├── proxy.ts                     session refresh (Next.js 16's name for middleware)            VO
@@ -96,14 +94,12 @@ web/
 │   ├── components/card-frame/       shared CardFrame and card states                              FE
 │   ├── features/                    product features; public entry points in the table below
 │   │   ├── chat/                                                                                  FE
-│   │   ├── itinerary/                                                                             FE
+│   │   ├── itinerary/                 plan, lanes, comments, and the per-person export             FE
 │   │   ├── map/                                                                                   FE
 │   │   ├── payments/                mandates and holds                                            CO
 │   │   ├── booking/                 book() orchestration, booking cards                           CO
-│   │   ├── voice/                   restaurant calls                                              VO
 │   │   ├── invite/                  claim flow                                                    VO
-│   │   ├── gallery/                 photos and the photo pipeline                                 VO
-│   │   ├── recap/                   recap generation and view                                     AI
+│   │   ├── profile/                 profile page and update                                       VO
 │   │   └── demo/                    dev tooling: login picker, dev toolbar, dev actions           VO
 │   └── lib/
 │       ├── agent/                   runner, context builder, handles, prompt, replay and record   AI
@@ -117,26 +113,25 @@ web/
 │       ├── reliability/             withPolicy (timeout and retry), AppError, webhook recorder    VO
 │       └── money/                   cents arithmetic, even split, cap rounding                    CO
 ├── public/maplibre/                 self-hosted MapLibre worker files (no runtime unpkg dependency) FE
-├── scripts/demo/                    seed.ts, reset.ts, process-photos.ts, fixtures/, stages/      VO (files owned per planning/plan.md)
+├── scripts/demo/                    seed.ts, reset.ts, fixtures/, stages/      VO (files owned per planning/plan.md)
 ├── tests/db/                        Vitest tests against the dev Supabase project; helpers.ts     VO (helpers), each owner (tests)
 └── e2e/                             Playwright specs, one file per core flow                      VO (harness), each flow's owner
 ```
 
-**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 7 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the four server-originated cards.
+**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 5 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the two server-originated cards.
 
 **Public entry points.** Other code imports a feature only through `index.ts` (client-safe) or `server.ts` (starts with `import 'server-only'`). ESLint `no-restricted-imports` blocks `@/features/*/*` except those two files, and blocks `@/lib/providers/*/*` except each provider's `index.ts`.
 
 | Feature | `index.ts` (client) | `server.ts` (server) |
 | --- | --- | --- |
 | chat | `ChatView`, `useMessages` | `sendMessage` |
-| itinerary | `PlanView`, `LanesView`, `VoteButton` (the data comes from `useTripView` in `lib/trip-view`) | `castVote`; `applyPlan` and `supersedeItem` (owned by AI: they are `plan_day`'s write path) |
+| itinerary | `PlanView`, `LanesView`, `CommentThread` (the data comes from `useTripView` in `lib/trip-view`) | `postComment`; `applyPlan` and `supersedeItem` (owned by AI: they are `plan_day`'s write path) |
+| itinerary export | `MyItineraryView` | `buildItineraryExport` |
 | map | `MapView`, `useSelectedStop` | `ensureRoutes` |
 | payments | `ApprovalCard` and `useMandates` (owned by VO), `PriceChangeCard`, `ShareStatusBadge`, `useShareStatus` | `createMandate`, `approveHold`, `declineHold`, `coverShortfall`, `finalizeMandate`, `handlePriceChange`, `onPlaceholderClaimed` |
-| booking | `BookingConfirmedCard` (owned by VO) | `bookMandate`, `recordReservation` |
-| voice | `CallStatusCard`, `useCalls` | `startRestaurantCall`, `confirmReservation`, `handleVoiceWebhook` |
+| booking | `BookingConfirmedCard` (owned by VO) | `bookMandate` |
 | invite | `InviteClaimView`, `MemberJoinedCard` | `claimInvite`, `previewInvite` |
-| gallery | `GalleryView` | `processPhotos` |
-| recap | `RecapView`, `RecapCard` | `generateRecap`, `getRecapBySlug` |
+| profile | `ProfileForm` | `updateProfile` |
 | demo (dev tooling) | `DemoLoginPicker`, `DevToolbar` | `runDemoAction` |
 
 Import rules:
@@ -158,8 +153,7 @@ optimizer/
 │   ├── rules.py           hard-constraint predicates (dietary, budget, hours, arrival), shared by both engines
 │   ├── plan_cpsat.py      CP-SAT engine
 │   ├── plan_enumerate.py  exhaustive fallback engine
-│   └── photos.py          perceptual hash, deduplication, stop matching, technical score
-└── tests/                 pytest: scoring, engine parity, photos
+└── tests/                 pytest: scoring and engine parity
 ```
 
 ---
@@ -170,7 +164,7 @@ Type notation: `uuid`, `text`, `int`, `number`, `bool`, `cents` (int ≥ 0, mino
 
 ### 2.1 Agent tools
 
-The agent has 7 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md)). Every handler:
+The agent has 5 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md)). Every handler:
 
 - Receives a `RunContext` holding `trip_id`, `run_id`, the requester's `member_id`, and the run's handle table. The model never supplies a trip ID.
 - Resolves handles to UUIDs. An unknown handle returns `unknown_handle`, so the model can correct itself.
@@ -223,7 +217,7 @@ Input
 | Field | Type | Req | Notes |
 | --- | --- | --- | --- |
 | mode | enum(`initial` \| `replan`) | yes | |
-| item_handles | handle[] | no | default: the earliest 3 slots whose items are non-booked, non-pinned, and in `tbd`, `voting`, or `decided`. On the seeded trip that is morning, lunch, and afternoon; dinner stays a TBD block for the call (§10.2). |
+| item_handles | handle[] | no | default: the earliest 3 slots whose items are non-booked, non-pinned, and in `tbd`, `voting`, or `decided`. On the seeded trip that is morning, lunch, and afternoon; dinner stays a TBD block until a later run fills it (§10.2). |
 | pinned_item_handles | handle[] | no | replan: items that must not change; booked items are always pinned |
 | constraint_updates | ConstraintUpdate[] | no | saved to `member_constraints` before planning, for "$80 each, Person 2's vegetarian" |
 | options_per_slot | int 2–3 | no | default 3 |
@@ -250,7 +244,7 @@ Card `plan`
 - **OptionSnapshot:** `option_id`, `place_id`, `name`, `price_cents`, `score`, `breakdown` {`preference`, `cost`, `travel`, `fairness`}, `reasoning`.
 - **Change:** `item_id`, `kind` enum(`time_shift` \| `option_changed` \| `attendees_changed` \| `superseded`), `before` text, `after` text.
 
-The card is a snapshot from proposal time. Live vote tallies come from the itinerary query (§6).
+The card is a snapshot from proposal time. Live statuses and comments come from the itinerary query (§6).
 
 Side effects:
 
@@ -259,7 +253,7 @@ Side effects:
 - A split slot creates a sibling item with the same `slot_key`.
 - Writes `item_options` and `item_attendees`, and fills the route cache.
 - **Pinned context slots:** the request also carries each booked or pinned item next to a planned slot, as a pinned slot with its one place, so travel into and out of it is checked.
-- **Replan time shift:** when a pinned item now starts Δ later or earlier than its slot did (dinner confirmed at 19:45 instead of 19:00, so Δ = +45 min), the unbooked slot immediately before it moves by Δ, including both groups if it's split. The request builder applies the shift before calling the optimizer, which then re-checks hours, travel, and arrival at the new times. A shifted item that keeps its option is a `time_shift` change and keeps its status.
+- **Replan time shift:** when a pinned item now starts Δ later or earlier than its slot did (dinner booked at 19:45 instead of 19:00, so Δ = +45 min), the unbooked slot immediately before it moves by Δ, including both groups if it's split. The request builder applies the shift before calling the optimizer, which then re-checks hours, travel, and arrival at the new times. A shifted item that keeps its option is a `time_shift` change and keeps its status.
 - **Option reasoning:** the server writes each option's `reasoning` from its score breakdown, for example "Best fit for Person 2's interests (animals, outdoors) · $42 · 12 min walk". These are the score facts, and the tool makes no extra model call. The model may add one line to the card (`summary_line`, Should), but only from those facts: if the line contains a number the facts don't, the server drops it.
 
 #### `update_item` · AI · card `itinerary_change`
@@ -277,7 +271,7 @@ Input
 
 Rules:
 
-- `swap_option` locks the item to that option, and only the organizer may do it; anyone else gets `not_permitted` with "ask the group to vote".
+- `swap_option` locks the item to that option, and only the organizer may do it; anyone else gets `not_permitted` with "discuss it in the comments".
 - `mark_tbd` on a decided item supersedes it with a new `tbd` item.
 - `request_alternatives` asks the optimizer for more options for one group.
 - Booked items reject every action with `not_permitted`.
@@ -351,48 +345,6 @@ Button copy on the approval card is built from the shares, so every member sees 
 
 Idempotency: `mandates.idempotency_key = mandate:{run_id}:{tool_call_id}`, and a partial unique index allows only one live mandate per item.
 
-#### `call_restaurant` · VO · card `call_status`
-
-Input
-
-| Field | Type | Req | Notes |
-| --- | --- | --- | --- |
-| item_handle | handle | yes | the dinner item: `tbd` or `decided`, not booked |
-| place_handle | handle | yes | category must be `food` |
-| party_size | int 1–12 | yes | |
-| preferred_time | ts | yes | |
-| earliest | ts | yes | ≤ preferred_time |
-| latest | ts | yes | ≥ preferred_time; the window from earliest to latest is ≤ 3 h |
-| name | text | no | default: the organizer's display name |
-| notes | text | no | ≤ 200, e.g. "one vegetarian" |
-
-Card `call_status`: `call_id` uuid, `item_id` uuid, `place_id` uuid, `restaurant_name` text, `party_size` int, `preferred_time` ts, `earliest` ts, `latest` ts, `to_number_masked` text (last 4 digits). All required. Live status and outcome come from the calls query.
-
-Side effects:
-
-- Inserts `calls` (queued), starts the outbound call, and moves the call to `dialing`.
-- Returns right away. The outcome arrives through `/api/voice/tools/confirm-reservation` and the post-call webhook (§5.4).
-- When `VOICE_TO_NUMBER_OVERRIDE` is set (it's required in dev mode), every call dials it instead of the venue's number.
-
-Idempotency: `calls.idempotency_key = call:{run_id}:{tool_call_id}`, and a partial unique index allows only one active call per item.
-
-#### `generate_recap` · AI · card `recap`
-
-Input: `tone` enum(`warm` \| `playful` \| `short`) (no; default `warm`); `focus_member_handles` handle[] (no).
-
-Card `recap`
-
-| Field | Type | Req | Notes |
-| --- | --- | --- | --- |
-| recap_id | uuid | yes | |
-| share_slug | text | yes | public link `/trip/{share_slug}/recap` |
-| title | text | yes | |
-| cover_photo_id | uuid | no | |
-| sections | [{title, item_id?, body, photo_ids}] | yes | 3–6 sections; body ≤ 400 chars; ≤ 4 photos each |
-| generated_at | ts | yes | |
-
-The tool and the "Regenerate" button both call `generateRecap(tripId, { tone })`. Regenerating overwrites the one recap row per trip and keeps its `share_slug`.
-
 #### Server-originated cards (not tools)
 
 | card_type | Owner | Fields |
@@ -410,7 +362,6 @@ The service is stateless ([ADR 0012](adr/0012-stateless-optimizer.md)). `/v1/*` 
 | --- | --- | --- | --- | --- |
 | GET | `/health` | liveness | 3 s | 0 |
 | POST | `/v1/plan` | initial plan and re-plan | 8 s | 1 |
-| POST | `/v1/photos/analyze` | photo pipeline (numeric and computer-vision work only) | 20 s | 0 |
 
 Error responses:
 
@@ -447,7 +398,7 @@ Error responses:
 | status | enum(`optimal` \| `feasible` \| `infeasible`) | yes | |
 | solve_ms | int | yes | |
 | plans | Plan[] | yes | 0–3, ranked |
-| slot_options | SlotOptions[] | yes | 2–3 voting options per group, for the rank-1 plan |
+| slot_options | SlotOptions[] | yes | 2–3 options per group, for the rank-1 plan |
 | infeasible_reasons | text[] | yes | e.g. "Person 2's budget can't cover any lunch option" |
 
 - **Plan:** `rank`, `total_score`, `fairness`, `split` bool, `member_scores` [{`member_id`, `score`, `preference`, `cost`, `travel`}], `assignments` [{`slot_key`, `groups` [{`place_id`, `member_ids`}]}].
@@ -491,36 +442,7 @@ Hard constraints:
   - The solver reports an invalid model or an unknown status.
   - `params.engine = "enumeration"`.
 
-  If the whole service is unreachable, the `plan_day` call fails after its one retry, and the run writes an `error` card with Try again (§7.4). There's no runtime mock optimizer. ([ADR 0007](adr/0007-cp-sat-with-enumeration-fallback.md))
-
-#### `POST /v1/photos/analyze`
-
-Request
-
-| Field | Type | Req | Notes |
-| --- | --- | --- | --- |
-| request_id | text | yes | |
-| stops | [{item_id, starts_at, ends_at, lat?, lng?}] | yes | |
-| photos | [{photo_id, url, taken_at?, lat?, lng?}] | yes | ≤ 60; `url` is a Supabase signed URL whose host must be in `ALLOWED_PHOTO_HOSTS` (blocks server-side request forgery) |
-| dedupe_threshold | int | no | Hamming distance, default 6 |
-
-Response
-
-| Field | Type | Req | Notes |
-| --- | --- | --- | --- |
-| request_id | text | yes | |
-| photos | PhotoResult[] | yes | |
-| best_per_item | [{item_id, photo_id}] | yes | by technical score among non-duplicates |
-
-PhotoResult: `photo_id`, `phash` (16 hex characters), `duplicate_of` uuid or null, `item_id` uuid or null, `match_method` enum(`timestamp` \| `gps` \| `none`), `sharpness` number, `exposure` number, `technical_score` number 0..1, `width` int, `height` int.
-
-Stop matching, in order:
-
-1. A timestamp within [stop start − 15 min, stop end + 15 min] matches that stop.
-2. Otherwise, the nearest stop within 300 m by GPS.
-3. Otherwise, `none`.
-
-Captions and aesthetic scores are **not** computed here. Next.js calls Muse Spark vision (`VISION_MODEL`) through the LLM adapter (§2.3), and `processPhotos` sets `quality_score = 0.5 × technical + 0.5 × aesthetic`. With `SEGMENT_PROVIDER=real` (Should), SAM 3.1 finds the photo's people, and best-shot picking prefers photos whose subject is large and near the thirds; the recap crops around the same box.
+   If the whole service is unreachable, the `plan_day` call fails after its one retry, and the run writes an `error` card with Try again (§7.4). There's no runtime mock optimizer. ([ADR 0007](adr/0007-cp-sat-with-enumeration-fallback.md))
 
 ### 2.3 Provider adapters
 
@@ -534,14 +456,10 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 
 | Provider | Owner | Flag | Real | Mock |
 | --- | --- | --- | --- | --- |
-| llm | AI | `LLM_PROVIDER` = `meta` (default) \| `google` \| `mock` | Muse Spark 1.3 on Meta's Model API, through `@ai-sdk/openai-compatible` (Chat Completions); Gemini via `@ai-sdk/google` as the fallback | replays recorded tool decisions (§7.5); fixture captions |
+| llm | AI | `LLM_PROVIDER` = `meta` (default) \| `google` \| `mock` | Muse Spark 1.3 on Meta's Model API, through `@ai-sdk/openai-compatible` (Chat Completions); Gemini via `@ai-sdk/google` as the fallback | replays recorded tool decisions (§7.5) |
 | transcription | VO | `TRANSCRIBE_PROVIDER` = `real` \| `mock` (default `mock`) | `muse-voice-transcribe-1.0`, `POST /v1/asr/transcribe` (multipart) | a fixture transcript per recording length |
-| segmentation | AI | `SEGMENT_PROVIDER` = `real` \| `mock` (default `mock`) | `sam-3.1` on the Responses API, through the `openai` SDK | a centered box per photo |
-| image | AI | `IMAGE_PROVIDER` = `real` \| `mock` (default `mock`) | `muse-image-1.0`, `images.generate` or `images.edit` through the `openai` SDK | a fixture cover |
-| grounding | AI | `GROUNDING_PROVIDER` = `real` \| `mock` (default `mock`); only the places adapter calls it | `muse-spark-1.3` with the `web_search` tool on the Responses API, through the `openai` SDK | fixture hours and prices with one citation |
 | payments | CO | `PAYMENTS_PROVIDER` = `real` \| `mock` | Stripe test mode, API version pinned in code | authorizes immediately; payment method `pm_mock_declined` declines |
-| booking (`book()`) | CO | none for tickets; stays uses `STAYS_PROVIDER` | tickets: mock merchant (the same code in both modes); stays: Duffel; restaurant: records a voice reservation | stays: fixture hotel |
-| voice | VO | `VOICE_PROVIDER` = `real` \| `mock` | ElevenLabs Agents outbound call over Twilio | plays a whole call against our real routes: the mid-call `confirm_reservation` tool (with `x-tool-secret`) and a signed post-call webhook. `VOICE_MOCK_SCENARIO` picks the scenario (§9.1). |
+| booking (`book()`) | CO | none for tickets; stays uses `STAYS_PROVIDER` | tickets: mock merchant (the same code in both modes); stays: Duffel | stays: fixture hotel |
 | places | AI | `PLACES_PROVIDER` = `real` \| `mock` | Google Places (New) Text Search | filters seed fixtures |
 | routing | FE | `ROUTING_PROVIDER` = `real` \| `mock` | OpenRouteService directions and matrix | straight line; walking 4.8 km/h, driving 25 km/h |
 
@@ -550,19 +468,14 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 | Method | Input | Output | Notes |
 | --- | --- | --- | --- |
 | `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s per step; 90 s per run |
-| `generateObject` | Zod schema, `prompt`, `images?` | the parsed object | used by the recap |
-| `describeImage` | `url`, `context` | `{ caption, aesthetic_score }` | Muse Spark vision (`VISION_MODEL`); captions ≤ 120 chars |
 
 Meta's Model API accepts only `tool_choice: "auto"`; `"required"`, `"none"`, and named tools return HTTP 400. So the runner never forces a tool, and `generateObject` uses `response_format` with a JSON schema, never a forced tool call ([ADR 0017](adr/0017-meta-model-api.md)).
 
-#### Meta capability providers (Should)
+#### Transcription provider (Should)
 
 | Provider | Method | Input | Output | Notes |
 | --- | --- | --- | --- | --- |
 | transcription | `transcribe` | `wav` (RIFF/WAVE, 16-bit PCM, mono, 16 kHz), `keywords?` | `{ text, durationMs }` | at most 10 minutes or 32 MB; the browser converts the recording ([ADR 0018](adr/0018-voice-notes-convert-in-browser.md)) |
-| segmentation | `segment` | `imageUrl`, `prompt` (a noun phrase such as "person") | `[{ box (0–1), score }]` | boxes only; masks aren't stored |
-| image | `generate` | `prompt`, `size`, `referenceImageUrls?` | `{ bytes, format }` | the recap cover, uploaded to `trip-photos` |
-| grounding | `venueFacts` | `name`, `address`, `city` | `{ hours, priceNote, answerText, citations: [{ url, title, startIndex, endIndex }], model, checkedAt }` | reached only through `PlacesProvider.groundFacts`; the caller stores the citations with the facts |
 
 #### PaymentsProvider
 
@@ -583,23 +496,11 @@ Stripe metadata on every object: `mandate_id`, `payer_member_id`, `trip_id`, and
 | Method | Input | Output | Notes |
 | --- | --- | --- | --- |
 | `quote` | `kind` (`tickets` \| `stays`), `placeId`, `optionId`, `partySize`, `startsAt` | `{ quoteId, totalCents, currency, expiresAt }` | mock merchant prices come from `item_options.price_cents` |
-| `book` | `kind`, `quoteId` or `reservation`, `partySize`, `startsAt`, `contactName`, `idempotencyKey` | `{ status: confirmed \| failed, providerRef, confirmationCode?, failureReason? }` | `kind = restaurant` records the voice outcome as a booking |
+| `book` | `kind`, `quoteId`, `partySize`, `startsAt`, `contactName`, `idempotencyKey` | `{ status: confirmed \| failed, providerRef, confirmationCode?, failureReason? }` |  |
 | `cancel` | `providerRef`, `idempotencyKey` | `{ status: cancelled }` | |
 | `simulatePriceChange` | `quoteId`, `newTotalCents` | `{ quoteId }` | mock merchant only; used by the dev toolbar |
 
-`getBookingProvider(kind)` returns the mock merchant for `tickets`, the voice reservation recorder for `restaurant`, and Duffel or the stays mock for `stays`. Every booking goes through this one adapter.
-
-#### VoiceProvider
-
-| Method | Input | Output | Notes |
-| --- | --- | --- | --- |
-| `startCall` | `callId`, `toNumber` (E.164), `dynamicVariables` {`call_id`, `restaurant`, `party_size`, `preferred_time`, `earliest`, `latest`, `name`, `notes`} | `{ conversationId, providerCallSid? }` | ElevenLabs `POST /v1/convai/twilio/outbound-call` with `agent_id` and `agent_phone_number_id`; 10 s timeout; **no retries**, so a phone never gets dialed twice |
-| `verifyToolRequest` | `headers` | bool | timing-safe comparison of `x-tool-secret` against `ELEVENLABS_TOOL_SECRET` |
-| `parseWebhook` | `rawBody`, `signatureHeader` | `VoiceEvent` or throws | HMAC per the ElevenLabs post-call webhook docs; rejects timestamps older than 30 min |
-
-VoiceEvent: `{ id, type: post_call_transcription | call_initiation_failure, conversationId, callId, durationS?, summary?, dataCollection?: { confirmed_time?, party_size? }, failureReason? }`.
-
-The ElevenLabs agent (set up in the ElevenLabs dashboard) has one server tool, `confirm_reservation(call_id, confirmed_time, party_size, name, notes?)`. It posts to `/api/voice/tools/confirm-reservation` with the `x-tool-secret` header.
+`getBookingProvider(kind)` returns the mock merchant for `tickets`, and Duffel or the stays mock for `stays`. Every booking goes through this one adapter.
 
 #### PlacesProvider
 
@@ -627,39 +528,33 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/trips` | signed in | `{ title ≤ 80, city ≤ 80, trip_date, timezone? }` | `{ slug }` | FE (Should: create trip) |
 | POST | `/api/messages` | member | `{ client_id: uuid, trip_id, body ≤ 2000, item_id? }` | `{ message_id, agent_run_id \| null }` | FE (agent start: AI) |
-| POST | `/api/votes` | member | `{ item_id, option_id }` | `{ item_status, tallies: [{option_id, count}] }` | FE |
+| PATCH | `/api/profile` | signed in | `{ display_name ≤ 80?, avatar_url? }` | `{ profile }` | VO |
+| GET | `/api/trips/:id/itinerary` | member | query `format=ics`, `member=me|<id>` (default `me`) | the member's schedule as a calendar file | FE |
 | POST | `/api/mandates/:id/approve` | member | `{}` (the organizer's approval always includes their fronted shares) | `{ holds: [{hold_id, status}] }` | CO |
 | POST | `/api/mandates/:id/decline` | member | `{}` | `{ hold_status, mandate_status }` | CO |
 | POST | `/api/mandates/:id/cover` | organizer | `{}` | `{ mandate_status }` | CO |
 | POST | `/api/invites/claim` | signed in | `{ token }` | `{ trip_slug, member_id }` | VO |
 | GET | `/auth/confirm` | the link's token | query `token_hash`, `type=email`, `next` (same-origin path) | redirect to `next`, or `/login?error=link` | VO |
 | POST | `/api/voice-notes` | member | multipart: `trip_id`, `client_id`, `audio` (16 kHz mono WAV, ≤ 2 min) | `{ message_id, agent_run_id \| null }` | VO (Should, §2.5) |
-| POST | `/api/photos` | member | `{ trip_id, storage_path, taken_at?, lat?, lng? }` | `{ photo_id }` | VO (Should) |
-| POST | `/api/recaps/:tripId/regenerate` | member | `{ tone? }` | `{ recap_id }` | AI |
 | POST | `/api/webhooks/stripe` | Stripe signature | raw | `200` | CO |
-| POST | `/api/webhooks/elevenlabs` | ElevenLabs HMAC | raw | `200` | VO |
-| POST | `/api/voice/tools/confirm-reservation` | `x-tool-secret` | `{ call_id, confirmed_time, party_size, name, notes? }` | `{ ok, message_for_agent }` | VO |
 | POST | `/api/demo/:action` | dev mode, organizer session, and `x-demo-token` | action: `reset` \| `price-change` (Should); development tooling only | `{ ok, detail }` | VO |
 | GET | `/api/health` | none | — | `{ web, db, optimizer }` | VO |
 
-Agent runs start inside `/api/messages` through Next.js `after()`, and inside the voice tool route for call follow-ups. There is no public "run the agent" route. Routes that start runs set `maxDuration = 300`.
+Agent runs start inside `/api/messages` through Next.js `after()`. There is no public "run the agent" route. Routes that start runs set `maxDuration = 300`.
 
 HTTP errors: 400 validation · 401 no session · 403 not a member, or not the organizer · 404 · 409 conflict (for example, the item is already booked) · 422 domain rule · 502 provider error · 504 provider timeout. Every error body is `{ error: { code, message, retryable } }`.
 
-### 2.5 Meta Model API capabilities (Should)
+### 2.5 Voice notes (Should)
 
-Each capability has its own provider and flag (§2.3), a mock for development and tests, and a plan task with an owner. None is needed by a core flow, and each one switches to Meta on its own ([ADR 0017](adr/0017-meta-model-api.md)).
+The trip chat has one Meta capability beyond the core model, with its own provider and flag (§2.3), a mock for development and tests, and a plan task with an owner. It isn't needed by a core flow, and it switches to Meta on its own ([ADR 0017](adr/0017-meta-model-api.md)).
 
 - **Voice notes in the trip chat.** The composer's mic button records with `MediaRecorder` (at most 2 minutes). The browser decodes the recording, resamples it to 16 kHz mono with an `OfflineAudioContext`, and encodes 16-bit PCM WAV ([ADR 0018](adr/0018-voice-notes-convert-in-browser.md)). `POST /api/voice-notes` (member; multipart `trip_id`, `client_id`, `audio`) checks the RIFF header, calls `transcribe` with the trip's venue names as keywords, and posts the transcript through `sendMessage` as the member's own text message, so "@agent" in speech starts a run. The audio isn't stored.
-- **Subject segmentation.** `processPhotos` asks SAM 3.1 for "person" in each photo. Best-shot picking adds a subject term (the largest box's area and its distance from the thirds lines), and the recap crops each photo around the same box. Boxes are stored on the photo row as `subject_box` (jsonb, 0–1 coordinates, null when none).
-- **Recap cover.** After `generate_recap`, `muse-image-1.0` composes a cover from the three best photos and the recap's title (`images.edit` with the photos as references, 1792x1024, webp). It's stored in `trip-photos` under the recap, as `recaps.cover_path`. Regenerate keeps the old cover until the new one uploads.
-- **Search grounding for venues.** `PlacesProvider.groundFacts(place, city)` asks the grounding provider for the venue's current hours and prices, with the `web_search` tool on the Responses API. The places cache stores the result in `places.facts` (jsonb: `hours`, `price_note`, `answer_text`, `citations` with `url`, `title`, `start_index`, and `end_index`, `model`, `checked_at`), and a stop's details list the sources. The model decides whether to search, so an empty result is normal; the cached facts older than 7 days are refreshed when a plan uses the venue.
 
 ---
 
 ## 3. Data model
 
-21 tables in the `public` schema, as the plan lists them.
+17 tables in the `public` schema, as the plan lists them.
 
 **Rules for every table:**
 
@@ -686,22 +581,19 @@ Each capability has its own provider and flag (§2.3), a mock for development an
 | mandate_status | `open`, `partially_declined`, `authorized`, `captured`, `cancelled`, `failed` |
 | hold_status | `awaiting_member`, `pending`, `authorized`, `captured`, `refunded`, `released`, `declined`, `failed`, `expired` |
 | hold_kind | `own`, `fronted` |
-| booking_provider | `mock_merchant`, `voice_reservation`, `duffel_stays`, `stays_mock` |
+| booking_provider | `mock_merchant`, `duffel_stays`, `stays_mock` |
 | booking_status | `pending`, `confirmed`, `failed`, `cancelled` |
 | payer_type | `split`, `organizer`, `pay_at_venue` |
 | price_action | `auto_captured`, `auto_captured_lower`, `reapproval_requested`, `notified` |
-| call_status | `queued`, `dialing`, `in_progress`, `completed`, `failed`, `no_answer` |
 | sender_type | `member`, `agent`, `system` |
 | message_kind | `text`, `card` |
-| card_type | `place_list`, `plan`, `itinerary_change`, `summary`, `approval`, `call_status`, `recap`, `booking_confirmed`, `price_change`, `member_joined`, `error` |
-| run_trigger | `mention`, `call_completed`, `price_change`, `demo` |
+| card_type | `place_list`, `plan`, `itinerary_change`, `summary`, `approval`, `booking_confirmed`, `price_change`, `member_joined`, `error` |
+| run_trigger | `mention`, `price_change`, `demo` |
 | run_status | `queued`, `running`, `succeeded`, `failed` |
-| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase`, `call_restaurant`, `generate_recap` |
+| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase` |
 | tool_status | `started`, `succeeded`, `failed` |
-| webhook_provider | `stripe`, `elevenlabs`, `elevenlabs_tool` |
+| webhook_provider | `stripe` |
 | webhook_status | `received`, `processed`, `ignored`, `failed` |
-| photo_status | `uploaded`, `processing`, `processed`, `failed` |
-| match_method | `timestamp`, `gps`, `manual`, `none` |
 
 ### 3.2 Tables
 
@@ -718,7 +610,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | default_payment_method_id | text | yes | Stripe ID only; no card data |
 
 - Created by trigger `handle_new_user` on insert into `auth.users`, using `raw_user_meta_data.display_name`, or "Guest" when it's empty.
-- RLS: a user selects only their own row. There are no user writes; server code updates Stripe fields and names. Other members' names come from `trip_members.display_name`.
+- RLS: a user selects and updates only their own row (`PATCH /api/profile`, flow 5.1), changing `display_name` and `avatar_url`. The server updates Stripe fields and copies the name onto the member's joined `trip_members` rows. Other members' names come from `trip_members.display_name`.
 
 #### trips
 
@@ -797,7 +689,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 
 - CHECK: `area_label`, `area_lat`, and `area_lng` are all null or all set.
 - Indexes: `(trip_id, starts_at)`, `(trip_id, slot_key)`, `chosen_option_id`, `supersedes_item_id`, `created_by_run_id`.
-- RLS: members select. Writes happen only through server code and `cast_vote`.
+- RLS: members select. Writes happen only through server code.
 
 #### item_options
 
@@ -829,22 +721,6 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 - Indexes: `member_id`, `trip_id`.
 - RLS: members select.
 
-#### votes
-
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| trip_id | uuid | no | FK → trips, cascade |
-| item_id | uuid | no | FK → itinerary_items |
-| option_id | uuid | no | composite FK `(option_id, item_id)` → `item_options(id, item_id)`, so a vote can't point at another item's option |
-| member_id | uuid | no | FK → trip_members |
-
-- Unique: `(item_id, member_id)`.
-- Indexes: `trip_id`, `option_id`, `member_id`.
-- RLS: members select. Users write their own vote through `cast_vote(item_id, option_id)`, a `security definer` function. It:
-  - Checks that the caller is a joined attendee and the item is `voting`, then upserts the vote.
-  - Locks the item when one option has votes from more than half of its **joined** attendees: status becomes `decided` and `chosen_option_id` is set.
-  - Returns the tallies.
-
 #### places
 
 | Column | Type | Null | Notes |
@@ -857,7 +733,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | lat, lng | double precision | no | |
 | price_level | int | yes | CHECK 0–4 |
 | rating | numeric(2,1) | yes | |
-| phone | text | yes | never dialed while `VOICE_TO_NUMBER_OVERRIDE` is set |
+| phone | text | yes | informational only |
 | photo_url | text | yes | |
 | hours | jsonb | yes | `{ "sat": [["09:00","18:00"]] }` |
 | tags | text[] | no | default `{}` |
@@ -944,7 +820,6 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | item_id | uuid | no | FK → itinerary_items |
 | option_id | uuid | yes | FK → item_options |
 | mandate_id | uuid | yes | FK → mandates; unique where not null |
-| call_id | uuid | yes | FK → calls; unique where not null |
 | provider | booking_provider | no | |
 | provider_ref | text | yes | |
 | confirmation_code | text | yes | |
@@ -954,7 +829,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | payer | payer_type | no | |
 | details | jsonb | no | `{ party_size, starts_at, name, notes }` |
 | confirmed_at | timestamptz | yes | |
-| idempotency_key | text | no | unique; `booking:{mandate_id}` or `booking:{call_id}` |
+| idempotency_key | text | no | unique; `booking:{mandate_id}` |
 
 - Indexes: `trip_id`, `item_id`, `option_id`.
 - RLS: members select.
@@ -976,28 +851,6 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 - Indexes: `trip_id`, `mandate_id`, `booking_id`, `new_mandate_id`.
 - RLS: members select.
 
-#### calls
-
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| trip_id | uuid | no | FK → trips, cascade |
-| item_id | uuid | no | FK → itinerary_items |
-| place_id | uuid | no | FK → places |
-| to_number | text | no | E.164; `VOICE_TO_NUMBER_OVERRIDE` when it is set |
-| provider | text | no | `elevenlabs` \| `mock` |
-| conversation_id | text | yes | unique |
-| provider_call_sid | text | yes | |
-| request | jsonb | no | `{ party_size, preferred_time, earliest, latest, name, notes }` |
-| status | call_status | no | default `queued` |
-| outcome | jsonb | yes | `{ confirmed_time, party_size, notes, source: tool \| post_call \| demo }`; written once |
-| summary | text | yes | from the post-call webhook |
-| failure_reason | text | yes | |
-| started_at, ended_at | timestamptz | yes | |
-| idempotency_key | text | no | unique |
-
-- Indexes: `trip_id`, `item_id`, `place_id`; unique `(item_id)` where `status` in (`queued`, `dialing`, `in_progress`).
-- RLS: members select. The UI masks `to_number`.
-
 #### messages
 
 | Column | Type | Null | Notes |
@@ -1009,7 +862,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | body | text | yes | ≤ 4000 |
 | card_type | card_type | yes | CHECK: not null exactly when `kind = 'card'` |
 | card_payload | jsonb | yes | validated by the Zod card schema before insert |
-| item_id | uuid | yes | FK → itinerary_items; item comments (Should) are messages linked to an item |
+| item_id | uuid | yes | FK → itinerary_items; item comments (flow 5.3) are messages linked to an item |
 | client_id | uuid | yes | unique; makes sends idempotent |
 | mentions_agent | bool | no | default false |
 | agent_run_id | uuid | yes | FK → agent_runs |
@@ -1025,7 +878,6 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | trip_id | uuid | no | FK → trips, cascade |
 | trigger | run_trigger | no | |
 | trigger_message_id | uuid | yes | unique; FK → messages |
-| trigger_call_id | uuid | yes | unique; FK → calls |
 | requester_member_id | uuid | yes | FK → trip_members |
 | status | run_status | no | default `queued` |
 | lease_expires_at | timestamptz | yes | a running run with an expired lease counts as dead |
@@ -1065,7 +917,7 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |
 | provider | webhook_provider | no | PK part 1 |
-| event_id | text | no | PK part 2; Stripe `evt_…`, ElevenLabs `{type}:{conversation_id}`, tool `{call_id}:confirm` |
+| event_id | text | no | PK part 2; Stripe `evt_…` |
 | type | text | no | |
 | status | webhook_status | no | default `received` |
 | attempts | int | no | default 1 |
@@ -1077,61 +929,23 @@ Common columns are omitted from the tables below. "FK" means foreign key; "RLS" 
 - No `id`; it keeps `created_at`, `updated_at`, and `seed_batch`.
 - RLS is enabled with no policies, so clients can't read it.
 
-#### photos
-
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| trip_id | uuid | no | FK → trips, cascade |
-| item_id | uuid | yes | FK → itinerary_items |
-| uploader_member_id | uuid | yes | FK → trip_members |
-| storage_path | text | no | unique; `{demo\|live}/{trip_id}/{photo_id}.jpg` in the private bucket `trip-photos` |
-| taken_at | timestamptz | yes | read in the browser with exifr before upload |
-| lat, lng | double precision | yes | |
-| width, height | int | yes | |
-| phash | text | yes | 16 hex characters |
-| duplicate_of_photo_id | uuid | yes | FK → photos |
-| technical_score, quality_score | real | yes | 0..1 |
-| caption | text | yes | |
-| is_best | bool | no | default false |
-| match_method | match_method | yes | |
-| status | photo_status | no | default `uploaded` |
-
-- Indexes: `(trip_id, taken_at)`, `item_id`, `uploader_member_id`, `duplicate_of_photo_id`; unique `(item_id)` where `is_best`.
-- RLS: members select. Users insert only with `uploader_member_id` set to their own member row. The storage policy allows read and insert under `*/{trip_id}/*` for trip members.
-
-#### recaps
-
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| trip_id | uuid | no | unique; FK → trips, cascade |
-| share_slug | text | no | unique; nanoid(11) |
-| title | text | no | |
-| content | jsonb | no | the recap card's `sections` |
-| cover_photo_id | uuid | yes | FK → photos |
-| model | text | yes | |
-| generated_at | timestamptz | no | |
-
-- Index: `cover_photo_id`.
-- RLS: members select. The public page reads by `share_slug` through a server route using the admin client, and returns only recap content and signed photo URLs.
-
 ### 3.3 Realtime publication and migration order
 
-- **Published to Realtime:** `trips`, `trip_members`, `member_constraints`, `itinerary_items`, `item_options`, `item_attendees`, `votes`, `mandates`, `payment_holds`, `bookings`, `price_changes`, `calls`, `messages`, `agent_runs`, `tool_calls`, `photos`, `recaps`.
+- **Published to Realtime:** `trips`, `trip_members`, `member_constraints`, `itinerary_items`, `item_options`, `item_attendees`, `mandates`, `payment_holds`, `bookings`, `price_changes`, `messages`, `agent_runs`, `tool_calls`.
 - **Not published:** `profiles`, `places`, `routes`, `webhook_events`.
 - **Migration files.** The schema is split into files with fixed version prefixes, so several people can write them at once and they always apply in the same order. Each file creates its tables with their CHECK constraints, indexes, RLS policies, transition triggers, and publication entries.
   1. `20260925200100_foundation.sql`: `set_updated_at`, `profiles` and `handle_new_user`, `trips`, `trip_members`, `is_trip_member`, and `is_trip_organizer`.
-  2. `20260925200200_places_itinerary.sql`: `places`, `routes`, `itinerary_items`, `item_options` (with the deferred foreign key from `chosen_option_id`), `item_attendees`, `votes`, and `member_constraints`.
+  2. `20260925200200_places_itinerary.sql`: `places`, `routes`, `itinerary_items`, `item_options` (with the deferred foreign key from `chosen_option_id`), `item_attendees`, and `member_constraints`.
   3. `20260925200300_agent_chat.sql`: `agent_runs`, `messages`, and `tool_calls`, then the foreign keys from `itinerary_items.created_by_run_id` and `agent_runs.trigger_message_id`.
-  4. `20260925200400_commerce_calls.sql`: `mandates`, `payment_holds`, `calls`, `bookings`, `price_changes`, and `webhook_events`, then the foreign key from `agent_runs.trigger_call_id`.
-  5. `20260925200500_media.sql`: `photos`, `recaps`, and the storage policies.
+  4. `20260925200400_commerce.sql`: `mandates`, `payment_holds`, `bookings`, `price_changes`, and `webhook_events`.
 
-  Files 1–4 land with the scaffold (Milestone 1); file 5 lands in Milestone 2. Functions (`cast_vote`, `claim_invite`, and the §3.4 write functions) come in later timestamped files from their owners. Push in timestamp order. If `supabase db push` reports a local file older than the remote head, give the unpushed file a fresh timestamp.
+  Files 1–4 land with the scaffold (Milestone 1). Functions (`claim_invite`, and the §3.4 write functions) come in later timestamped files from their owners. Push in timestamp order. If `supabase db push` reports a local file older than the remote head, give the unpushed file a fresh timestamp.
 
 ### 3.4 Write functions
 
-supabase-js has no client-side transactions, so every multi-row write that this design calls "one transaction" is a Postgres function called over RPC. These rules apply to every function in this section, and to `cast_vote` and `claim_invite`:
+supabase-js has no client-side transactions, so every multi-row write that this design calls "one transaction" is a Postgres function called over RPC. These rules apply to every function in this section, and to `claim_invite`:
 
-- **Membership is checked inside the function.** A function called with the admin client bypasses RLS, so it can't rely on it. Each server-only function takes an `actor_member_id` in its payload: the run's requester, the trip organizer for server-triggered runs, or the member whose request started the flow. It raises `not_permitted` unless that member is a **joined** member of the trip that owns every row the payload names. Functions called with the user's session (`cast_vote`, `claim_invite`, `create_trip`) check `auth.uid()` the same way.
+- **Membership is checked inside the function.** A function called with the admin client bypasses RLS, so it can't rely on it. Each server-only function takes an `actor_member_id` in its payload: the run's requester, the trip organizer for server-triggered runs, or the member whose request started the flow. It raises `not_permitted` unless that member is a **joined** member of the trip that owns every row the payload names. Functions called with the user's session (`claim_invite`, `create_trip`) check `auth.uid()` the same way.
 - **`security definer` functions pin `search_path`** (`set search_path = ''`) and schema-qualify every name. `execute` is revoked from `public`, `anon`, and `authenticated` on server-only functions, so only the admin client can call them.
 - **Every function has a database test showing a non-member call is rejected.** A schema-wide test also fails if any `security definer` function in `public` lacks a pinned `search_path`.
 - Inside, status changes use the same conditional updates as everywhere else (§4). Running a function twice is a no-op.
@@ -1172,10 +986,7 @@ revoke execute on function public.apply_plan(jsonb) from public, anon, authentic
 | `apply_plan(payload jsonb)` | `applyPlan` (`plan_day`) | item statuses, options, attendees, split siblings, superseding items, time shifts, the `plan` card | AI |
 | `create_mandate(payload jsonb)` | `createMandate` (`propose_purchase`) | the mandate, its share rows (`own`, `awaiting_member`, and `fronted`), and the `approval` card | CO |
 | `complete_mandate(payload jsonb)` | `finalizeMandate`, after `book()` and the captures | the booking, the captured and released share rows (one paying row per share), `final_cents`, the item booked and pinned, and the `booking_confirmed` card | CO |
-| `create_call(payload jsonb)` | `call_restaurant` | the `calls` row (`queued`) and the `call_status` card | VO |
-| `record_reservation(payload jsonb)` | `recordReservation` (confirm route, post-call webhook) | the call outcome (once) and status, the `voice_reservation` booking, the dinner item booked, pinned, and moved to the confirmed time, the `booking_confirmed` card, and the follow-up `agent_runs` row. It returns the run ID, or null when the outcome was already written. | CO |
-| `save_recap(payload jsonb)` | `generateRecap` | the recap row (keeping `share_slug`) and the `recap` card | AI |
-| `apply_item_change(payload jsonb)` | `update_item` (Should) | the item change and the `itinerary_change` card | AI |
+| `apply_item_change(payload jsonb)` | `update_item` | the item change and the `itinerary_change` card | AI |
 | `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer). | FE |
 
 ---
@@ -1191,7 +1002,7 @@ stateDiagram-v2
     [*] --> tbd
     tbd --> proposing: plan_day starts
     proposing --> voting: options written
-    voting --> decided: majority vote or organizer lock
+    voting --> decided: organizer lock, or the agent on an explicit confirmation in chat
     decided --> booked: booking confirmed
     tbd --> booked: reservation confirmed on a TBD slot
     tbd --> cancelled
@@ -1292,27 +1103,7 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
-### 4.4 Call
-
-```mermaid
-stateDiagram-v2
-    [*] --> queued
-    queued --> dialing: ElevenLabs accepted the call
-    queued --> failed: start call errored
-    dialing --> in_progress: first confirm_reservation tool call
-    dialing --> completed: post-call webhook without a tool call
-    dialing --> no_answer: initiation failure, no answer
-    dialing --> failed: initiation failure, other
-    in_progress --> completed: post-call webhook
-    in_progress --> failed: call dropped
-    completed --> [*]
-    failed --> [*]
-    no_answer --> [*]
-```
-
-`outcome` is written once, by whichever arrives first: the mid-call tool or the post-call data collection. Later sources only fill `summary`.
-
-### 4.5 Agent run
+### 4.4 Agent run
 
 ```mermaid
 stateDiagram-v2
@@ -1331,18 +1122,36 @@ A new run starts `queued`. The runner claims it only when no other run for the t
 
 ## 5. Core user flows
 
-These six flows are what the product does. The seeded trip, "Saturday in Atlanta" (§10), is the running example. Each flow is described from the members' side, then as a sequence diagram, where "All members" means every member's open client. `plan.md` tiers its tasks against these flows: a task is Must only if one of them fails without it.
+These five flows are what the product does. The seeded trip, "Saturday in Atlanta" (§10), is the running example. Each flow is described from the members' side, then as a sequence diagram, where "All members" means every member's open client. `plan.md` tiers its tasks against these flows: a task is Must only if one of them fails without it.
 
 | # | Flow | Starts with | Ends with |
 | --- | --- | --- | --- |
-| 5.1 | Plan a day | "@agent plan Saturday, $80 each, Person 2's vegetarian, Person 4 joins later." | a plan card, lanes, and a map, the same for every member |
-| 5.2 | Vote | a member taps an option | tallies update for everyone; the slot locks at a majority |
-| 5.3 | Book with group approval | "@agent book the aquarium." | every share approved, the booking made, and the charges captured |
-| 5.4 | Restaurant call | "@agent dinner for 4 at 7." | dinner booked at the confirmed time, and the day re-planned around it |
-| 5.5 | Placeholder claims their lane | Person 4 opens their invite link | Person 4 joined and paid, and the organizer refunded if they fronted the share |
-| 5.6 | Recap | a member opens a past trip | photos pinned to stops with captions and best shots, and a recap story |
+| 5.1 | Create profile | a new member signs in | a named profile, shown in chat and lanes |
+| 5.2 | AI-guided trip planner | "@agent plan Saturday, $80 each, Person 2's vegetarian, Person 4 joins later." | a plan card, lanes, and a map, the same for every member |
+| 5.3 | Invite and collaborate | the organizer shares an invite link; members comment on items | Person 4 joined, comments resolved into confirmed (decided) items |
+| 5.4 | Group pay after confirmation | "@agent book the aquarium." | every share approved, the booking made, and the charges captured |
+| 5.5 | Per-person itinerary | a member opens their itinerary | their schedule with places and payment status, on screen and as a download |
 
-### 5.1 Plan a day
+### 5.1 Create profile
+
+A new member signs in with a magic link (§8.1). The first sign-in creates their profile through the `handle_new_user` trigger, named "Guest" until they say otherwise. `/profile` asks for a display name and an avatar; saving patches the profile and the member's joined lane names through the server, so chat and lanes show the name from then on. Seeded members arrive already named; a claimer names themselves the same way after joining (§5.3).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as New member
+    participant Page as /profile page
+    participant API as Next.js /api/profile
+    participant DB as Supabase
+    P->>Page: open after first sign-in
+    Page->>DB: select own profile
+    Page-->>P: "Guest" with name and avatar fields
+    P->>API: PATCH display_name and avatar_url
+    API->>DB: update profiles where id = auth.uid(), plus joined member rows
+    DB-->>P: named profile; lanes and chat show the name
+```
+
+### 5.2 AI-guided trip planner
 
 A member mentions @agent with the group's constraints. Every member sees the agent's progress in the status bar, then a plan card: 2–3 scored options per slot, a split-up plan where the group branches and meets again, and bars showing who gains and who gives up on each tradeoff. The lanes view shows each member's lane branching at the split and merging again, and the map shows each member's route; tapping a stop highlights it in both. On the seeded trip, dinner stays a TBD block. The map shows a provisional "Dinner, TBD" pin at the dinner area, with dashed routes merging there, and the lanes show the same stop (§8.3).
 
@@ -1364,7 +1173,7 @@ sequenceDiagram
     API->>Run: after() starts the runner
     Run->>DB: claim run, queued to running, set lease
     Run-->>All: broadcast agent.status "Reading the trip"
-    Run->>LLM: context with handles and 7 tools
+    Run->>LLM: context with handles and 5 tools
     LLM-->>Run: plan_day(initial, constraint_updates)
     Run->>DB: insert tool_calls row, save constraints, items to proposing
     Run-->>All: broadcast agent.status "Optimizing the day"
@@ -1379,27 +1188,51 @@ sequenceDiagram
     Run-->>All: broadcast agent.status done
 ```
 
-### 5.2 Vote
+### 5.3 Invite and collaborate
 
-Members vote on the options for a slot. Tallies update on every member's screen, and the slot locks when one option has votes from more than half of its joined attendees.
+The organizer shares each placeholder's invite link. Person 4 opens theirs, sees the trip and the lane already planned for them, and joins: Join asks for an email and sends a magic link back to the invite page; there, signed in, Join claims the lane (in dev mode, Join signs in a fresh claimer through a server-generated link and skips the email). Everyone sees a member-joined card, and Person 4's own share rows move from `awaiting_member` to `pending`, ready for flow 5.4.
+
+Planning itself happens in comments. Every item has a thread: messages with `item_id` set, shown under the item. A member writes what they want changed ("swap lunch to somewhere cheaper", "I can't do mornings"); mentioning @agent starts a run, and the agent revises through `update_item` or a `plan_day` replan, writing an `itinerary_change` or `plan` card. When the group settles, the organizer locks the option (`swap_option`), or the agent marks it decided on an explicit confirmation in chat ("looks good, book it"). Decided is what the pay flow requires: nothing is votable, and nothing books before the group confirms.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P4 as Person 4
+    participant All as All members
+    participant Page as /invite/token page
+    participant API as Next.js /api/invites/claim
+    participant DB as Supabase
+    P4->>Page: open invite link
+    Page->>DB: previewInvite(token), admin client, limited fields
+    Page-->>P4: trip, their planned lane, "Join as Person 4"
+    P4->>Page: Join with email, then the magic link
+    P4->>API: POST token
+    API->>DB: rpc claim_invite(token) as Person 4
+    API->>DB: member_joined card; own share rows awaiting_member to pending
+    DB-->>All: refetch members, mandates, and messages
+```
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant P2 as Person 2
     participant All as All members
-    participant API as Next.js /api/votes
+    participant API as Next.js /api/messages
+    participant Run as Agent runner
+    participant LLM as Muse Spark 1.3
     participant DB as Supabase
-    P2->>API: POST item_id and option_id
-    API->>DB: rpc cast_vote (user session)
-    DB->>DB: check attendee and voting status, upsert vote
-    DB->>DB: majority of joined attendees? then decided and chosen_option_id
-    DB-->>API: item_status and tallies
-    API-->>P2: 200 decided and tallies
-    DB-->>All: votes and itinerary_items changes, refetch itinerary
+    P2->>API: POST comment with item_id
+    API->>DB: insert message (user session, RLS)
+    DB-->>All: messages INSERT, refetch comments
+    P2->>API: "@agent make lunch cheaper" with item_id
+    API->>Run: after() starts the runner
+    Run->>LLM: context with the item's comments
+    LLM-->>Run: update_item(swap_option) or plan_day(replan)
+    Run->>DB: revised item, itinerary_change or plan card
+    DB-->>All: refetch itinerary and messages
 ```
 
-### 5.3 Book with group approval
+### 5.4 Group pay after confirmation
 
 The organizer asks the agent to book a decided item. Each attending member sees an approval card that itemizes their share and fees, marked "Agent proposed · You approve", with the button "Approve up to $48". The organizer's card also covers Person 4, who hasn't joined yet: "Approve up to $96, including Person 4's $48 until they join". Once every share is satisfied, the server books and captures. Everyone sees the booked card, and Person 4's lane reads "Fronted by the organizer" (§4.2).
 
@@ -1438,110 +1271,24 @@ sequenceDiagram
     Stripe-->>Pay: webhooks (recorded first, transitions are no-ops)
 ```
 
-### 5.4 Restaurant call
+### 5.5 Per-person itinerary
 
-The organizer asks for dinner. An ElevenLabs voice agent calls the restaurant. The restaurant offers 7:45 instead of 7:00, and the voice agent confirms mid-call through a server tool, so the chat shows the booking while the call is still live. The dinner's provisional pin moves to the restaurant, and its routes turn solid. A follow-up agent run re-plans around the pinned dinner. On the seeded trip, its plan card shows the afternoon moved to 3:00–6:00. The re-plan computes that shift (§2.1); nothing hardcodes it.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Org as Organizer
-    participant All as All members
-    participant Run as Agent runner
-    participant LLM as Muse Spark 1.3
-    participant Voice as voice server
-    participant EL as ElevenLabs Agents
-    participant Rest as Restaurant
-    participant DB as Supabase
-    Org->>Run: @agent dinner for 4 at 7 (via /api/messages)
-    Run->>LLM: context and tools
-    LLM-->>Run: call_restaurant(I4, P9, 4, 19:00, 18:30 to 20:00)
-    Run->>DB: rpc create_call: calls row queued, call_status card
-    Run->>Voice: startRestaurantCall(call_id)
-    Voice->>EL: outbound call (to VOICE_TO_NUMBER_OVERRIDE when set) with dynamic variables
-    EL-->>Voice: conversation_id
-    Voice->>DB: call dialing
-    Run->>DB: agent text "Calling now", run succeeded
-    EL->>Rest: rings, then the voice agent asks for 7:00 for 4
-    Rest->>EL: "7 is full, 7:45 works"
-    EL->>Voice: POST confirm-reservation with call_id and 19:45 (x-tool-secret)
-    Voice->>DB: insert webhook_events elevenlabs_tool, call_id:confirm
-    Voice->>Voice: 19:45 inside the window?
-    Voice->>DB: rpc record_reservation: call outcome and in_progress, voice_reservation booking, dinner item booked, pinned, 19:45, booking_confirmed card, agent_run (call_completed, trigger_call_id)
-    Voice-->>EL: ok, "Confirmed, thank them and end the call"
-    DB-->>All: refetch calls, itinerary, and messages
-    Voice->>Run: after() starts the follow-up run
-    Run->>LLM: context with the pinned dinner
-    LLM-->>Run: plan_day(replan)
-    Run->>DB: rpc apply_plan: afternoon shifted (or superseded), plan card with changes
-    DB-->>All: refetch itinerary and messages
-    EL->>Voice: post_call_transcription webhook (HMAC)
-    Voice->>DB: record event first, call completed, summary
-```
-
-If the offered time is outside the window, the tool returns `ok: false` with "That time doesn't work. Ask for something between 6:30 and 8:00 PM, or thank them and end the call." If the call fails, the call card shows the failure, and the dinner stays a TBD block.
-
-### 5.5 Placeholder claims their lane
-
-Person 4 opens the invite link. They see the trip and the lane already planned for them. Join asks for their email and sends a magic link back to the invite page; there, signed in, Join claims the lane, and one more tap approves their share. In dev mode, Join signs in a fresh claimer through a server-generated link and skips the email ([ADR 0016](adr/0016-magic-link-auth.md)). Everyone sees a member-joined card. If the organizer's hold paid Person 4's share, the organizer is refunded that amount, once, and Person 4's lane changes to "Paid" (§4.2).
+After the group confirms and pays, each member gets their own itinerary: `/trip/[slug]/mine` shows only the items they attend, in time order, each with its place, times, fellow attendees, and that member's payment status for it (`Paid`, `Fronted by the organizer`, or `Approve up to $X`), plus the trip totals. The page has a print stylesheet, and a Download button serves the same schedule as a calendar file (`GET /api/trips/[id]/itinerary?format=ics`, one `VEVENT` per attended item), built on the server from the itinerary rows. Nothing is stored: the export is rendered from live data every time.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant P4 as Person 4
-    participant All as All members
-    participant Page as /invite/token page
-    participant API as Next.js /api/invites/claim
-    participant Pay as payments server
-    participant Stripe as Stripe test mode
+    participant P2 as Person 2
+    participant Page as /trip/slug/mine page
+    participant API as /api/trips/id/itinerary
     participant DB as Supabase
-    P4->>Page: open invite link
-    Page->>DB: previewInvite(token), admin client, limited fields
-    Page-->>P4: trip, their planned lane, "Join as Person 4"
-    P4->>Page: Join with email
-    Page->>DB: auth.signInWithOtp(email, next = invite page)
-    DB-->>P4: magic link email
-    P4->>Page: open link, /auth/confirm verifies it, back on the invite page signed in
-    P4->>API: POST token
-    API->>DB: rpc claim_invite(token) as Person 4
-    DB-->>API: trip_slug and member_id
-    API->>Pay: onPlaceholderClaimed(member_id)
-    Pay->>Stripe: dev mode only, ensureCustomer and attachTestCard(visa)
-    Pay->>DB: Person 4's own rows awaiting_member to pending
-    API->>DB: member_joined card
-    DB-->>All: refetch members, mandates, and messages
-    P4->>Pay: POST /api/mandates/id/approve
-    Pay->>Stripe: authorize, then capture (mandate already captured)
-    Pay->>DB: Person 4's own row captured
-    Pay->>Stripe: partial refund of the organizer's PaymentIntent for Person 4's share, Idempotency-Key cover-refund:mandate:member
-    Pay->>DB: fronted row captured to refunded (conditional)
-    DB-->>All: refetch mandates; the lane badge changes from "Fronted by the organizer" to "Paid"
+    P2->>Page: open my itinerary
+    Page->>DB: items they attend, options, share rows (member session, RLS)
+    Page-->>P2: schedule with places, times, and payment status; print stylesheet
+    P2->>API: Download (format=ics)
+    API->>DB: same rows, member session
+    API-->>P2: calendar file, one event per attended item
 ```
-
-### 5.6 Recap
-
-A member opens a past trip ("Piedmont Park picnic" in the seed data). The gallery shows photos pinned to the stops by timestamp (GPS when present), with near-duplicates hidden, best shots marked, and captions. The recap tells the trip as a story, from the stops, photos, and chat highlights. If there's no recap yet, Generate creates one; Regenerate rewrites it and keeps the share link.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant User as Member
-    participant Page as /trip/slug/recap
-    participant API as /api/recaps/tripId/regenerate
-    participant LLM as Muse Spark 1.3
-    participant DB as Supabase
-    User->>Page: open a past trip's recap
-    Page->>DB: recap by trip slug (member) or share slug (public, Should)
-    Page-->>User: recap with signed photo URLs, or "No recap yet" with Generate
-    User->>API: Generate or Regenerate
-    API->>DB: stops, best photos with captions, chat highlights
-    API->>LLM: generateObject(RecapContent), 20 s timeout
-    LLM-->>API: 3 to 6 sections
-    API->>DB: upsert recap (same share_slug), recap card
-    DB-->>User: recaps and messages changes, refetch
-```
-
-`processPhotos` handles the photos: FastAPI analyzes them, and Muse Spark vision writes captions. For the seeded past trip, it runs once through `pnpm demo:process-photos`, and the results are saved as seed fixtures.
 
 ---
 
@@ -1560,14 +1307,11 @@ Realtime is a doorbell: an event tells the client which data to refetch, and pay
 | Table change | Query keys refetched |
 | --- | --- |
 | messages | `['messages', tripId]` |
-| itinerary_items, item_options, item_attendees, votes | `['itinerary', tripId]` |
+| itinerary_items, item_options, item_attendees | `['itinerary', tripId]` |
 | mandates, payment_holds, price_changes | `['mandates', tripId]` |
 | bookings | `['mandates', tripId]`, `['itinerary', tripId]` |
-| calls | `['calls', tripId]` |
 | trip_members, member_constraints | `['members', tripId]`, `['itinerary', tripId]` |
 | trips | `['trip', tripId]` |
-| photos | `['photos', tripId]` |
-| recaps | `['recap', tripId]` |
 | agent_runs, tool_calls | `['agentTrace', tripId]` |
 
 Invalidations for the same key are coalesced over 150 ms, because one agent transaction writes many rows.
@@ -1603,26 +1347,18 @@ Query defaults: `staleTime` 30 s, `refetchOnWindowFocus` true, `retry` 2. Known 
 | --- | --- | --- |
 | Send a message | `messages.client_id` (a UUID from the client) | unique; a retry returns the existing row |
 | Start a run from a message | `agent_runs.trigger_message_id` | unique |
-| Start a follow-up run from a call | `agent_runs.trigger_call_id` | unique |
 | Execute a tool | `(run_id, tool_call_id)` | unique on `tool_calls`; a succeeded row returns its stored output |
 | Create a mandate | `mandate:{run_id}:{tool_call_id}` | `mandates.idempotency_key` unique; one live mandate per item |
 | Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's rows |
 | Capture, release | `pi-capture:{mandate_id}:{payer_member_id}`, `pi-release:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional updates |
 | Refund a fronted share after the placeholder pays | `cover-refund:{mandate_id}:{share_member_id}` | Stripe, plus the conditional update `captured → refunded` on the `fronted` row |
-| Book | `booking:{mandate_id}` or `booking:{call_id}` | `bookings.idempotency_key` unique |
-| Start a call | `call:{run_id}:{tool_call_id}` | unique; one active call per item; never retried |
+| Book | `booking:{mandate_id}` | `bookings.idempotency_key` unique |
 | Webhooks | `(provider, event_id)` | `webhook_events` primary key |
-| Mid-call confirmation | `elevenlabs_tool` + `{call_id}:confirm` | `webhook_events`, and `calls.outcome` is written once |
 
 ### 7.2 Webhooks and tool callbacks
 
 1. Read the raw body with `await request.text()` before parsing anything.
-2. Verify the signature:
-   - Stripe: `stripe.webhooks.constructEvent(raw, header, STRIPE_WEBHOOK_SECRET)`.
-   - ElevenLabs: the post-call HMAC, rejecting timestamps older than 30 min.
-   - The voice tool: a timing-safe comparison of `x-tool-secret`.
-
-   A failed check returns 400 and records nothing.
+2. Verify the signature with `stripe.webhooks.constructEvent(raw, header, STRIPE_WEBHOOK_SECRET)`. A failed check returns 400 and records nothing.
 3. **Record first:** `insert into webhook_events … on conflict do nothing`. If the row already exists:
    - `processed` or `ignored`: return 200 without doing anything.
    - `received` or `failed`, last touched more than 30 s ago: increment `attempts` and process again.
@@ -1652,15 +1388,9 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 | Dependency | Timeout | Retries | Fallback |
 | --- | --- | --- | --- |
 | Muse Spark, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
-| Muse Spark vision, recap | 20 s | 1 | keep the previous recap; show a toast |
 | Meta ASR, voice note | 30 s | 1 | the composer keeps the recording and shows Try again; nothing is posted |
-| SAM 3.1, photo | 15 s | 1 | offline job; the photo keeps its other scores and is retried by hand |
-| Muse Image, recap cover | 60 s | 0 | the recap keeps its previous cover, or none |
-| Search grounding, venue | 20 s | 1 | the stop shows its cached facts and when they were checked |
 | FastAPI `/v1/plan` | 8 s | 1 | an error card with Try again. Inside FastAPI, enumeration covers a CP-SAT failure (§2.2). |
-| FastAPI `/v1/photos/analyze` | 20 s | 0 | offline job; retry by hand |
 | Stripe | 10 s | 2 (SDK `maxNetworkRetries`, same idempotency key) | the hold becomes `failed`; the card shows "Try again" |
-| ElevenLabs start call | 10 s | 0 | the call card shows Failed, and the dinner stays TBD |
 | Google Places | 5 s | 1 | the places cache |
 | OpenRouteService | 5 s | 1 | a straight-line leg, drawn without a travel time |
 | Supabase | SDK defaults | 0 | an error card or toast |
@@ -1669,16 +1399,14 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 
 Recordings let tests, CI, and offline development run the agent without a model. They are never a runtime fallback.
 
-- **Recording:** with `AGENT_RECORD=1`, a real run writes `{ key, steps: [{ toolName, input }], finalText }` to `web/scripts/demo/fixtures/agent-recordings/<file>.json`. The file name is the key with every character outside `a-z0-9_` replaced by `-`, because Windows can't store `:` in a file name: `call_completed-dinner.json`.
-- **Keys:**
-  - For a mention, the key is the prompt normalized: lowercase, `@agent` removed, punctuation stripped, whitespace collapsed.
-  - For a follow-up run, it's `call_completed:<item slot_key>`.
+- **Recording:** with `AGENT_RECORD=1`, a real run writes `{ key, steps: [{ toolName, input }], finalText }` to `web/scripts/demo/fixtures/agent-recordings/<file>.json`. The file name is the key with every character outside `a-z0-9_` replaced by `-`.
+- **Keys:** the key is the prompt normalized: lowercase, `@agent` removed, punctuation stripped, whitespace collapsed.
 - **Replay:**
   - Runs only when `LLM_PROVIDER=mock`.
   - The mock LLM returns the recorded tool calls one by one, with 400–900 ms delays, and every tool handler runs for real, so database state, the optimizer, and the cards are real.
   - The run is marked `replayed = true`.
 - **Handles:** recorded inputs use handles, which are stable for the seeded state (§2.1).
-- **Scope:** one recording per prompt that the e2e tests send (plan, book, and dinner), plus the call follow-up.
+- **Scope:** one recording per prompt that the e2e tests send (plan, collaborate, and book).
 
 ---
 
@@ -1691,12 +1419,12 @@ Recordings let tests, CI, and offline development run the agent without a model.
 | `/` | static page, then redirect | links nowhere until `/trips` and `/login` exist; then `/trips` if signed in, otherwise `/login` (FE-202) |
 | `/login` | magic-link sign-in, plus `DemoLoginPicker` in dev mode | members get an email with a sign-in link; in dev mode, the picker also lists the seeded users and signs in through a server-generated link ([ADR 0016](adr/0016-magic-link-auth.md)) |
 | `/auth/confirm` | route handler | verifies the magic link's `token_hash`, sets the session cookie, and redirects to `next` |
+| `/profile` | profile form | display name and avatar for the signed-in member (VO-220, FE-221) |
 | `/trips` | trip list | active trips first, then past |
 | `/trip/[slug]` | Chat | default tab |
 | `/trip/[slug]/plan` | Lanes | `?member=<id>` or `?member=me` filters to one lane ("My plan") |
 | `/trip/[slug]/map` | Map | `?stop=<item_id>` selects a stop |
-| `/trip/[slug]/gallery` | Gallery | |
-| `/trip/[slug]/recap` | Recap | the slug may be a trip slug (members) or a recap share slug (public) |
+| `/trip/[slug]/mine` | Per-person itinerary | the signed-in member's schedule, with a print stylesheet and a calendar download (FE-404) |
 | `/invite/[token]` | Invite claim | works signed out |
 
 Non-members opening `/trip/[slug]` see a "Request to join" screen with the trip title only. Selection is shared through the `?stop=` search parameter, so on desktop the lanes and the map highlight each other without a state library.
@@ -1726,7 +1454,7 @@ RootLayout
     └── TripLayout (/trip/[slug])
         ├── TripHeader: title, date, PresenceAvatars, AgentStatusBar (aria-live)
         ├── TripRealtimeProvider (channel, invalidation, reconnect)
-        ├── phone:  <Tab content> + BottomTabs (Chat · Plan · Map · Gallery)
+        ├── phone:  <Tab content> + BottomTabs (Chat · Plan · Map · Mine)
         └── desktop: SplitView [ChatView | PlanView | MapView] (≥ 1024 px)
 
 ChatView
@@ -1741,7 +1469,7 @@ PlanView
 └── LanesView
     └── SlotRow (one per slot_key, in time order)
         ├── GroupBlock × 1 (merged) or × 2 (split), with attendee avatars
-        │   └── ItemBlock → ShareStatusBadge (from payments; "Fronted by the organizer", "Paid") and OptionList → OptionRow (score bar, tally, VoteButton)
+        │   └── ItemBlock → ShareStatusBadge (from payments; "Fronted by the organizer", "Paid"), OptionList → OptionRow (score bar, comment count), and CommentThread
         └── LaneConnectors (SVG lines per member color, showing branches and merges between rows)
 
 MapView → TripMap (mapcn Map)
@@ -1759,11 +1487,11 @@ MapView → TripMap (mapcn Map)
 | TBD, with an `area` (§3.2) | provisional, at the area | a "Dinner, TBD" pin at the area; dashed straight legs merging there, with no routing call and no travel time | "Dinner, TBD · Midtown", marked provisional |
 | TBD, with no `area` | none | no pin; legs end at the previous stop | "Dinner, TBD" |
 
-When the restaurant call books dinner, `buildTripView` returns the restaurant as its stop, so the pin moves there and its legs turn solid in the same refetch. Walking versus driving is shown in the travel-time label, not the line style, so dashes always mean "not booked yet". This departs from plan §4, which dashed walking legs (§11.3, item 2).
+When dinner is decided and booked, `buildTripView` returns the restaurant as its stop, so the pin moves there and its legs turn solid in the same refetch. Walking versus driving is shown in the travel-time label, not the line style, so dashes always mean "not booked yet". This departs from plan §4, which dashed walking legs (§11.3, item 2).
 
 ```text
-GalleryView → StopSection → PhotoGrid → PhotoTile (best-shot badge, caption)
-RecapView → RecapStory → RecapSection
+MyItineraryView → ItineraryStop (place, time, attendees, payment status) + DownloadButton (.ics)
+ProfileForm → display name field, avatar field, save with pending and error states
 InviteClaimView → LanePreview → JoinButton
 DevToolbar (dev mode only): Reset · Price change (Should)
 ```
@@ -1792,12 +1520,10 @@ Card catalog:
 | card_type | Owner | Live data | Actions |
 | --- | --- | --- | --- |
 | place_list | AI | none (snapshot) | "Plan with these" (pre-fills the composer) |
-| plan | AI | `itinerary` (tallies, statuses) | vote per option; "See on map" |
+| plan | AI | `itinerary` (statuses) | comment counts per option; "See on map" |
 | itinerary_change | AI | `itinerary` | none |
 | summary | AI | none | none |
 | approval | VO (renderer; CO writes the mandate) | `mandates` | "Approve up to $X" (the organizer's label includes fronted shares, §2.1) · Decline (Should); organizer: Cover shortfall (Should) |
-| call_status | VO | `calls` | none |
-| recap | AI | `recap` | Open · Copy link |
 | booking_confirmed | VO (renderer; CO writes the booking) | `mandates` | none |
 | price_change | CO | `mandates` | Approve again (above the cap) |
 | member_joined | VO | `members` | none |
@@ -1812,13 +1538,13 @@ Card catalog:
 | Chat | 3 message skeletons | "Say hi, or type @agent to start planning." | inline banner with Retry; the composer stays usable |
 | Plan | slot-row skeletons | "No plan yet. Ask @agent to plan the day." | banner with Retry |
 | Map | map placeholder; routes fade in | "Stops appear here once the plan has places." | "Map unavailable" with a list of stops as a fallback |
-| Gallery | tile skeletons | "No photos yet." (upload is Should) | banner with Retry |
-| Recap | section skeletons | "No recap yet." plus Generate | keep the old recap; toast |
+| Mine | stop skeletons | "Nothing confirmed for you yet." | banner with Retry |
+| Profile | form skeleton | none (the form always renders) | inline error, values kept |
 | Invite | preview skeleton | "This invite was already used." | "Invite not found." |
 | Cards | skeleton body while live data loads | none | CardFrame `error` |
 
 - **Interaction states** for every control: hover (surface-2), active (scale 0.98), focus-visible (a 2 px `--focus` ring offset by 2 px), disabled (50% opacity, `aria-disabled`, no pointer events), pending (spinner, label kept).
-- **Vote and approve buttons** use `aria-pressed` and `aria-busy`.
+- **Comment and approve buttons** use `aria-pressed` and `aria-busy`.
 
 ### 8.6 Layouts
 
@@ -1849,26 +1575,16 @@ Card catalog:
 | `DEMO_ADMIN_TOKEN` | server | in dev mode | the `x-demo-token` value for `/api/demo/*` |
 | `LLM_PROVIDER` | server | no | `meta` (default) \| `google` \| `mock` |
 | `AGENT_MODEL` | server | when `google` | default `muse-spark-1.3`; with `google`, set a Gemini model ID |
-| `VISION_MODEL` | server | when `google` | default `muse-spark-1.3`; with `google`, set a Gemini model ID |
 | `AGENT_RECORD` | server | no | `1` records agent runs to fixtures |
 | `META_MODEL_API_KEY` | server | when `meta`, or any Meta capability is `real` | bearer token for `https://api.meta.ai/v1` |
 | `META_MODEL_API_BASE_URL` | server | no | default `https://api.meta.ai/v1` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | server | when `google` | |
 | `TRANSCRIBE_PROVIDER`, `TRANSCRIBE_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-voice-transcribe-1.0` |
-| `SEGMENT_PROVIDER`, `SEGMENT_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `sam-3.1` |
-| `IMAGE_PROVIDER`, `IMAGE_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-image-1.0` |
-| `GROUNDING_PROVIDER`, `GROUNDING_MODEL` | server | no | `real` \| `mock` (default `mock`); model default `muse-spark-1.3` |
-| `OPTIMIZER_URL` | server | yes | Railway URL, or `http://localhost:8000` |
+| `OPTIMIZER_URL` | server | yes | Vultr URL, or `http://localhost:8000` |
 | `OPTIMIZER_TOKEN` | server | yes | shared with the optimizer |
 | `PAYMENTS_PROVIDER` | server | yes | `real` \| `mock` |
 | `STRIPE_SECRET_KEY` | server | when real | test mode key only (`sk_test_`); boot fails on a live key |
 | `STRIPE_WEBHOOK_SECRET` | server | when real | one per environment |
-| `VOICE_PROVIDER` | server | yes | `real` \| `mock` |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | server | when real | |
-| `ELEVENLABS_WEBHOOK_SECRET` | server | when real | post-call HMAC |
-| `ELEVENLABS_TOOL_SECRET` | server | when real | also configured on the ElevenLabs server tool |
-| `VOICE_MOCK_SCENARIO` | server | no | with `VOICE_PROVIDER=mock`: `accept` (default), `outside-window`, `tool-never-fires`, `duplicate-tool`, `webhook-first`, or `no-answer` |
-| `VOICE_TO_NUMBER_OVERRIDE` | server | in dev mode | E.164; when set, every call goes here instead of the venue. The real number lives only in `web/.env.local` and the hosting env. `.env.example` holds the fictional placeholder `+15555550100`, and the real number never appears in docs, fixtures, or commits. |
 | `PLACES_PROVIDER` | server | yes | `real` \| `mock` |
 | `GOOGLE_PLACES_API_KEY` | server | when real | |
 | `ROUTING_PROVIDER` | server | yes | `real` \| `mock` |
@@ -1878,13 +1594,12 @@ Card catalog:
 | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN` | public, server | no | |
 | `SENTRY_AUTH_TOKEN` | build | no | source maps |
 
-### 9.2 optimizer (Railway and local)
+### 9.2 optimizer (Vultr and local)
 
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `OPTIMIZER_TOKEN` | yes | the bearer token |
-| `PORT` | yes | Railway sets it |
-| `ALLOWED_PHOTO_HOSTS` | yes | comma-separated; the Supabase storage host |
+| `PORT` | yes | Vultr (Docker) sets it |
 | `SOLVER_TIME_LIMIT_MS` | no | default 2000 |
 | `SENTRY_DSN` | no | |
 | `LOG_LEVEL` | no | default `info` |
@@ -1897,11 +1612,10 @@ These use the web server variables, plus `DEMO_SEED_SECRET` (salts Person 4's in
 
 | Flag | Value | Effect |
 | --- | --- | --- |
-| `NEXT_PUBLIC_DEMO_MODE` | `true` (dev mode) | seeded-user login picker; dev toolbar; test card attached automatically for claimers; `VOICE_TO_NUMBER_OVERRIDE` required; `/api/demo/*` enabled |
-| `LLM_PROVIDER` | `mock` | recorded tool decisions and fixture captions; no Model API calls |
-| `TRANSCRIBE_PROVIDER`, `SEGMENT_PROVIDER`, `IMAGE_PROVIDER`, `GROUNDING_PROVIDER` | `mock` (default) | fixture transcripts, boxes, covers, and venue facts; each switches to Meta on its own |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` (dev mode) | seeded-user login picker; dev toolbar; test card attached automatically for claimers; `/api/demo/*` enabled |
+| `LLM_PROVIDER` | `mock` | recorded tool decisions; no Model API calls |
+| `TRANSCRIBE_PROVIDER` | `mock` (default) | fixture transcripts; switches to Meta on its own |
 | `PAYMENTS_PROVIDER` | `mock` | no Stripe calls; holds authorize and capture at once; `pm_mock_declined` declines |
-| `VOICE_PROVIDER` | `mock` | no phone call; the mock plays `VOICE_MOCK_SCENARIO` against the real tool route and the post-call webhook (by default, a confirmation at 19:45 after 4 s, then a post-call event after 8 s) |
 | `PLACES_PROVIDER` | `mock` | fixture venues only |
 | `ROUTING_PROVIDER` | `mock` | straight-line routes and times |
 | `STAYS_PROVIDER` | `mock` | fixture hotel quote and booking |
@@ -1934,35 +1648,29 @@ Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, 
 | morning | Morning | 10:00–12:30 | activity | yes | tbd | — |
 | lunch | Lunch | 12:45–13:45 | food | yes | tbd | — |
 | afternoon | Afternoon | 14:15–17:15 | activity | no | tbd | — |
-| dinner | Dinner | 19:00–20:30 | food | yes | tbd (filled by the restaurant call) | Midtown, with the area's center as `area_lat` and `area_lng` |
+| dinner | Dinner | 19:00–20:30 | food | yes | tbd (a later plan run fills it from the members' comments) | Midtown, with the area's center as `area_lat` and `area_lng` |
 
 - **Places cache:** about 12 Atlanta venues in `places` (`provider = seed`), with tags, dietary tags, hours, and prices. The planner inputs live in one fixture, `web/scripts/demo/fixtures/saturday-trip.json`, which both `seed.ts` and pytest read. The fixture prices and tags are tuned so the optimizer's top plan is:
   - Morning: everyone at the aquarium.
   - Lunch: everyone at a vegetarian-friendly spot.
   - Afternoon: split. Person 1 and Person 4 at the High Museum; Person 2 and Person 3 at Piedmont Park.
-  - Dinner isn't planned. It's the fourth slot, so it stays a TBD block for everyone until the restaurant call books it (§2.1 `plan_day`). Until then, the map shows a provisional "Dinner, TBD" pin in Midtown with dashed routes merging there, and the lanes show the same stop (§8.3).
+  - Dinner isn't planned. It's the fourth slot, so it stays a TBD block for everyone until a later run plans it (§2.1 `plan_day`). Until then, the map shows a provisional "Dinner, TBD" pin in Midtown with dashed routes merging there, and the lanes show the same stop (§8.3).
 
-  `test_seeded_trip_plan` pins the plan above, so fixture changes can't silently change it. `test_seeded_replan` checks the restaurant call's re-plan. With the aquarium booked and dinner confirmed at 19:45, the re-plan's computed output moves the afternoon to 15:00–18:00, and no shifted item falls outside its venue's opening hours. The shift is computed from the confirmed time; no code or hand-written fixture contains it.
+  `test_seeded_trip_plan` pins the plan above, so fixture changes can't silently change it. `test_seeded_replan` checks the re-plan. With the aquarium booked and dinner booked at 19:45, the re-plan's computed output moves the afternoon to 15:00–18:00, and no shifted item falls outside its venue's opening hours. The shift is computed from the booked time; no code or hand-written fixture contains it.
 - **Aquarium tickets:** sold by the mock merchant at $42 per person. With the 110% cap and fees, each share shows "Approve up to $48". Person 1's card shows "Approve up to $96, including Person 4's $48 until they join".
-- **Restaurant:** one restaurant in the cache is the call target. Its fixture `phone` is a fictional 555-01xx number, and in dev mode calls go to `VOICE_TO_NUMBER_OVERRIDE` (§9.1).
+- **Dinner venues:** two restaurants in the cache are the dinner candidates, one in Midtown.
 - **Routes:** geometry for every pair of consecutive stops in the top 3 plans, walking and driving, can be cached into a fixture so seeding makes no routing calls.
-
-**The past trip, "Piedmont Park picnic"** (`status = completed`, last month):
-
-- 3 stops.
-- 24 photos (3 near-duplicates), with taken-at times and GPS on most.
-- Captions and best shots, precomputed into fixtures by the photo pipeline. The recap comes from Generate (§5.6), or from a fixture if one was saved.
 
 **Stripe:** seeded customers for Person 1, Person 2, and Person 3, each with `pm_card_visa` attached and metadata `demo=true`, `seed_batch=demo`.
 
-**Agent recordings:** one per prompt that the e2e tests send, plus `call_completed:dinner` (§7.5).
+**Agent recordings:** one per prompt that the e2e tests send: the plan, collaborate, and book prompts (§7.5).
 
 ### 10.3 Tagging and IDs
 
 - `seed_batch = 'demo'` on every seeded row, on Stripe metadata, and on seeded users' `user_metadata`. Storage objects live under `demo/`.
 - **Deterministic IDs:** seeded rows use UUIDv5 values derived from `{batch}:{fixture name}`, so `seed:demo` upserts the same rows every time.
 - **Batches:** `seed:demo` and `reset:demo` take `--batch <name>` (default `demo`). Emails in a non-demo batch carry the batch name (`person1.dev-fe@demo.agp.test`). Each engineer works in their own batch, and each e2e run uses `e2e-<random>`, so nobody's reset wipes someone else's data on the shared Supabase project. Places and routes are a global cache and are shared.
-- **Stages:** `--stage planned|voted|booked` fast-forwards the Saturday trip for development and e2e. `planned` applies the fixture plan through `applyPlan`. `voted` adds two votes that lock the morning. `booked` runs the aquarium mandate through approvals and finalizing on mock payments. Each stage lives in its own file under `scripts/demo/stages/`, owned by the workstream whose code it calls.
+- **Stages:** `--stage planned|discussed|booked` fast-forwards the Saturday trip for development and e2e. `planned` applies the fixture plan through `applyPlan`. `discussed` adds comments on lunch that a revision run answers. `booked` runs the aquarium mandate through approvals and finalizing on mock payments. Each stage lives in its own file under `scripts/demo/stages/`, owned by the workstream whose code it calls.
 
 ### 10.4 `seed:demo` (safe to re-run)
 
@@ -1970,20 +1678,19 @@ Display names are exactly `Person 1` through `Person 4`, everywhere: seed data, 
 2. Ensure Stripe customers and test cards. Skipped when `PAYMENTS_PROVIDER=mock`.
 3. Upsert places, and routes from the routes fixture if it exists.
 4. Upsert both trips, their members, constraints, and items, including dinner's area. Person 4 is a placeholder whose invite token is derived from `DEMO_SEED_SECRET` and the batch. It's the same after every reset, so Person 4's saved invite link keeps working, but it can't be guessed from the repo.
-5. Past trip: upload the photos to `demo/` if they're missing, then insert the photo rows, and the recap if a fixture exists.
-6. Run the requested `--stage`, if any.
-7. Print Person 4's invite link and the trip URLs.
+5. Run the requested `--stage`, if any.
+6. Print Person 4's invite link and the trip URLs.
 
 ### 10.5 `reset:demo` (under 30 seconds)
 
 1. Broadcast `demo.reset` on each of the batch's trip channels.
-2. Delete trips where `seed_batch` is the batch. Everything trip-scoped cascades: members, items, options, votes, mandates, holds, bookings, calls, messages, runs, photos rows, and recaps.
+2. Delete trips where `seed_batch` is the batch. Everything trip-scoped cascades: members, items, options, mandates, holds, bookings, messages, and runs.
 3. Delete auth users whose profile has the batch's `seed_batch` and who aren't seeded fixture users. These are the claimers, like the user who claimed Person 4's lane. That browser's session becomes invalid, and it returns to the saved invite link, which still works.
-4. Run `seed:demo` steps 4–7.
+4. Run `seed:demo` steps 4–6.
 
-   Seeded users, places, routes, Stripe customers, and storage objects are kept, so seeded users stay signed in.
+   Seeded users, places, routes, and Stripe customers are kept, so seeded users stay signed in.
 
-`reset:demo --all` also deletes the seeded users, places, routes, and storage objects. Stripe objects stay; they are harmless in test mode. Stale sessions: if any Supabase call returns an invalid-user or JWT error, the client signs out and returns to `/login`, or to the last invite link, which is saved in local storage.
+`reset:demo --all` also deletes the seeded users, places, and routes. Stripe objects stay; they are harmless in test mode. Stale sessions: if any Supabase call returns an invalid-user or JWT error, the client signs out and returns to `/login`, or to the last invite link, which is saved in local storage.
 
 ---
 
@@ -2034,9 +1741,9 @@ Applying those required a few interpretations. Each can be reversed:
 
 These are the gaps that writing the plan exposed, each with its ruling. The task IDs are in `plan.md`.
 
-1. **Write functions are Postgres functions over RPC: yes** (§3.4; CO-104, CO-205, CO-207, CO-210, VO-205, AI-402, FE-203, VO-209). Every function checks trip membership itself, since it can't rely on RLS. Every `security definer` function pins `search_path`. Every function has an automated test that rejects a non-member call, and a schema-wide test catches any unpinned `search_path`.
+1. **Write functions are Postgres functions over RPC: yes** (§3.4; CO-104, CO-207, CO-210, VO-209, AI-216). Every function checks trip membership itself, since it can't rely on RLS. Every `security definer` function pins `search_path`. Every function has an automated test that rejects a non-member call, and a schema-wide test catches any unpinned `search_path`.
 2. **Dinner stays a TBD block, with the merge point visible: yes** (§3.2, §8.3, §10.2; CO-101, VO-105, FE-211, FE-218).
-   - Until the call books the restaurant, the map shows a provisional "Dinner, TBD" pin at the dinner area (`itinerary_items.area_*`), with dashed routes merging there.
+   - Until dinner is decided, the map shows a provisional "Dinner, TBD" pin at the dinner area (`itinerary_items.area_*`), with dashed routes merging there.
    - After the booking, the pin moves to the restaurant, and the routes turn solid.
    - The lanes and the map render one view model, `TripView` (`lib/trip-view`), so they always agree.
    - Walking versus driving moves from the line style to the travel-time label, a departure from plan §4.
@@ -2048,7 +1755,7 @@ These are the gaps that writing the plan exposed, each with its ruling. The task
    - The fronted-share refund applies only when Person 1's hold actually paid Person 4's share.
    - A database test covers each order: claim before capture, claim after capture, and never claims.
    - To make "Person 1's hold" one hold, the organizer now has one PaymentIntent covering their own share and each fronted share. `payment_holds` has one row per share and records which hold may pay it (`kind`: `own` or `fronted`).
-5. **Five migration files: yes** (§3.3; VO-102, CO-101 to CO-103, VO-202).
+5. **Four migration files: yes** (§3.3; VO-102, CO-101 to CO-103).
 6. **Seed batches and stages: yes** (§10.3; VO-105, VO-201).
 7. **A stable invite link across resets, with no QR code: yes** (§10.4; VO-105).
 8. **Server-written option reasoning: yes** (§2.1, §3.2; AI-209, AI-S05). The server writes the score facts. The model may add one summary line on the plan card (`summary_line`), but only from those facts: a line with a number the facts don't contain is dropped.
@@ -2061,7 +1768,7 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 
 1. **Local Supabase instead of a linked project.** There's no hosted project yet, so `supabase start` runs the stack in Docker, and `pnpm db:types` uses `--local` instead of `--linked` (VO-101, B7). Switch it back to `--linked` once a hosted project exists. The local ports are 553xx (API 55321, DB 55322, Studio 55323, Mailpit 55324), so the stack runs beside other local Supabase projects.
 2. **Local Auth settings** (`supabase/config.toml`): anonymous sign-ins were on, for the placeholder's claim (§10.1); turned off on 2026-09-25 ([ADR 0016](adr/0016-magic-link-auth.md)). Rate limits are raised for local development, because the database tests sign in many users. The SQL seed is off, because seed data comes from `seed:demo`.
-3. **No Storage container in Milestone 1.** The local `storage-api` container failed its health check twice on first boot, and nothing in Milestone 1 uses Storage, so the stack starts with `-x storage-api` (along with edge-runtime, logflare, vector, imgproxy, and supavisor). Photos (Milestone 2, VO-202) need it back.
+3. **No Storage container in Milestone 1.** The local `storage-api` container failed its health check twice on first boot, and nothing in Milestone 1 uses Storage, so the stack starts with `-x storage-api` (along with edge-runtime, logflare, vector, imgproxy, and supavisor).
 4. **pnpm on Windows on Arm.** pnpm ships as an x64 binary, so it resolves native packages for x64 while Node runs as arm64. `pnpm-workspace.yaml` sets `supportedArchitectures.cpu: [current, arm64]`, and `savePrefix: ""` keeps every version exact.
 5. **MapLibre worker is self-hosted.** mapcn's `map.tsx` loads the worker from unpkg. It should load `/maplibre/maplibre-gl-worker.mjs` instead, which is copied from `maplibre-gl` (B3). mapcn installs `maplibre-gl@^6.11`, but the pin stays at 6.10.0 (stack.md).
 6. **No git, no commits, no CI run, no deploys.** These were the instructions for this run. The `git log` checks (VO-101), the CI run (CO-106), and the Railway and Vercel deploys (VO-107) weren't done. The web `/api/health` route doesn't exist yet (VO-107); only the optimizer's `GET /health` was checked locally. Git and the first commits followed on 2026-09-25.
@@ -2078,3 +1785,13 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 4. **Meta's Model API replaces xAI** ([ADR 0017](adr/0017-meta-model-api.md)). `LLM_PROVIDER` is `meta` (default) | `google` | `mock`, with model IDs from env: `muse-spark-1.3` for planning, tool calls, captions, and best-shot scoring. Voice notes (`muse-voice-transcribe-1.0`), subject segmentation (`sam-3.1`), the recap cover (`muse-image-1.0`), and search grounding are Should features, each with its own flag and mock (§2.5). ElevenLabs keeps the outbound restaurant call. `agent_runs.provider` now allows `meta` instead of `xai`.
 5. **Possible later adapters, not built.** xAI (Grok) could return as another `LLM_PROVIDER` value through `@ai-sdk/xai`. Muse Glimmer, Meta's open-weights model, has no hosted Model API endpoint: it would run self-hosted (vLLM, SGLang, llama.cpp) or through a third party such as Together AI, behind an OpenAI-compatible base URL. Either needs its own ADR first.
 6. **Money surfaces** ([ADR 0019](adr/0019-fee-pass-through.md)). Every approval card itemizes the share, the processor fee (passed through, 2.9% + 30¢, grossed up), a $0 platform fee, and the cap, from one function (`holdFees` in `@agp/shared`). Caps now include fees, so the seeded caps are $48 per member and $96 for the organizer's hold. Every money surface says "Agent proposed · You approve", and a copy test keeps "paid" away from the agent.
+
+### 11.6 Journey pivot (2026-09-26)
+
+The product is now five flows (§5): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. This supersedes the earlier six: voting is replaced by item comments with agent revision and organizer lock, and the restaurant call and the recap/gallery are dropped entirely.
+
+- **Votes are gone.** There is no `cast_vote`, no majority lock, and no `votes` table. Items move `voting → decided` through the organizer's `swap_option` lock or the agent on an explicit confirmation in chat. The plan card shows comment counts, not tallies.
+- **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 5 tools and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
+- **Dormant migration content.** Migrations 1–4 as applied still contain the `votes` and `calls` tables and their triggers. They are unused: no function, route, or policy writes to them. A later cleanup migration may drop them; until then, schema tests cover only the tables in §3.2.
+- **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
+- **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.

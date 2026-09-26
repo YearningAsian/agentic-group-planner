@@ -13,7 +13,7 @@
 | --- | --- | --- | --- |
 | Node.js | 24.x LTS | STACK.md | `engines: { "node": ">=24" }`; Milestone 1 ran on Node 26.3.0 |
 | pnpm | 11.5.3 | STACK.md | `packageManager: pnpm@11.5.3` |
-| Python | 3.12.13 | plan §7 | Railway runtime; local venv through `uv python install 3.12` |
+| Python | 3.12.13 | plan §7 | Vultr container; local venv through `uv python install 3.12` |
 | TypeScript | 6.0.3 | plan §7 | not 7.x ([ADR 0010](adr/0010-typescript-6-over-7.md)) |
 
 ## web (Next.js)
@@ -26,20 +26,18 @@
 | shadcn (CLI) and mapcn | 4.21.0 | style `base-nova` (Base UI); mapcn installs through `shadcn add @mapcn/map` (FE-210) |
 | maplibre-gl | 6.10.0 | mapcn requires ^6.3; worker files self-hosted |
 | ai | 7.0.109 | server-side agent runner only; `@ai-sdk/react` is not used ([ADR 0005](adr/0005-cards-as-message-rows-realtime-refetch.md)) |
-| @ai-sdk/openai-compatible | 3.0.53 | Meta Model API over Chat Completions: the agent loop, `generateObject`, `describeImage` ([ADR 0017](adr/0017-meta-model-api.md)). Shares `ai` 7.0.109's `@ai-sdk/provider` 4.0.17; 3.0.57 was latest on 2026-09-25 |
-| openai | 7.23.0 | Meta Model API over the Responses API and images: search grounding, SAM, the recap cover. Latest on 2026-09-25; its peers are optional |
+| @ai-sdk/openai-compatible | 3.0.53 | Meta Model API over Chat Completions: the agent loop ([ADR 0017](adr/0017-meta-model-api.md)). Shares `ai` 7.0.109's `@ai-sdk/provider` 4.0.17; 3.0.57 was latest on 2026-09-25 |
+| openai | 7.23.0 | kept for a future Responses-API use; no provider uses it today. Latest on 2026-09-25; its peers are optional |
 | @ai-sdk/google | 4.0.76 | Gemini fallback (`LLM_PROVIDER=google`) |
 | zod | 4.6.5 | also in packages/shared |
 | @supabase/supabase-js | 2.116.0 | |
 | @supabase/ssr | 0.12.7 | |
 | stripe | 22.6.2 | pin the API version in code. The browser packages from plan §7 are dropped ([ADR 0001](adr/0001-stack.md), item 7). |
 | @duffel/api | 4.30.0 | optional: install only if Stays access is approved |
-| @elevenlabs/elevenlabs-js | 2.68.0 | |
 | @tanstack/react-query | 5.103.2 | |
 | motion | 13.4.0 | |
 | sonner | 2.0.8 | |
 | nanoid | 6.0.1 | |
-| exifr | 7.1.3 | |
 | server-only | 0.0.1 | |
 
 ## web tooling (not in plan §7; pinned at install, 2026-09-23)
@@ -72,9 +70,7 @@
 | uvicorn | 0.53.0 | |
 | pydantic | 2.13.5 | |
 | ortools | 9.15.6755 | CP-SAT |
-| pillow | 12.3.0 | |
-| httpx | 0.28.1 | fetches signed photo URLs |
-| imagehash | 4.3.2 | latest on 2026-09-23 |
+| httpx | 0.28.1 | optimizer client calls in tests |
 | sentry-sdk | 2.70.0 | |
 | ruff, pytest | 0.16.8, 9.1.1 | dev (`requirements-dev.txt`) |
 
@@ -85,20 +81,17 @@
 | Supabase CLI (`supabase`) | 2.117.0 | root dev dependency; migrations, `start`, and `gen types` |
 | Stripe CLI | latest | local webhook forwarding |
 | Vercel CLI | latest | |
-| Railway CLI | latest | |
-| ngrok | latest | exposes local routes to ElevenLabs during development |
+| Vultr CLI | latest | |
 
 ## Hosted services
 
 | Service | Plan or tier | Used for |
 | --- | --- | --- |
 | Vercel | Hobby or Pro | Next.js; routes that start agent runs set `maxDuration = 300` |
-| Railway | always on | FastAPI |
-| Supabase | Free or Pro | Postgres, Auth (magic links; anonymous sign-ins off), Realtime, Storage (`trip-photos`, private) |
+| Vultr | Cloud Compute + Docker, always on (last; localhost until VO-S02) | FastAPI |
+| Supabase | Free or Pro | Postgres, Auth (magic links; anonymous sign-ins off), Realtime |
 | Stripe | test mode | holds, captures, refunds |
-| ElevenLabs Agents | account with calling | voice agent and server tool |
-| Twilio | **upgraded** (no trial notice) | phone number, imported into ElevenLabs |
-| Meta Model API | API key (`META_MODEL_API_KEY`) | Muse Spark, speech to text, SAM, Muse Image, search grounding |
+| Meta Model API | API key (`META_MODEL_API_KEY`) | Muse Spark, speech to text |
 | Google AI Studio | free | Gemini Flash fallback |
 | Google Places, OpenRouteService | API keys | venues, routing |
 | Sentry | free | errors |
@@ -109,13 +102,9 @@ Source: dev.meta.ai/docs (developer.meta.com/ai redirects there). Bearer auth wi
 
 | Use | Model ID | Endpoint | Env var (default) | Price on 2026-09-25 |
 | --- | --- | --- | --- | --- |
-| Agent planning, tool calling, photo captions, best-shot scoring | `muse-spark-1.3` | `POST /v1/chat/completions` | `AGENT_MODEL`, `VISION_MODEL` | $1.25 input, $0.15 cached, $4.25 output per 1M tokens |
+| Agent planning and tool calling | `muse-spark-1.3` | `POST /v1/chat/completions` | `AGENT_MODEL` | $1.25 input, $0.15 cached, $4.25 output per 1M tokens |
 | Voice notes | `muse-voice-transcribe-1.0` | `POST /v1/asr/transcribe` (multipart; WAV 16-bit PCM mono, 16 or 24 kHz; ≤ 10 min, ≤ 32 MB) | `TRANSCRIBE_MODEL` | $0.18 per audio hour |
-| Subject segmentation | `sam-3.1` | `POST /v1/responses` | `SEGMENT_MODEL` | $2.50 per 1,000 images |
-| Recap cover | `muse-image-1.0` | `POST /v1/images/generations`, `/v1/images/edits` | `IMAGE_MODEL` | $0.01 per image |
-| Search grounding | `muse-spark-1.3` with the `web_search` tool | `POST /v1/responses` only | `GROUNDING_MODEL` | $2.50 per 1,000 searches, plus tokens |
 
-- Base URL `https://api.meta.ai/v1` (`META_MODEL_API_BASE_URL`). Standard tier: 3,000 requests and 4M tokens per minute; Muse Image, 150 requests per minute.
-- `tool_choice` accepts only `"auto"`. Structured output: `response_format` JSON schema (Chat Completions) or `text.format` (Responses); strict mode rejects `oneOf` and `allOf`.
-- Images in: JPEG, PNG, GIF, WebP; up to 50 per request, 50 MB each, in user messages only.
+- Base URL `https://api.meta.ai/v1` (`META_MODEL_API_BASE_URL`). Standard tier: 3,000 requests and 4M tokens per minute.
+- `tool_choice` accepts only `"auto"`.
 - Also listed: `muse-spark-1.2`, `muse-spark-1.1`, contributor-tier variants, and `muse-glimmer` (open weights, self-hosted; not used).

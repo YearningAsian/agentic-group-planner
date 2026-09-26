@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the six core user flows in [design §5](design.md#5-core-user-flows): plan a day, vote, book with group approval, restaurant call, placeholder claims their lane, and recap. Build the development and test tooling around them.
+**Goal:** Build the five core user flows in [design §5](design.md#5-core-user-flows): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. Build the development and test tooling around them.
 
-**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, voice, gallery, recap, and an agent runner with 7 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT, the enumeration fallback, and photo analysis. Supabase provides Postgres with RLS, Realtime, and Storage. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
+**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 5 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
 
 **Tech stack:** pinned in [`stack.md`](stack.md), and re-verified before installing.
 
@@ -15,7 +15,7 @@
 ## How to use this plan
 
 - **Milestones.** Four milestones, each with pass/fail criteria. Within a milestone, tasks are grouped by workstream and listed in dependency order.
-- **Task IDs.** `<workstream>-<milestone><nn>`: FE-203 is Frontend, Milestone 2, task 3. Should-queue tasks are `<workstream>-S<nn>`. IDs are stable across revisions, so tasks removed in the Phase 3 review leave gaps.
+- **Task IDs.** `<workstream>-<milestone><nn>`: FE-204 is Frontend, Milestone 2, task 4. Should-queue tasks are `<workstream>-S<nn>`. IDs are stable across revisions, so tasks removed in the Phase 3 review leave gaps.
 - **Team roles.** Teammates are named by workstream: the **FE**, **AI**, **CO**, and **VO** engineers (Frontend; Agent and ML; Commerce; Voice, media, and operations). "Person 1" through "Person 4" always mean the seeded cast, never a teammate.
 - **Tiers.** A task is **Must** only if a core user flow fails without it ([flow map](#flow-map)). That includes the foundation every flow runs on, and the test doubles that Must tasks' own tests need. Everything else is **Should**: dev tooling, CI, e2e suites, audits, and feature extensions.
   - A Must task never depends on a Should task. `planning/tools/check_plan.py` enforces this.
@@ -30,7 +30,6 @@ Every task's requirements include these. Values are copied from the design.
 
 - **Versions:** Node ≥ 24, pnpm 11, TypeScript **6.0.3** (not 7), Python 3.12. Every package is pinned exactly (`--save-exact`) to the versions in `stack.md`, after the registry check.
 - **Cast labels:** display names are exactly `Person 1`, `Person 2`, `Person 3`, and `Person 4`, in seed data, prompts, recordings, card copy, and tests. The repo contains no personal names for the cast.
-- **Restaurant phone:** `VOICE_TO_NUMBER_OVERRIDE` lives only in `web/.env.local` and the hosting env. `.env.example` holds `+15555550100`. The real number never appears in docs, fixtures, tests, or commits.
 - **Money:** integer cents, computed on the server only. The model never supplies a charged amount, and never writes a number of its own onto a card.
 - **Statuses only move forward.** Use conditional updates (`… where status in (<allowed predecessors>)`), so duplicate or late events become no-ops (design §4).
 - **Multi-row writes** go through the design §3.4 write functions only. Each function:
@@ -45,7 +44,6 @@ Every task's requirements include these. Values are copied from the design.
 - **Test data:** database tests use a `test:<uuid>` seed batch and delete their trips afterward. e2e runs use `e2e-<random>`. Each engineer develops in their own batch (`dev-fe`, `dev-ai`, `dev-co`, `dev-vo`). The `demo` batch is for checks on the deployed app.
 - **CI** runs with every provider mocked and needs no real keys.
 - **Payments concurrency suites** (`web/tests/payments/`) are provider-agnostic. They run on mocks with `test:db`, and on Stripe test mode with `test:stripe` (CO-305). Both must pass.
-- **The restaurant call flow is testable without a live call.** The mock voice provider (VO-212) plays whole calls against the real routes.
 - **Comments** explain why, not what. Public functions get TSDoc or docstrings.
 
 ## The task loop
@@ -70,7 +68,7 @@ Every task follows the same loop. It applies the repo's `superpowers` (TDD), `sp
 | e2e | `pnpm --filter web e2e -- <file>` (Playwright, mocks, against the local dev server) |
 | Shared contracts | `pnpm --filter @agp/shared test -- <file>` |
 | Optimizer | `cd optimizer && pytest tests/<file>.py` |
-| Seed or reset a batch | `pnpm seed:demo --batch <name> [--stage planned\|voted\|booked]` · `pnpm reset:demo --batch <name>` (added by VO-105 and VO-216) |
+| Seed or reset a batch | `pnpm seed:demo --batch <name> [--stage planned\|discussed\|booked]` · `pnpm reset:demo --batch <name>` (added by VO-105 and VO-216) |
 | Regenerate types | `pnpm db:types` after a migration · `pnpm api:types` after an optimizer model change |
 | Check the planning docs | `python planning/tools/check_plan.py` |
 
@@ -78,8 +76,8 @@ Every task follows the same loop. It applies the repo's `superpowers` (TDD), `sp
 
 These five conditions are implied by the design but easy to miss, and each would hurt a person using the app. Each one has a test in the task that owns the code.
 
-1. **Double taps and concurrent requests** on Send, Vote, Approve, and Join must produce exactly one message, vote, authorization, booking, or claim. Tests: FE-106, FE-205, CO-209, CO-210, VO-210.
-2. **Duplicate or out-of-order callbacks.** The voice tool can fire twice, or the post-call webhook can arrive first. Stripe can send an event twice, or before our own update commits. Each still gets one outcome, one booking, one capture, and one refund. Tests: CO-205, VO-206, VO-207, VO-212 (voice); CO-209, CO-210, CO-212, with CO-305 on Stripe test mode (payments).
+1. **Double taps and concurrent requests** on Send, Comment, Approve, and Join must produce exactly one message, comment, authorization, booking, or claim. Tests: FE-106, FE-220, CO-209, CO-210, VO-210.
+2. **Duplicate or out-of-order callbacks.** Stripe can send an event twice, or before our own update commits. Each still gets one outcome, one booking, one capture, and one refund. Tests: CO-209, CO-210, CO-212, with CO-305 on Stripe test mode (payments).
 3. **A member backgrounded or offline mid-flow** (mobile browsers pause sockets) must catch up on return. A member who missed an approval card must still see it. Tests: FE-214.
 4. **An invite link used twice**, whether on two devices or after it was claimed, must show a clear state and never claim twice. Tests: VO-209, VO-210.
 5. **Person 4 in any order.** Claiming before capture, after capture, never, or claiming then declining, plus a retried settlement, must never double-charge or double-refund. Each share is paid by exactly one hold. Tests: CO-210, CO-212, and CO-305 on Stripe test mode.
@@ -97,15 +95,15 @@ Four people commit to `main` in parallel. These rules keep any two of them from 
 
 | Shared area | Files and owners |
 | --- | --- |
-| Seed fixtures (`web/scripts/demo/fixtures/`) | `users.ts` VO · `saturday-trip.json` VO in M1, then AI (planner tuning) · `mock-plan.json` AI · `routes.json` FE · `past-trip-photos.json` VO · `past-trip-recap.json` AI |
-| Agent recordings (`fixtures/agent-recordings/`) | plan prompt AI · `book-the-aquarium.json` CO · `dinner-for-4-at-7.json` VO · `call_completed-dinner.json` AI |
-| Seed stages (`web/scripts/demo/stages/`) | `index.ts` VO · `planned.ts` AI · `voted.ts` FE · `booked.ts` CO |
-| e2e (`web/e2e/`) | harness (`global-setup.ts`, `fixtures.ts`, config) VO · `01-plan` AI · `02-vote` FE · `03-book` CO · `04-dinner-call` VO · `05-claim` VO · `06-memories` VO · `00-all-flows` FE · `a11y` FE |
+| Seed fixtures (`web/scripts/demo/fixtures/`) | `users.ts` VO · `saturday-trip.json` VO in M1, then AI (planner tuning) · `mock-plan.json` AI · `routes.json` FE |
+| Agent recordings (`fixtures/agent-recordings/`) | plan prompt AI · `collaborate-make-lunch-cheaper.json` AI · `book-the-aquarium.json` CO |
+| Seed stages (`web/scripts/demo/stages/`) | `index.ts` VO · `planned.ts` AI · `discussed.ts` FE · `booked.ts` CO |
+| e2e (`web/e2e/`) | harness (`global-setup.ts`, `fixtures.ts`, config) VO · `01-plan` AI · `02-collaborate` FE · `03-pay` CO · `04-claim` VO · `05-itinerary` FE · `00-all-flows` FE · `a11y` FE |
 | Trip view (`web/src/lib/trip-view/`) | FE: the view model, its fixtures, `buildTripView`, and `useTripView`. The lanes and the map import it, and never edit it. |
-| Itinerary (`features/itinerary/`) | `server/cast-vote.ts` and the components FE · `server/apply-plan.ts`, `server/supersede-item.ts` AI (CO writes the first `apply-plan.ts` in M1) |
+| Itinerary (`features/itinerary/`) | components FE · `server/apply-plan.ts`, `server/supersede-item.ts` AI (CO writes the first `apply-plan.ts` in M1) |
 | Payments and booking UI | `features/payments/components/approval-card.tsx`, `features/payments/lib/approval-copy.ts`, `features/payments/hooks/use-mandates.ts`, `lib/tools/propose-purchase/card.tsx`, and `features/booking/components/booking-confirmed-card.tsx` VO (VO-213, VO-214) · the rest of payments and booking CO |
 | Payments concurrency suites (`web/tests/payments/`) | CO |
-| Tool folders (`web/src/lib/tools/`) | `plan-day`, `search-places`, `update-item`, `summarize`, `generate-recap` AI · `propose-purchase` CO · `call-restaurant` VO |
+| Tool folders (`web/src/lib/tools/`) | `plan-day`, `search-places`, `update-item`, `summarize` AI · `propose-purchase` CO |
 | `/api/demo/[action]` (dev tooling) | VO; each action calls the owning feature's exported function |
 
 ---
@@ -120,7 +118,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - [ ] That run went through a real model (`LLM_PROVIDER=meta`, or `google`), then `plan_day`, the FastAPI `/v1/plan` stub, and `apply_plan`. The run has exactly one `tool_calls` row with `succeeded`, and `agent_runs.status = succeeded`.
 - [ ] The same prompt with `LLM_PROVIDER=mock` produces the same card, and `agent_runs.replayed = true`.
 - [ ] `GET https://<vercel-url>/api/health` returns `{ web: ok, db: ok, optimizer: ok }`.
-- [ ] All 7 tool input modules and all 11 card modules exist in `@agp/shared`. `registry.ts` lists 7 tools, and `cards.tsx` maps 11 card types.
+- [ ] All 5 tool input modules and all 9 card modules exist in `@agp/shared`. `registry.ts` lists 5 tools, and `cards.tsx` maps 9 card types.
 
 **If it fails:** nobody starts Milestone 2. Everyone swarms the broken step of the slice. CI (CO-106, Should) is worth landing before Milestone 2, because four people share `main`.
 
@@ -143,7 +141,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `package.json`, `pnpm-workspace.yaml`, `supabase/config.toml`
 - **Depends on:** nothing
-- **Produces:** the root scripts in [checklist](checklist.md) B2 (`dev`, `lint`, `typecheck`, `test`, `db:types`, `api:types`), and a linked Supabase project. `seed:demo` and `reset:demo` arrive with VO-105, and `demo:process-photos` with its photo task.
+- **Produces:** the root scripts in [checklist](checklist.md) B2 (`dev`, `lint`, `typecheck`, `test`, `db:types`, `api:types`), and a linked Supabase project. `seed:demo` and `reset:demo` arrive with VO-105 and VO-216.
 - **Done when:**
   - [x] Checklist B2 and the first half of B7 are done. `git log --oneline` shows `chore: add workspace config, license, and ignore rules` as the first commit, and `git check-ignore AGENTS.md skills planning/adr` prints all three paths.
   - [ ] Check: `node -v` prints 24 or later, `pnpm -v` prints 11.x, and `pnpm exec supabase projects list` shows the linked project.
@@ -178,9 +176,8 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `each Meta capability has its own flag, mock by default, and needs META_MODEL_API_KEY only when real`
     - `model IDs come from env, with the verified Meta defaults`
     - `rejects a live Stripe key (sk_live_)`
-    - `requires VOICE_TO_NUMBER_OVERRIDE in E.164 when NEXT_PUBLIC_DEMO_MODE=true`
     - `accepts the build profile: every provider mock and no provider keys`
-  - [ ] Check: `web/.env.example` contains `VOICE_TO_NUMBER_OVERRIDE=+15555550100` and no other phone number.
+  - [ ] Check: `web/.env.example` contains no phone number.
 - **Status:** done (2026-09-23; re-verified 2026-09-25 after the Meta switch: 8 passed, RED first on the five changed tests). Proof: `pnpm --filter web test src/lib/env/env.test.ts` → 6 passed (RED first: "Cannot find module ./client"); `grep -oE "\+1[0-9]{10}" web/.env.example` → only +15555550100; typecheck and lint exit 0.
 - **Commit:** `feat(env): validated server and client env with examples`
 
@@ -199,7 +196,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 - **Files:** `package.json` (the root `seed:demo` script), `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/{ids.ts,ids.test.ts,args.ts}`, `web/scripts/demo/fixtures/users.ts`, `web/scripts/demo/fixtures/saturday-trip.json` (the first version, from the venue list gathered before the event)
 - **Depends on:** VO-102, CO-101 (pushed)
-- **Produces:** `seed({ batch, stage? })` running design §10.4 steps 1, 3, 4, and 7. Step 4 sets dinner's area to Midtown (`area_label`, `area_lat`, `area_lng`). Step 3 also loads `fixtures/routes.json` when it exists (FE-305 writes it). Step 2 comes in CO-302, step 5 in VO-402, and step 6 in VO-201. `uuidFor(batch, name)` and `inviteTokenFor(batch)` come from `ids.ts`.
+- **Produces:** `seed({ batch, stage? })` running design §10.4 steps 1, 3, 4, and 6. Step 4 sets dinner's area to Midtown (`area_label`, `area_lat`, `area_lng`). Step 3 also loads `fixtures/routes.json` when it exists (FE-305 writes it). Step 2 comes in CO-302, and step 5 in VO-201. `uuidFor(batch, name)` and `inviteTokenFor(batch)` come from `ids.ts`.
 - **Done when:**
   - [ ] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
     - `uuidFor is stable for the same batch and name, and differs across batches`
@@ -224,17 +221,17 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - [ ] Check: one browser signs in through a magic link (Mailpit locally, the inbox on a hosted project), another as Person 2 through the picker, and both stay signed in after a reload. This also closes VO-104's check.
 - **Commit:** `feat(auth): magic-link sign-in and a dev-mode picker for seeded users`
 
-#### VO-107 · Deploy both services, plus the health route · Must
+#### VO-107 · Deploy the web app, plus the health route · Must
 
-- **Files:** `web/src/app/api/health/route.ts`, `web/src/app/api/health/route.test.ts`, `optimizer/railway.json`
+- **Files:** `web/src/app/api/health/route.ts`, `web/src/app/api/health/route.test.ts`, `optimizer/Dockerfile`, `optimizer/.dockerignore`
 - **Depends on:** VO-103, AI-101
-- **Produces:** `GET /api/health` returning `{ web, db, optimizer }`. Also the Vercel and Railway projects, with every env var set (checklist B9). It's Must because the restaurant call's callbacks need a public URL.
+- **Produces:** `GET /api/health` returning `{ web, db, optimizer }`. Also the Vercel project (web), with every web env var set (checklist B9). The optimizer stays on localhost for all testing; its Vultr deploy is VO-S02 (Should, last). The Dockerfile is built but not pushed here. It's Must because the Stripe webhooks and the Milestone 3 switches need a public web URL.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/app/api/health/route.test.ts` passes:
     - `returns 200 with optimizer "error" when FastAPI is unreachable`
     - `returns all "ok" when the db and optimizer respond`
-  - [ ] Check: `curl https://<vercel-url>/api/health` returns all `ok`.
-- **Commit:** `chore(deploy): vercel and railway with a health route`
+  - [ ] Check: `docker build ./optimizer` succeeds, and `curl http://localhost:3000/api/health` (optimizer on `localhost:8000`) returns all `ok`.
+- **Commit:** `chore(deploy): vercel web with a health route`
 
 #### VO-108 · Database test target · Should
 
@@ -297,7 +294,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `renders an article labelled by its title`
     - `action buttons show a spinner and aria-busy while pending, and keep their label`
     - `the unavailable state reads "This card is out of date."`
-    - `renderCard resolves a renderer for all 11 card types`
+    - `renderCard resolves a renderer for all 9 card types`
     - `a payload that fails its schema renders the unavailable state`
 - **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/components/card-frame src/lib/tools/cards.test.tsx` → 2 files, 7 passed (RED first: "Failed to resolve import ./card-frame" and "./cards"); typecheck and lint exit 0.
 - **Commit:** `feat(chat): card frame, error card, and card registry`
@@ -372,12 +369,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 #### AI-102 · Shared contracts package · Must
 
-- **Files:** `packages/shared/{package.json,tsconfig.json,vitest.config.ts}`, `packages/shared/src/{index.ts,enums.ts,handles.ts,tool-result.ts,events.ts}`, `packages/shared/src/tools/{index.ts,search-places.ts,plan-day.ts,update-item.ts,summarize.ts,propose-purchase.ts,call-restaurant.ts,generate-recap.ts}`, `packages/shared/src/cards/{index.ts,place-list.ts,plan.ts,itinerary-change.ts,summary.ts,approval.ts,call-status.ts,recap.ts,booking-confirmed.ts,price-change.ts,member-joined.ts,error.ts}`, `packages/shared/src/api/index.ts`, tests next to each file
+- **Files:** `packages/shared/{package.json,tsconfig.json,vitest.config.ts}`, `packages/shared/src/{index.ts,enums.ts,handles.ts,tool-result.ts,events.ts}`, `packages/shared/src/tools/{index.ts,search-places.ts,plan-day.ts,update-item.ts,summarize.ts,propose-purchase.ts}`, `packages/shared/src/cards/{index.ts,place-list.ts,plan.ts,itinerary-change.ts,summary.ts,approval.ts,booking-confirmed.ts,price-change.ts,member-joined.ts,error.ts}`, `packages/shared/src/api/index.ts`, tests next to each file
 - **Depends on:** VO-101
 - **Produces:**
   - Complete: every enum from design §3.1; the handle parsers `parseHandle` and `formatHandle`; `ToolResult` and `ToolErrorCode`; the `agent.status` and `demo.reset` event schemas; the `plan_day` input; and the `plan` and `error` card schemas.
-  - Stubs with their final export names, each a `card_type` literal plus a loose object, for the other card and tool modules. Their owners fill them in (CO-201, VO-205, VO-211, AI-402, and the Should tasks).
-  - `api/index.ts`, listing one module per route group as a stub: `messages`, `votes`, `mandates`, `invites`, `voice-tools`, `demo`, `recaps`, `trips`, `photos`, and `health`. Each route's owner fills its module.
+  - Stubs with their final export names, each a `card_type` literal plus a loose object, for the other card and tool modules. Their owners fill them in (CO-201, VO-211, and the Should tasks).
+  - `api/index.ts`, listing one module per route group as a stub: `messages`, `profile`, `itinerary`, `mandates`, `invites`, `demo`, `trips`, and `health`. Each route's owner fills its module.
   - `CardPayload`, a union discriminated on `card_type`.
 - **Done when:**
   - [ ] `pnpm --filter @agp/shared test` passes:
@@ -391,7 +388,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 #### AI-103 · Web skeleton: entry points, tool folders, provider folders · Must
 
-- **Files:** `web/src/features/{chat,itinerary,map,payments,booking,voice,invite,gallery,recap,demo}/{index.ts,server.ts}`, `web/src/lib/tools/{registry.ts,registry.test.ts,define-tool.ts}`, `web/src/lib/tools/<each of the 7 tools>/{tool.ts,card.tsx}`, `web/src/lib/providers/{llm,payments,booking,voice,places,routing}/{types.ts,index.ts}`, `web/src/lib/agent/index.ts`
+- **Files:** `web/src/features/{chat,itinerary,map,payments,booking,invite,profile,demo}/{index.ts,server.ts}`, `web/src/lib/tools/{registry.ts,registry.test.ts,define-tool.ts}`, `web/src/lib/tools/<each of the 5 tools>/{tool.ts,card.tsx}`, `web/src/lib/providers/{llm,payments,booking,places,routing}/{types.ts,index.ts}`, `web/src/lib/agent/index.ts`
 - **Depends on:** FE-101, AI-102
 - **Produces:**
   - Every export name in design §1's entry-point table, as a stub.
@@ -399,7 +396,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `startAgentRun(runId)`, exported from `lib/agent/index.ts` as a stub.
   - Stub `card.tsx` files that render a plain `<article>` naming the card type. The M1 slice passes with the stub plan card.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 7 tool names from the tool_name enum`.
+  - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
 - **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0.
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
@@ -415,7 +412,6 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/agent/recording-key.test.ts src/lib/providers/llm/mock.test.ts` passes:
     - `normalizes the plan prompt to "plan saturday 80 each person 2s vegetarian person 4 joins later"`
-    - `recordingFileName("call_completed:dinner") is "call_completed-dinner.json"`
     - `mock runAgent returns the recorded steps in order and replayed = true`
     - `mock runAgent without a recording throws a named error`
     - `the meta provider never sends a tool_choice other than auto` (Meta returns 400 otherwise)
@@ -503,19 +499,18 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 #### CO-103 · Migration 4 (commerce, calls, and webhooks) · Must
 
-- **Files:** `supabase/migrations/20260925200400_commerce_calls.sql`, `web/tests/db/commerce-schema.test.ts`
+- **Files:** `supabase/migrations/20260925200400_commerce.sql`, `web/tests/db/commerce-schema.test.ts`
 - **Depends on:** CO-102
-- **Produces:** design §3.3 file 4, with the mandate, share-row, booking, and call transition triggers from design §4.2–§4.4. `payment_holds` has one row per share and hold (`kind` is `own` or `fronted`), and a PaymentIntent ID may repeat across rows.
+- **Produces:** design §3.3 file 4, with the mandate, share-row, and booking transition triggers from design §4.2–§4.3. `payment_holds` has one row per share and hold (`kind` is `own` or `fronted`), and a PaymentIntent ID may repeat across rows.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/commerce-schema.test.ts` passes:
     - `a share row can't go from captured back to authorized`
     - `an item has at most one live mandate`
-    - `an item has at most one active call`
     - `an authenticated user can't read webhook_events`
     - `a share has at most one own row and one fronted row`
   - [ ] Pushed. `pnpm db:types` committed.
 - **Status:** not done. Reset 2026-09-25: never pushed to a hosted project (only applied to a local stack); the schema tests passed there on 2026-09-23.
-- **Commit:** `feat(db): mandates, holds, bookings, calls, and webhook events`
+- **Commit:** `feat(db): mandates, holds, bookings, and webhook events`
 
 #### CO-104 · `apply_plan`, first version, and the function audit · Must
 
@@ -546,7 +541,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `the authenticated role can't execute apply_plan`
   - [ ] `pnpm --filter web test:db -- tests/db/function-hardening.test.ts` passes:
     - `every security definer function in public pins search_path`
-    - `only cast_vote, claim_invite, create_trip, is_trip_member, and is_trip_organizer are executable by clients`
+    - `only claim_invite, create_trip, is_trip_member, and is_trip_organizer are executable by clients`
 
   The non-member test, which every later write function copies:
 
@@ -616,15 +611,14 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 
 ## Milestone 2: each workstream's core feature, against mocks
 
-Every provider is mocked; only Supabase and FastAPI (local or Railway) are real. Each engineer works in their own batch. Seed stages (VO-201 and the stage files, Should) let the vote, booking, call, and claim work start before the planner is finished, so they're worth doing early.
+Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are real. Each engineer works in their own batch. Seed stages (VO-201 and the stage files, Should) let the collaborate, pay, and claim work start before the planner is finished, so they're worth doing early.
 
 **Pass when all of these are true:**
 
-- [ ] **Plan a day:** `pytest` is green, including parity and `test_seeded_replan`. With the mock LLM, the plan prompt produces a plan card with the `cp_sat` badge, 3 ranked plans, the split afternoon, and per-member score bars, with `solve_ms` under 2000. A second @agent message sent during a run waits in `queued`, then runs. The lanes show four lanes branching at the afternoon and merging at the dinner row. The map shows numbered stops, per-member routes, and the provisional "Dinner, TBD" pin with dashed legs, and the lanes and map show the same stops.
-- [ ] **Vote:** two members voting for one option lock the slot, and every member's view updates.
-- [ ] **Book with group approval:** on a trip whose morning is decided, the book prompt creates approval cards with the design §2.1 copy. Three approvals produce one booking and one capture per PaymentIntent. The CO-212 tests pass for all three Person 4 orders, and the payments concurrency suites pass on mocks.
-- [ ] **Restaurant call:** on a trip with the aquarium booked, the dinner prompt with the mock voice books 7:45 PM, the provisional pin becomes the restaurant, and the re-plan card follows. Every VO-212 scenario ends in its expected state.
-- [ ] **Placeholder claims their lane:** Person 4 joins from the invite link by magic link (a generated one in dev mode) and approves in one tap, and a second claim of the same link says it was already used.
+- [ ] **Create profile:** a new member signs in, sets their name on `/profile`, and every member's chat and lanes show it without a reload.
+- [ ] **AI-guided trip planner:** `pytest` is green, including parity and `test_seeded_replan`. With the mock LLM, the plan prompt produces a plan card with the `cp_sat` badge, 3 ranked plans, the split afternoon, and per-member score bars, with `solve_ms` under 2000. A second @agent message sent during a run waits in `queued`, then runs. The lanes show four lanes branching at the afternoon and merging at the dinner row. The map shows numbered stops, per-member routes, and the provisional "Dinner, TBD" pin with dashed legs, and the lanes and map show the same stops.
+- [ ] **Invite and collaborate:** Person 4 joins from the invite link by magic link (a generated one in dev mode), and a second claim of the same link says it was already used. Members comment on lunch, the agent revises it, and every member's view updates; the organizer's lock marks the morning decided.
+- [ ] **Group pay after confirmation:** on a trip whose morning is decided, the book prompt creates approval cards with the design §2.1 copy. Three approvals produce one booking and one capture per PaymentIntent. The CO-212 tests pass for all three Person 4 orders, and the payments concurrency suites pass on mocks.
 - [ ] Every Must task's unit and database tests pass locally.
 
 **If it fails:** anyone whose flows passed pairs with the failing workstream, and Should work waits. Milestone 3 switches start with the flows that passed.
@@ -635,7 +629,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 - **Files:** `web/src/components/trip-shell/{trip-header.tsx,bottom-tabs.tsx,bottom-tabs.test.tsx}`, `web/src/app/trip/[slug]/layout.tsx`
 - **Depends on:** FE-107
-- **Produces:** `TripHeader` (title, date, and `AgentStatusBar` slot) and `BottomTabs` (Chat, Plan, Map, Gallery). Each tab links to a page its own track creates: Plan in FE-206, Map in FE-210, and Gallery in VO-403.
+- **Produces:** `TripHeader` (title, date, and `AgentStatusBar` slot) and `BottomTabs` (Chat, Plan, Map, Mine). Each tab links to a page its own track creates: Plan in FE-206, Map in FE-210, and Mine in FE-404.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/components/trip-shell` passes:
     - `the current tab has aria-current="page"`
@@ -655,27 +649,12 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `/` redirects a signed-in user to `/trips` and anyone else to `/login`, and `src/app/routes.test.ts` still passes.
 - **Commit:** `feat(ui): trip list with active and past trips`
 
-#### FE-203 · `cast_vote` and the votes route · Must
-
-- **Files:** `supabase/migrations/<timestamp>_cast_vote.sql`, `web/src/features/itinerary/server/cast-vote.ts`, `web/src/app/api/votes/route.ts`, `web/src/app/api/votes/route.test.ts`, `packages/shared/src/api/votes.ts`, `web/tests/db/cast-vote.test.ts`
-- **Depends on:** CO-101
-- **Produces:** `castVote({ itemId, optionId }) → { itemStatus, tallies }` with the user's session, and `POST /api/votes`.
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/cast-vote.test.ts` passes:
-    - `two of three joined attendees choosing one option lock the item: decided, with chosen_option_id set`
-    - `the placeholder isn't counted in the majority`
-    - `a non-attendee gets not_permitted`
-    - `voting on a decided item returns conflict`
-    - `changing a vote moves the tally instead of adding to it`
-  - [ ] `pnpm --filter web test -- src/app/api/votes/route.test.ts` passes: `403 for a non-member, 409 on conflict`.
-- **Commit:** `feat(itinerary): cast_vote with majority lock and votes route`
-
 #### FE-204 · Trip view model: interface and fixtures · Must
 
 - **Files:** `web/src/lib/trip-view/{types.ts,check.ts,check.test.ts,use-trip-view.ts,index.ts}`, `web/src/lib/trip-view/fixtures/{voting.ts,booked.ts,no-area.ts}`
 - **Depends on:** FE-102, AI-102
 - **Produces:** the one shape that both the lanes and the map render (design §8.3), plus hand-checked fixtures and a consistency checker. After this task, three tracks run in parallel:
-  - lanes: FE-205, FE-206
+  - lanes: FE-206, FE-220
   - map: FE-210, FE-211
   - data: FE-218, which builds a `TripView` from database rows
 
@@ -707,12 +686,12 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   }
   ```
 
-  `SlotView`, `GroupView`, and `OptionView` carry what the lanes need: items, statuses, attendees, options, tallies, and my vote.
+  `SlotView`, `GroupView`, and `OptionView` carry what the lanes need: items, statuses, attendees, options, and comment counts.
 
   | Fixture | What it pins, checked by hand |
   | --- | --- |
   | `voting.ts` | The seeded trip after planning. Morning and lunch are merged. The afternoon splits into Person 1 with Person 4, and Person 2 with Person 3. Dinner is a provisional "Dinner, TBD" stop in Midtown. There are 12 legs (3 per member), 4 of them dashed into the provisional stop; one branch (afternoon) and one merge (dinner). |
-  | `booked.ts` | After the restaurant call. The aquarium and dinner are booked, dinner's stop is the restaurant, and the afternoon runs 15:00–18:00. There are 12 legs, all solid. |
+  | `booked.ts` | After the pay flow. The aquarium is booked, dinner is decided at a Midtown restaurant, and the afternoon runs 15:00–18:00. There are 12 legs, all solid. |
   | `no-area.ts` | Dinner is TBD with no area. There's no dinner stop, and each lane's last leg ends at the afternoon: 8 legs. |
 
 - **Done when:**
@@ -724,23 +703,10 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `the booked fixture has no provisional stop and no dashed legs`
 - **Commit:** `feat(trip-view): view model, consistency check, and hand-checked fixtures`
 
-#### FE-205 · Vote button and option row · Must
-
-- **Files:** `web/src/features/itinerary/components/{vote-button.tsx,option-row.tsx,vote-button.test.tsx,option-row.test.tsx}`
-- **Depends on:** FE-203, FE-204
-- **Produces:** `VoteButton({ itemId, optionId })`, exported from `features/itinerary/index.ts`. AI-211 uses it on the plan card.
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/itinerary/components` passes:
-    - `a second tap while the vote is pending sends no second request` (review focus 1)
-    - `aria-pressed reflects my vote`
-    - `the score bar's accessible label includes the score`
-    - `disabled with aria-disabled when the item isn't in voting`
-- **Commit:** `feat(itinerary): vote button with pending and pressed states`
-
 #### FE-206 · Lanes view · Must
 
 - **Files:** `web/src/features/itinerary/components/{plan-view.tsx,lanes-view.tsx,slot-row.tsx,group-block.tsx,item-block.tsx,option-list.tsx,lanes-view.test.tsx}`, `web/src/app/trip/[slug]/plan/page.tsx`
-- **Depends on:** FE-204, FE-205
+- **Depends on:** FE-204
 - **Produces:** `PlanView` and `LanesView`, per the design §8.3 hierarchy. They render a `TripView`, and the plan page gets one from `useTripView(tripId)`. Built and tested against FE-204's fixtures, so this track needs no real data.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/features/itinerary/components/lanes-view.test.tsx` passes:
@@ -764,7 +730,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] Check: the SVG lines use lane colors, and every lane still shows initials.
 - **Commit:** `feat(itinerary): lane connectors that branch and merge`
 
-#### FE-208 · Person filter and My plan · Should
+#### FE-208 · Person filter and My plan · Must
 
 - **Files:** `web/src/features/itinerary/components/{person-filter.tsx,person-filter.test.tsx}`
 - **Depends on:** FE-206
@@ -797,7 +763,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web test -- src/features/map/components/map-view.test.tsx` passes (MapLibre mocked):
     - `renders a numbered pin for every place stop in the voting fixture`
     - `renders the provisional "Dinner, TBD" pin in Midtown in the voting fixture, styled as provisional`
-    - `renders the dinner pin at the restaurant in the booked fixture`
+    - `renders the dinner pin at the decided restaurant in the booked fixture`
     - `every pin label comes from view.stops`
     - `with the map unavailable, it lists the stops instead`
   - [ ] Check: on a mobile browser, the CARTO and OpenStreetMap attribution is visible, and the worker loads from `/maplibre/`.
@@ -813,7 +779,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `the voting fixture draws one line per leg (12), each in its member's lane color`
     - `the 4 legs into the provisional stop are dashed, and every other leg is solid`
     - `a solid leg's label shows whole minutes and says walk or drive, and a dashed leg has no label`
-    - `the booked fixture draws 12 solid legs, converging on the restaurant`
+    - `the booked fixture draws 12 solid legs, converging on the decided dinner`
 - **Commit:** `feat(map): per-member routes with travel times`
 
 #### FE-212 · Shared stop selection · Should
@@ -871,16 +837,6 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `no Try again button when retryable is false`
 - **Commit:** `feat(chat): retry from error cards`
 
-#### FE-217 · `voted` stage and e2e 02-vote · Should
-
-- **Files:** `web/scripts/demo/stages/voted.ts`, `web/e2e/02-vote.spec.ts`
-- **Depends on:** FE-203, AI-214, VO-201, VO-217
-- **Produces:** `voted.apply({ admin, batch, tripId })`: Person 2 and Person 3 vote for the aquarium, which locks the morning.
-- **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/02-vote.spec.ts` passes: `Person 2 and Person 3 vote for the aquarium, and within 2 s all three browsers show the morning decided`.
-  - [ ] Check: `pnpm seed:demo --batch dev-fe --stage voted` leaves the morning decided.
-- **Commit:** `test(e2e): vote flow and voted seed stage`
-
 #### FE-218 · Trip view from itinerary rows · Must
 
 - **Files:** `web/src/lib/trip-view/{build-trip-view.ts,build-trip-view.test.ts,fetch-trip-rows.ts,use-trip-view.ts}`, `web/src/lib/trip-view/fixtures/rows/{voting.json,booked.json,no-area.json}`
@@ -890,12 +846,12 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web test -- src/lib/trip-view/build-trip-view.test.ts` passes:
     - `buildTripView on each rows fixture equals the matching hand-checked view fixture, and checkTripView finds no problems`
     - `groups sibling items by slot_key in starts_at order, and hides superseded and cancelled items`
-    - `counts tallies per option and marks my vote`
+    - `counts comments per option`
     - `a voting item's stop is its rank-1 option's place; a decided or booked item's is its chosen place`
     - `a tbd item with an area gets a provisional "Dinner, TBD" stop, and one without an area gets none`
     - `legs into a provisional stop are dashed straight lines, and the routes cache isn't read for them`
     - `a confirmed leg with no cached route is a straight solid line with no travel time`
-  - [ ] Check: after planning the seeded trip, the plan and map pages show the same stops, including the Midtown pin with four dashed legs. After the restaurant call books dinner, both show the restaurant, with solid legs.
+  - [ ] Check: after planning the seeded trip, the plan and map pages show the same stops, including the Midtown pin with four dashed legs. After dinner is decided and booked, both show the restaurant, with solid legs.
 - **Commit:** `feat(trip-view): build the view model from itinerary rows`
 
 #### FE-219 · The human-in-the-loop label on every money surface · Must
@@ -909,6 +865,40 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `the label is read before the amounts (it precedes them in the DOM)`
   - [ ] `pnpm --filter web test -- src/features/itinerary` passes: `the lanes header shows the label when a share amount is visible`.
 - **Commit:** `feat(ui): human-in-the-loop label on money surfaces`
+
+#### FE-220 · Item comments · Must
+
+- **Files:** `web/src/features/itinerary/components/{item-comments.tsx,comment-thread.tsx,item-comments.test.tsx}`
+- **Depends on:** FE-105, FE-206
+- **Produces:** `CommentThread({ itemId })`, mounted under each item. A comment is sent through `sendMessage` with `item_id`, so it lands as a member message and "@agent" in one starts a revision run.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/features/itinerary/components/item-comments.test.tsx` passes:
+    - `a comment posts with the item's id and shows under that item`
+    - `a second tap while posting sends no second request` (review focus 1)
+    - `a comment with @agent starts one agent run`
+- **Commit:** `feat(itinerary): comments on items`
+
+#### FE-221 · Profile page · Must
+
+- **Files:** `web/src/app/profile/{page.tsx,profile-form.tsx,profile-form.test.tsx}`
+- **Depends on:** FE-103, VO-220
+- **Produces:** `/profile` with the member's display name and avatar, saved through `PATCH /api/profile`.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/app/profile/profile-form.test.tsx` passes:
+    - `shows the current name, saves with pending, and keeps the values on error`
+    - `a name over 80 characters is rejected before sending`
+  - [ ] Check: a new member sets their name, and every member's chat and lanes show it without a reload.
+- **Commit:** `feat(profile): profile page with name and avatar`
+
+#### FE-222 · `discussed` stage and e2e 02-collaborate · Should
+
+- **Files:** `web/scripts/demo/stages/discussed.ts`, `web/e2e/02-collaborate.spec.ts`
+- **Depends on:** FE-220, AI-216, VO-201, VO-217
+- **Produces:** `discussed.apply({ admin, batch, tripId })`: Person 2 comments on lunch, and a revision run answers with an `itinerary_change` card.
+- **Done when:**
+  - [ ] `pnpm --filter web e2e -- e2e/02-collaborate.spec.ts` passes: `Person 2 comments on lunch, all three browsers show it under the item within 2 s, and "@agent make lunch cheaper" produces a revision card`.
+  - [ ] Check: `pnpm seed:demo --batch dev-fe --stage discussed` leaves one comment and one revision card on lunch.
+- **Commit:** `test(e2e): collaborate flow and discussed seed stage`
 
 ### M2 · AI
 
@@ -1061,11 +1051,11 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `apply_plan still rejects a non-member actor after the split changes`
 - **Commit:** `feat(agent): plan_day with constraints, splits, and reasoning`
 
-#### AI-210 · Re-planning and the call follow-up · Must
+#### AI-210 · Re-planning from comments · Must
 
 - **Files:** `web/src/features/itinerary/server/{supersede-item.ts,apply-plan.ts}`, `supabase/migrations/<timestamp>_apply_plan_replan.sql`, `web/src/lib/agent/context.ts`, `web/tests/db/replan.test.ts`, `optimizer/tests/test_seeded_replan.py`, `web/scripts/demo/fixtures/saturday-trip.json` (hours, only if the seeded test needs it)
 - **Depends on:** AI-206, AI-207, AI-209
-- **Produces:** `supersedeItem(itemId) → { newItemId }`, and `apply_plan` in replan mode. The context now handles `call_completed` runs.
+- **Produces:** `supersedeItem(itemId) → { newItemId }`, and `apply_plan` in replan mode. The context includes the item's comments for revision runs.
 - **Done when:**
   - [ ] `cd optimizer && pytest tests/test_seeded_replan.py` passes (§11.3, item 3). It reads `requests/saturday-replan.json`, which AI-207's builder generates from the seed fixture with dinner booked at 19:45:
     - `test_seeded_replan_shifts_the_afternoon`: the request's afternoon slot runs 15:00–18:00, and nothing earlier moves. The builder computed this; the test only asserts it.
@@ -1074,22 +1064,22 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `a replan applies the builder's shifted times to the afternoon items, records time_shift changes, and keeps their status`
     - `an option change on a decided item supersedes it, and the replacement goes tbd → proposing → voting and points back through supersedes_item_id`
     - `booked items never change`
-    - `a call_completed run's context shows the pinned dinner at 19:45 and has no requester`
+    - `a revision run's context includes the item's comments and has a requester`
     - `apply_plan in replan mode rejects a non-member actor`
 - **Commit:** `feat(agent): re-plan with superseding items and time shifts`
 
 #### AI-211 · Plan card · Must
 
 - **Files:** `web/src/lib/tools/plan-day/{card.tsx,card.test.tsx}`
-- **Depends on:** AI-209, FE-205
+- **Depends on:** AI-209, FE-218
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/tools/plan-day/card.test.tsx` passes:
     - `shows the engine badge and the solve time`
     - `member score bars show initials in lane colors, and the lowest member is labeled`
-    - `each option has a VoteButton with its live tally`
+    - `each option shows its comment count from the itinerary query`
     - `replan mode lists each change as before → after`
     - `"See on map" links to /trip/<slug>/map?stop=<item_id>`
-- **Commit:** `feat(agent): plan card with scores, votes, and changes`
+- **Commit:** `feat(agent): plan card with scores, comments, and changes`
 
 #### AI-212 · Run queue · Must
 
@@ -1116,7 +1106,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 #### AI-214 · `planned` stage, follow-up recording, and e2e 01-plan · Should
 
-- **Files:** `web/scripts/demo/stages/planned.ts`, `web/tests/db/stage-planned.test.ts`, `web/scripts/demo/fixtures/agent-recordings/call_completed-dinner.json`, `web/e2e/01-plan.spec.ts`
+- **Files:** `web/scripts/demo/stages/planned.ts`, `web/tests/db/stage-planned.test.ts`, `web/e2e/01-plan.spec.ts`
 - **Depends on:** AI-201, AI-210, AI-211, VO-201, VO-217
 - **Produces:** `planned.apply({ admin, batch, tripId })`, which applies the fixture plan through `applyPlan`.
 - **Done when:**
@@ -1124,21 +1114,20 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web e2e -- e2e/01-plan.spec.ts` passes: `Person 1 sends the plan prompt, and Person 2's browser shows the status bar, then a plan card with 3 plans, a split afternoon, and score bars`.
 - **Commit:** `test(e2e): plan flow and planned seed stage`
 
-#### AI-215 · Photo analysis endpoint · Must
+#### AI-216 · `update_item` tool and comment-driven revision · Must
 
-- **Files:** `optimizer/app/photos.py`, `optimizer/app/main.py`, `optimizer/tests/test_photos.py` (test images are generated with Pillow inside the tests), `web/src/lib/optimizer/{client.ts,client.test.ts}`
-- **Depends on:** AI-101, AI-107
-- **Produces:** `POST /v1/photos/analyze` (design §2.2), and `getOptimizerClient().analyzePhotos(request)` with a 20 s timeout and no retry. VO-401 calls it.
+- **Files:** `packages/shared/src/tools/update-item.ts`, `packages/shared/src/cards/itinerary-change.ts`, `supabase/migrations/<timestamp>_apply_item_change.sql`, `web/src/lib/tools/update-item/{tool.ts,card.tsx}`, `web/tests/db/update-item.test.ts`
+- **Depends on:** AI-106, AI-210
+- **Produces:** the design §2.1 handler, which is how comment threads turn into plan changes. The organizer locks options; the agent applies the group's explicit confirmations.
 - **Done when:**
-  - [ ] `cd optimizer && pytest tests/test_photos.py` passes:
-    - `test_near_duplicates_within_the_threshold_are_marked`
-    - `test_timestamp_within_15_minutes_matches_the_stop`
-    - `test_gps_within_300_m_matches_when_there_is_no_timestamp`
-    - `test_disallowed_host_returns_422`
-    - `test_best_per_item_ignores_duplicates`
-    - `test_technical_score_is_between_0_and_1`
-  - [ ] `pnpm api:types` is committed.
-- **Commit:** `feat(optimizer): photo hashing, dedupe, matching, and scores`
+  - [ ] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
+    - `swap_option by a non-organizer returns not_permitted with "discuss it in the comments"`
+    - `swap_option by the organizer locks the item to decided`
+    - `mark_tbd on a decided item supersedes it`
+    - `add_slot with an area creates a TBD block with a provisional stop`
+    - `every action on a booked item returns not_permitted`
+    - `apply_item_change rejects a non-member actor with not_permitted`
+- **Commit:** `feat(agent): update_item tool`
 
 ### M2 · CO
 
@@ -1184,29 +1173,15 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 
 #### CO-204 · Booking provider · Must
 
-- **Files:** `web/src/lib/providers/booking/{mock-merchant.ts,restaurant.ts,index.ts,mock-merchant.test.ts}`
+- **Files:** `web/src/lib/providers/booking/{mock-merchant.ts,index.ts,mock-merchant.test.ts}`
 - **Depends on:** AI-103, CO-105
-- **Produces:** `getBookingProvider(kind)`: the mock merchant for `tickets`, and the voice reservation recorder for `restaurant`.
+- **Produces:** `getBookingProvider("tickets")`: the mock merchant.
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/providers/booking` passes:
     - `a quote is price_cents × party size and expires in 15 minutes`
     - `book with the same idempotency key returns the same providerRef`
     - `simulatePriceChange changes only the next quote`
-    - `getBookingProvider("restaurant") returns the voice reservation recorder`
-- **Commit:** `feat(booking): mock merchant and restaurant recorder`
-
-#### CO-205 · `record_reservation` · Must
-
-- **Files:** `supabase/migrations/<timestamp>_record_reservation.sql`, `web/src/features/booking/server/record-reservation.ts`, `web/tests/db/record-reservation.test.ts`
-- **Depends on:** CO-103, CO-204
-- **Produces:** `recordReservation({ callId, confirmedTime, partySize, name, notes?, source }) → { bookingId, followUpRunId | null }`. VO-206, VO-207, and VO-208 call it.
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/record-reservation.test.ts` passes:
-    - `writes the outcome once and books the tbd dinner at 19:45: booked, pinned, and moved, with a voice_reservation booking and a booking_confirmed card`
-    - `a second call for the same call returns followUpRunId null and writes nothing` (review focus 2)
-    - `creates exactly one call_completed agent_run`
-    - `rejects a non-member actor with not_permitted`
-- **Commit:** `feat(booking): record_reservation write function`
+- **Commit:** `feat(booking): mock merchant`
 
 #### CO-207 · `create_mandate` · Must
 
@@ -1230,7 +1205,7 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
 - **Depends on:** CO-207, AI-106
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/tools/propose-purchase/tool.test.ts` passes:
-    - `an item that isn't decided returns invalid_input telling the group to vote first`
+    - `an item that isn't decided returns invalid_input telling the group to confirm it in comments first`
     - `an unknown handle returns unknown_handle`
     - `the idempotency key is mandate:{run_id}:{tool_call_id}`
     - `the summary gives each share and cap in dollars`
@@ -1335,42 +1310,29 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `the badge states its status in text, not color alone`
 - **Commit:** `feat(payments): share status badge for lanes`
 
-#### CO-214 · `booked` stage and e2e 03-book · Should
+#### CO-214 · `booked` stage and e2e 03-pay · Should
 
-- **Files:** `web/scripts/demo/stages/booked.ts`, `web/scripts/demo/fixtures/agent-recordings/book-the-aquarium.json`, `web/e2e/03-book.spec.ts`
-- **Depends on:** CO-208, FE-217, VO-214, VO-217
+- **Files:** `web/scripts/demo/stages/booked.ts`, `web/scripts/demo/fixtures/agent-recordings/book-the-aquarium.json`, `web/e2e/03-pay.spec.ts`
+- **Depends on:** CO-208, AI-214, VO-214, VO-217
 - **Produces:** `booked.apply({ admin, batch, tripId })`: the aquarium goes through the mandate, three approvals, and finalizing on mock payments.
 - **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/03-book.spec.ts` passes: `the book prompt shows approval cards on three browsers with the design §2.1 copy, three approvals produce one booked card on all of them, and Person 4's row reads "Fronted by the organizer"`.
+  - [ ] `pnpm --filter web e2e -- e2e/03-pay.spec.ts` passes: `the book prompt shows approval cards on three browsers with the design §2.1 copy, three approvals produce one booked card on all of them, and Person 4's row reads "Fronted by the organizer"`.
   - [ ] Check: `pnpm seed:demo --batch dev-co --stage booked` leaves the aquarium booked.
-- **Commit:** `test(e2e): booking flow and booked seed stage`
+- **Commit:** `test(e2e): pay flow and booked seed stage`
 
 ### M2 · VO
 
 #### VO-201 · Seed stages · Should
 
-- **Files:** `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/{args.ts,args.test.ts}`, `web/scripts/demo/stages/index.ts`, `web/scripts/demo/stages/{planned.ts,voted.ts,booked.ts}` (stubs that throw "stage not implemented" until AI-214, FE-217, and CO-214 replace them)
+- **Files:** `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/{args.ts,args.test.ts}`, `web/scripts/demo/stages/index.ts`, `web/scripts/demo/stages/{planned.ts,discussed.ts,booked.ts}` (stubs that throw "stage not implemented" until AI-214, FE-222, and CO-214 replace them)
 - **Depends on:** VO-105
-- **Produces:** `--stage planned|voted|booked` (design §10.3). Do it early: stages let the other workstreams build their flows without waiting on each other.
+- **Produces:** `--stage planned|discussed|booked` (design §10.3). Do it early: stages let the other workstreams build their flows without waiting on each other.
 - **Done when:**
   - [ ] `pnpm --filter web test -- scripts/demo/lib/args.test.ts` passes:
     - `reads --batch and --stage, and the batch defaults to demo`
     - `runs stages in order up to the one requested`
     - `refuses --stage on the demo batch`
 - **Commit:** `feat(demo): seed stages for isolated development`
-
-#### VO-202 · Migration 5 (media) · Must
-
-- **Files:** `supabase/migrations/20260925200500_media.sql`, `web/tests/db/media-schema.test.ts`
-- **Depends on:** VO-102
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/media-schema.test.ts` passes:
-    - `a member can insert a photo only as its own uploader`
-    - `a non-member can't read photo rows`
-    - `a trip has at most one recap, and share_slug is unique`
-    - `the storage policy lets members read objects under */<trip_id>/* and blocks non-members`
-  - [ ] Pushed. `pnpm db:types` committed.
-- **Commit:** `feat(db): photos, recaps, and storage policies`
 
 #### VO-203 · Webhook recorder · Must
 
@@ -1384,72 +1346,6 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
     - `a received event touched within 30 s returns skip`
     - `a received or failed event older than 30 s increments attempts and returns process`
 - **Commit:** `feat(reliability): record-first webhook handling`
-
-#### VO-204 · Voice provider · Must
-
-- **Files:** `web/src/lib/providers/voice/{real.ts,index.ts,real.test.ts}`
-- **Depends on:** AI-103, CO-105
-- **Produces:** `getVoiceProvider()`, per the design §2.3 interface, and the real implementation, which VO-302 switches on. The mock is VO-212.
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/voice/real.test.ts` passes:
-    - `real startCall sends agent_id, agent_phone_number_id, to_number, and the dynamic variables, with a 10 s timeout and no retry`
-    - `verifyToolRequest compares x-tool-secret in constant time and fails on a mismatch`
-    - `parseWebhook rejects a bad HMAC and a timestamp older than 30 minutes`
-- **Commit:** `feat(voice): elevenlabs provider`
-
-#### VO-205 · `call_restaurant` tool and `create_call` · Must
-
-- **Files:** `supabase/migrations/<timestamp>_create_call.sql`, `web/src/lib/tools/call-restaurant/tool.ts`, `web/src/features/voice/server/start-restaurant-call.ts`, `packages/shared/src/tools/call-restaurant.ts`, `packages/shared/src/cards/call-status.ts`, `web/tests/db/call-restaurant.test.ts`
-- **Depends on:** VO-204, AI-106
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/call-restaurant.test.ts` passes:
-    - `with VOICE_TO_NUMBER_OVERRIDE set, every call dials it, never the place's phone`
-    - `a window longer than 3 hours returns invalid_input`
-    - `a place that isn't food returns invalid_input`
-    - `a second active call for the item returns conflict`
-    - `a startCall error marks the call failed, writes an error card, and never retries`
-    - `the card shows only the last 4 digits`
-    - `create_call rejects a non-member actor with not_permitted`
-- **Commit:** `feat(voice): call_restaurant tool`
-
-#### VO-206 · Mid-call confirm route · Must
-
-- **Files:** `web/src/app/api/voice/tools/confirm-reservation/route.ts`, `web/src/features/voice/server/confirm-reservation.ts`, `packages/shared/src/api/voice-tools.ts`, `web/tests/db/confirm-reservation.test.ts`
-- **Depends on:** VO-203, VO-205, CO-205
-- **Produces:** `confirmReservation(body) → { ok, message_for_agent }`. The follow-up run starts with `after()`, and `maxDuration = 300`.
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/confirm-reservation.test.ts` passes:
-    - `a wrong x-tool-secret returns 401 and records nothing`
-    - `19:45 inside 18:30–20:00 returns ok with "Confirmed, thank them and end the call"`
-    - `21:00 returns ok false with the window message, and the call stays in progress`
-    - `a second confirm for the same call returns ok and books nothing new` (review focus 2)
-    - `the first confirm moves the call from dialing to in_progress`
-    - `the follow-up run starts after the response is sent`
-- **Commit:** `feat(voice): mid-call confirmation route`
-
-#### VO-207 · Post-call webhook · Must
-
-- **Files:** `web/src/app/api/webhooks/elevenlabs/route.ts`, `web/src/features/voice/server/handle-voice-webhook.ts`, `web/tests/db/voice-webhook.test.ts`
-- **Depends on:** VO-203, VO-204, CO-205
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/voice-webhook.test.ts` passes:
-    - `a bad HMAC returns 400 and records nothing`
-    - `post_call_transcription completes the call and stores the summary`
-    - `data collection fills the outcome only when the tool never fired` (review focus 2)
-    - `call_initiation_failure with no answer ends the call no_answer`
-    - `a duplicate event returns 200 and changes nothing`
-- **Commit:** `feat(voice): post-call webhook`
-
-#### VO-208 · Call status card · Must
-
-- **Files:** `web/src/lib/tools/call-restaurant/card.tsx`, `web/src/features/voice/components/{call-status-card.tsx,call-status-card.test.tsx}`, `web/src/features/voice/hooks/use-calls.ts`
-- **Depends on:** VO-205, CO-205
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/voice/components` passes:
-    - `shows Dialing, In progress, Booked 7:45 PM, and Failed from the calls query`
-    - `the number reads as ••• 0100`
-    - `a failed call says the dinner is still TBD, and offers no actions`
-- **Commit:** `feat(voice): call status card`
 
 #### VO-209 · Claim an invite · Must
 
@@ -1489,33 +1385,6 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web test:db -- tests/db/after-claim.test.ts` passes: `a claim calls onPlaceholderClaimed and writes one member_joined card listing the pending mandate ids`.
   - [ ] `pnpm --filter web test -- src/features/invite/components/member-joined-card.test.tsx` passes: `shows "Person 4 joined" with initials and lane color`.
 - **Commit:** `feat(invite): member joined card and pending holds`
-
-#### VO-212 · Mock voice provider: a whole call without a phone · Must
-
-- **Files:** `web/src/lib/providers/voice/{mock.ts,mock.test.ts,scenarios.ts}`, `web/tests/db/voice-mock-flow.test.ts`
-- **Depends on:** VO-204, VO-206, VO-207, CO-205
-- **Produces:** the mock `VoiceProvider` (design §2.3), which simulates both halves of a call against our real routes. `startCall` returns at once, then plays a scenario:
-  - It posts `confirm_reservation` to `/api/voice/tools/confirm-reservation` with the `x-tool-secret` header.
-  - It posts a post-call event to `/api/webhooks/elevenlabs`, signed with the same HMAC scheme that `parseWebhook` checks.
-
-  `VOICE_MOCK_SCENARIO` picks the scenario (default `accept`). A `deliver(url, init)` dependency lets tests call the route handlers in process instead of over HTTP. The whole restaurant call flow is testable without a live call, and VO-302 switches to the real provider only after this passes.
-
-  | Scenario | Tool call | Post-call webhook | End state |
-  | --- | --- | --- | --- |
-  | `accept` | 19:45, after 4 s | completed, after 8 s | call completed; dinner booked at 19:45; one follow-up run queued |
-  | `outside-window` | 21:00 (the tool answers ok false) | completed, no data collection | call completed; dinner still TBD |
-  | `tool-never-fires` | none | completed, data collection `confirmed_time` 19:45 | dinner booked at 19:45 |
-  | `duplicate-tool` | 19:45, twice | completed | one booking |
-  | `webhook-first` | 19:45, sent after the webhook | completed, sent first | one outcome, one booking |
-  | `no-answer` | none | `call_initiation_failure` | call `no_answer`; dinner still TBD |
-
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/voice/mock.test.ts` passes (fake timers):
-    - `accept posts the tool call after 4 s and the post-call event after 8 s`
-    - `the post-call body the mock signs passes the real parseWebhook HMAC check`
-    - `the tool call carries x-tool-secret, and verifyToolRequest accepts it`
-  - [ ] `pnpm --filter web test:db -- tests/db/voice-mock-flow.test.ts` passes. It has one test per scenario, each driving the real routes and asserting the end state in the table (review focus 2).
-- **Commit:** `feat(voice): mock provider that simulates a whole call`
 
 #### VO-213 · Booking confirmed card · Must
 
@@ -1578,21 +1447,26 @@ Every provider is mocked; only Supabase and FastAPI (local or Railway) are real.
   - [ ] `pnpm --filter web e2e -- e2e/smoke.spec.ts` passes: `Person 1 signs in through a magic link, opens the seeded trip, and sees the chat; Person 2, in a second context, sees the same chat`.
 - **Commit:** `test(e2e): harness with per-file batches and cast fixtures`
 
-#### VO-218 · e2e 04-dinner-call · Should
+#### VO-219 · e2e 04-claim · Should
 
-- **Files:** `web/scripts/demo/fixtures/agent-recordings/dinner-for-4-at-7.json`, `web/e2e/04-dinner-call.spec.ts`
-- **Depends on:** VO-206, VO-207, VO-208, VO-212, AI-210, AI-214
-- **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/04-dinner-call.spec.ts` passes: `with the mock voice, the dinner prompt shows the call card dialing, then "Booked 7:45 PM" within 6 s on every browser, then a replan card moving the afternoon to 3:00–6:00 PM`.
-- **Commit:** `test(e2e): restaurant call flow`
-
-#### VO-219 · e2e 05-claim · Should
-
-- **Files:** `web/e2e/05-claim.spec.ts`
+- **Files:** `web/e2e/04-claim.spec.ts`
 - **Depends on:** VO-210, VO-211, CO-212, CO-214
 - **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/05-claim.spec.ts` passes: `Person 4 opens the invite link, joins, sees their planned lane, and approves in one tap. Every browser shows the member_joined card and Person 4's row as "Paid", and an admin query finds exactly one refunded fronted row`.
+  - [ ] `pnpm --filter web e2e -- e2e/04-claim.spec.ts` passes: `Person 4 opens the invite link, joins, sees their planned lane, and approves in one tap. Every browser shows the member_joined card and Person 4's row as "Paid", and an admin query finds exactly one refunded fronted row`.
 - **Commit:** `test(e2e): placeholder claim flow`
+
+#### VO-220 · Profile update route · Must
+
+- **Files:** `web/src/app/api/profile/{route.ts,route.test.ts}`, `web/src/features/profile/server/update-profile.ts`, `packages/shared/src/api/profile.ts`, `web/tests/db/update-profile.test.ts`
+- **Depends on:** VO-102
+- **Produces:** `updateProfile({ displayName?, avatarUrl? }) → { profile }` with the user's session, and `PATCH /api/profile`. It updates the member's own profile row and copies the name onto their joined `trip_members` rows.
+- **Done when:**
+  - [ ] `pnpm --filter web test:db -- tests/db/update-profile.test.ts` passes:
+    - `sets the display name and copies it onto the member's joined rows`
+    - `a caller with no session is rejected`
+    - `one member's update changes no other member's rows`
+  - [ ] `pnpm --filter web test -- src/app/api/profile/route.test.ts` passes: `a name over 80 characters returns 400`.
+- **Commit:** `feat(profile): profile update route`
 
 ---
 
@@ -1602,21 +1476,18 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 
 | Order | Switch | Owner | Flows to run after the switch | Done |
 | --- | --- | --- | --- | --- |
-| 1 | `LLM_PROVIDER=meta` (Muse Spark 1.3) | AI | plan a day, book, restaurant call | [ ] |
+| 1 | `LLM_PROVIDER=meta` (Muse Spark 1.3) | AI | plan, collaborate, pay | [ ] |
 | 2 | `ROUTING_PROVIDER=real` (OpenRouteService) | FE | plan a day (map) | [ ] |
-| 3 | `PAYMENTS_PROVIDER=real` (Stripe test mode) | CO | book with group approval, then placeholder claims | [ ] |
-| 4 | `VOICE_PROVIDER=real` (ElevenLabs) | VO | restaurant call | [ ] |
+| 3 | `PAYMENTS_PROVIDER=real` (Stripe test mode) | CO | group pay, then placeholder claims | [ ] |
 
 **Pass when all of these are true:**
 
-- [ ] All four switches are ticked above.
-- [ ] With all four real on the deployed app, starting from freshly seeded data:
-  - The plan prompt produces a plan card from real Muse Spark within 20 s, with `cp_sat` from Railway.
+- [ ] All three switches are ticked above.
+- [ ] With all three real on the deployed app, starting from freshly seeded data:
+  - The plan prompt produces a plan card from real Muse Spark within 20 s, with `cp_sat` from the optimizer (localhost, or Vultr once VO-S02 is done).
   - The map draws OpenRouteService street geometry to confirmed stops, and a dashed provisional leg to "Dinner, TBD".
   - The book prompt creates Stripe test-mode PaymentIntents with manual capture, one per payer: three, with Person 1's authorized up to $96. They're captured after the last approval, and their metadata includes `mandate_id`, `payer_member_id`, and `trip_id`.
-  - The dinner prompt calls `VOICE_TO_NUMBER_OVERRIDE`. "Booked 7:45 PM" appears before hang-up, the pin moves to the restaurant, and the re-plan card follows.
   - Person 4 claims and approves. Stripe shows one capture on Person 4's PaymentIntent and one partial refund on Person 1's.
-- [ ] For every call, `calls.to_number` equals `VOICE_TO_NUMBER_OVERRIDE`.
 - [ ] The payments concurrency and webhook suites pass on Stripe test mode (CO-305).
 
 **If it fails:** the failing provider stays mock until it's fixed. Nothing falls back to a mock at runtime.
@@ -1629,9 +1500,9 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** AI-212
 - **Done when:**
   - [ ] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
-    - `the system prompt lists the 7 tools, says to use handles only, and forbids stating charged amounts`
+    - `the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
-  - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
+  - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts (plan, collaborate, and book) calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
 - **Commit:** `feat(agent): tune the system prompt for muse spark`
 
 #### AI-302 · Plan a day on real providers · Must
@@ -1641,20 +1512,20 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Done when:**
   - [ ] Check: from freshly seeded data on the deployed app, the plan card reaches every member within 20 s with `cp_sat` and `solve_ms` under 2000, and the lanes branch at the afternoon.
 
-#### AI-303 · Follow-up re-plan on real Muse Spark · Must
+#### AI-303 · Comment-driven re-plan on real Muse Spark · Must
 
 - **Files:** `web/src/lib/agent/prompt.ts` (only if the check fails)
-- **Depends on:** AI-301, VO-212
+- **Depends on:** AI-301, AI-216
 - **Done when:**
-  - [ ] Check: with the mock voice, the follow-up run (real Muse Spark) calls `plan_day` in replan mode, and the re-plan card shows the afternoon at 3:00–6:00 PM.
-- **Commit (if the prompt changed):** `fix(agent): follow-up re-plan prompt`
+  - [ ] Check: "@agent make lunch cheaper" (real Muse Spark) calls `update_item` or `plan_day` in replan mode, and the revision card shows the cheaper lunch.
+- **Commit (if the prompt changed):** `fix(agent): comment-driven re-plan prompt`
 
 #### AI-304 · Model failure check · Should
 
 - **Files:** none
 - **Depends on:** AI-301
 - **Done when:**
-  - [ ] Check: with an invalid `META_MODEL_API_KEY`, the plan prompt ends in an error card with Try again, and the run is `failed`. With `LLM_PROVIDER=google` and a Gemini `AGENT_MODEL` and `VISION_MODEL`, the same prompt succeeds.
+  - [ ] Check: with an invalid `META_MODEL_API_KEY`, the plan prompt ends in an error card with Try again, and the run is `failed`. With `LLM_PROVIDER=google` and a Gemini `AGENT_MODEL`, the same prompt succeeds.
 
 ### M3 · FE
 
@@ -1681,14 +1552,14 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** FE-owned files only, where a bug turns up
 - **Depends on:** FE-206, FE-211, FE-301, AI-302
 - **Done when:**
-  - [ ] Check: with real providers, the lanes and the map show the same stops. Before the restaurant call, "Dinner, TBD" is dashed in both. After it, all four member routes converge on the restaurant, solid.
+  - [ ] Check: with real providers, the lanes and the map show the same stops. "Dinner, TBD" stays dashed in both until dinner is decided; booked stops converge solid.
 
 #### FE-304 · Realtime on a mobile network · Should
 
 - **Files:** FE-owned files only, where a bug turns up
 - **Depends on:** FE-214
 - **Done when:**
-  - [ ] Check: on phones on a mobile network, lock one for 10 s during a vote, and it catches up on unlock. Airplane mode for 10 s shows the banner, then catches up. Pull to refresh works.
+  - [ ] Check: on phones on a mobile network, lock one for 10 s during planning, and it catches up on unlock. Airplane mode for 10 s shows the banner, then catches up. Pull to refresh works.
 
 #### FE-305 · Routes fixture for seeding · Should
 
@@ -1757,20 +1628,6 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 
 ### M3 · VO
 
-#### VO-301 · Callback URLs and secrets per environment · Must
-
-- **Files:** none (dashboards). Tick checklist B10.
-- **Depends on:** VO-107
-- **Done when:**
-  - [ ] Check: the ElevenLabs server tool and post-call webhook point at the Vercel URL. `ELEVENLABS_TOOL_SECRET` and `ELEVENLABS_WEBHOOK_SECRET` are set on Vercel, and a test post with a wrong secret returns 401.
-
-#### VO-302 · Switch the voice call to ElevenLabs · Must
-
-- **Files:** none (`web/.env.local` and the Vercel env only)
-- **Depends on:** VO-206, VO-207, VO-212, VO-301
-- **Done when:**
-  - [ ] Check: on the deployed app with `VOICE_PROVIDER=real`, the dinner prompt calls `VOICE_TO_NUMBER_OVERRIDE`. Saying "7 is full, 7:45 works" books 7:45 PM in the chat before hang-up. The post-call webhook is recorded as `processed`, and `calls.to_number` equals the override for every call.
-
 #### VO-303 · Dev toolbar with reset · Should
 
 - **Files:** `web/src/features/demo/components/{dev-toolbar.tsx,dev-toolbar.test.tsx}`, `web/src/features/demo/server/run-demo-action.ts`, `web/src/app/api/demo/[action]/route.ts`
@@ -1789,138 +1646,71 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** none
 - **Depends on:** VO-107
 - **Done when:**
-  - [ ] Check: Vercel shows `maxDuration = 300` on `/api/messages` and the confirm route, so agent runs aren't cut off. Railway is always on. `/api/health` is green.
+  - [ ] Check: Vercel shows `maxDuration = 300` on `/api/messages`, so agent runs aren't cut off. The optimizer host (localhost until VO-S02, then Vultr, always on) is reachable. `/api/health` is green.
 
 ---
 
 ## Milestone 4: every flow end to end
 
-The recap flow is built here, then all six core flows run end to end on real providers.
+The per-person export is built here, then all five core flows run end to end on real providers.
 
 **Pass when all of these are true:**
 
-- [ ] Starting from freshly seeded data, all six core flows (design §5) run end to end on real providers, twice in a row, with no manual reloads.
-- [ ] Failures show up as the product intends. With the model unreachable, or FastAPI stopped, the plan request ends in an error card with Try again. A failed or unanswered call shows Failed, and the dinner stays TBD. A member who was offline for 10 s catches up. A used invite link says it was already used.
-- [ ] The past trip's gallery shows 24 photos under 3 stops, with 3 duplicates hidden, best-shot badges, and captions. The recap shows "No recap yet" with Generate; after Generate, it shows 3–6 sections with photos, and Regenerate keeps the share link.
+- [ ] Starting from freshly seeded data, all five core flows (design §5) run end to end on real providers, twice in a row, with no manual reloads.
+- [ ] Failures show up as the product intends. With the model unreachable, or FastAPI stopped, the plan request ends in an error card with Try again. A member who was offline for 10 s catches up. A used invite link says it was already used.
+- [ ] `/trip/<slug>/mine` shows each member only their own attended items, with places, times, and payment status. Download serves a calendar file with one event per attended item, and the page prints cleanly.
 
 **If it fails:** Should work stops until the failing flow passes.
 
 ### M4 · AI
 
-#### AI-401 · Image captions and structured output · Must
-
-- **Files:** `web/src/lib/providers/llm/{types.ts,real.ts,mock.ts,vision.test.ts}`, `web/scripts/demo/fixtures/mock-captions.json`
-- **Depends on:** AI-104
-- **Produces:** `describeImage({ url, context }) → { caption, aesthetic_score }`, and `generateObject(schema, prompt, images?)`.
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/llm/vision.test.ts` passes:
-    - `mock describeImage returns the fixture caption (120 characters or fewer) and an aesthetic score in 0..1`
-    - `generateObject rejects output that fails the schema`
-    - `real describeImage sends the image URL with a 20 s timeout and 1 retry`
-- **Commit:** `feat(agent): muse spark vision captions and structured output`
-
-#### AI-402 · Recap generation · Must
-
-- **Files:** `packages/shared/src/tools/generate-recap.ts`, `packages/shared/src/cards/recap.ts`, `supabase/migrations/<timestamp>_save_recap.sql`, `web/src/features/recap/server/generate-recap.ts`, `web/tests/db/generate-recap.test.ts`
-- **Depends on:** AI-401, VO-202
-- **Produces:** `generateRecap(tripId, { tone, actorMemberId }) → { recapId }`.
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/generate-recap.test.ts` passes (mock LLM):
-    - `writes 3–6 sections, each body 400 characters or fewer with at most 4 photos`
-    - `regenerating keeps the share_slug`
-    - `an LLM failure keeps the previous recap and returns a retryable error`
-    - `save_recap rejects a non-member actor with not_permitted`
-- **Commit:** `feat(recap): generate recaps from stops, photos, and chat`
-
-#### AI-403 · Recap view with Generate and Regenerate · Must
-
-- **Files:** `web/src/app/trip/[slug]/recap/page.tsx`, `web/src/features/recap/components/{recap-view.tsx,recap-section.tsx,recap-view.test.tsx}`, `web/src/features/recap/server/get-recap.ts`, `web/src/app/api/recaps/[tripId]/regenerate/route.ts`, `packages/shared/src/api/recaps.ts`
-- **Depends on:** AI-402
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/recap/components src/app/api/recaps` passes:
-    - `renders each section with signed photo URLs`
-    - `shows "No recap yet." with a Generate button when there is none`
-    - `Generate and Regenerate show pending, then refetch the recap`
-    - `shows section skeletons while loading`
-    - `the regenerate route returns 403 for a non-member`
-- **Commit:** `feat(recap): recap view with generate and regenerate`
-
 #### AI-404 · Record the real agent runs · Should
 
-- **Files:** `web/scripts/demo/fixtures/agent-recordings/*.json` (all four, regenerated together; each owner reviews the diff of their own file)
+- **Files:** `web/scripts/demo/fixtures/agent-recordings/*.json` (all three, regenerated together; each owner reviews the diff of their own file)
 - **Depends on:** AI-213, Milestone 3 passed
 - **Done when:**
-  - [ ] Check: one real run from freshly seeded data, with `AGENT_RECORD=1`, rewrites the four recordings. Then, with `LLM_PROVIDER=mock`, the same prompts produce the same card types for the same item handles, and the e2e suites still pass.
+  - [ ] Check: one real run from freshly seeded data, with `AGENT_RECORD=1`, rewrites the three recordings. Then, with `LLM_PROVIDER=mock`, the same prompts produce the same card types for the same item handles, and the e2e suites still pass.
 - **Commit:** `chore(demo): record real agent runs for tests`
 
-#### AI-405 · Past-trip recap fixture · Should
-
-- **Files:** `web/scripts/demo/generate-recap-fixture.ts`, `web/scripts/demo/fixtures/past-trip-recap.json`
-- **Depends on:** AI-402, VO-402
-- **Done when:**
-  - [ ] Check: running it against the seeded past trip writes 3–6 sections that cite the three stops and their best photos, and after a reseed the recap view shows it without Generate.
-- **Commit:** `chore(demo): precomputed recap for the past trip`
-
 ### M4 · VO
-
-#### VO-401 · Photo pipeline · Must
-
-- **Files:** `package.json` (the root `demo:process-photos` script), `web/src/features/gallery/server/process-photos.ts`, `web/scripts/demo/process-photos.ts`, `web/scripts/demo/fixtures/past-trip-photos.json`, `web/tests/db/process-photos.test.ts`
-- **Depends on:** AI-215, AI-401, VO-202
-- **Produces:** `processPhotos(tripId) → { processed }`, and `pnpm demo:process-photos`.
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/process-photos.test.ts` passes:
-    - `quality_score is 0.5 × technical + 0.5 × aesthetic`
-    - `each stop gets exactly one best photo among the non-duplicates`
-    - `duplicates keep duplicate_of_photo_id and are never best`
-  - [ ] Check: `pnpm demo:process-photos` on the 24 photos writes the fixture with 3 duplicates and 3 best shots.
-- **Commit:** `feat(gallery): photo pipeline with captions and best shots`
-
-#### VO-402 · Seed the past trip · Must
-
-- **Files:** `web/scripts/demo/seed.ts`, `web/scripts/demo/lib/upload-photos.ts`
-- **Depends on:** VO-401
-- **Done when:**
-  - [ ] Check: the seed uploads the 24 photos under `demo/<trip_id>/` once (a second run uploads nothing), inserts the photo rows from the fixture, and loads `past-trip-recap.json` if it exists.
-- **Commit:** `feat(demo): seed the past trip with processed photos`
-
-#### VO-403 · Gallery view · Must
-
-- **Files:** `web/src/app/trip/[slug]/gallery/page.tsx`, `web/src/features/gallery/components/{gallery-view.tsx,stop-section.tsx,photo-grid.tsx,photo-tile.tsx,gallery-view.test.tsx}`
-- **Depends on:** VO-402
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/gallery/components` passes:
-    - `groups photos under their stops, in time order`
-    - `hides duplicates and says "3 duplicates hidden"`
-    - `the best shot has a text badge, not color alone`
-    - `captions render under the photos`
-    - `shows "No photos yet." when there are none`
-- **Note:** if VO falls behind, the FE engineer takes this task.
-- **Commit:** `feat(gallery): gallery grouped by stop`
-
-#### VO-404 · e2e 06-memories · Should
-
-- **Files:** `web/e2e/06-memories.spec.ts`
-- **Depends on:** VO-403, AI-403, VO-217
-- **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/06-memories.spec.ts` passes: `from the trip list, the past trip's gallery shows 24 photos under 3 stops with best-shot badges, and Generate produces a recap with 3–6 sections`.
-- **Commit:** `test(e2e): recap flow`
 
 #### VO-406 · Failure-mode checks · Should
 
 - **Files:** none
-- **Depends on:** AI-304, FE-304, VO-302
+- **Depends on:** AI-304, FE-304, CO-303
 - **Done when:**
   - [ ] Check: each failure behavior in the Milestone 4 criteria holds on the deployed app.
 
 ### M4 · FE
 
+#### FE-404 · Per-person itinerary export · Must
+
+- **Files:** `web/src/app/trip/[slug]/mine/page.tsx`, `web/src/features/itinerary/components/{my-itinerary-view.tsx,my-itinerary-view.test.tsx}`, `web/src/features/itinerary/server/{build-itinerary-export.ts,build-itinerary-export.test.ts}`, `web/src/app/api/trips/[id]/itinerary/{route.ts,route.test.ts}`, `packages/shared/src/api/itinerary.ts`
+- **Depends on:** FE-206, FE-208, CO-213
+- **Produces:** `MyItineraryView` and `buildItineraryExport({ tripId, memberId }) → { stops, totals }`, plus the download route serving one `VEVENT` per attended item as a calendar file.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/features/itinerary/components/my-itinerary-view.test.tsx src/features/itinerary/server/build-itinerary-export.test.ts src/app/api/trips` passes:
+    - `shows only the signed-in member's attended items, in time order, each with place, time, attendees, and payment status`
+    - `the calendar file has one event per attended item, with the place and start/end times`
+    - `the download route returns 403 for a non-member`
+    - `totals show the member's committed share and status`
+  - [ ] Check: the page prints to one clean hand-off per member.
+- **Commit:** `feat(itinerary): per-person itinerary with calendar download`
+
+#### FE-405 · e2e 05-itinerary · Should
+
+- **Files:** `web/e2e/05-itinerary.spec.ts`
+- **Depends on:** FE-404, CO-214, VO-219, VO-217
+- **Done when:**
+  - [ ] `pnpm --filter web e2e -- e2e/05-itinerary.spec.ts` passes: `Person 2 opens /mine, sees only their own items with "Paid" statuses, and downloads a calendar file with one event per item`.
+- **Commit:** `test(e2e): per-person itinerary flow`
+
 #### FE-401 · Accessibility e2e · Should
 
 - **Files:** `web/e2e/a11y.spec.ts`
-- **Depends on:** VO-403, AI-403, VO-217
+- **Depends on:** VO-220, VO-217
 - **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/a11y.spec.ts` passes: `axe finds no serious or critical violations on chat, plan, map, invite, gallery, and recap`.
+  - [ ] `pnpm --filter web e2e -- e2e/a11y.spec.ts` passes: `axe finds no serious or critical violations on chat, plan, map, mine, invite, and profile`.
 - **Commit:** `test(e2e): accessibility checks on every flow's views`
 
 #### FE-402 · Interaction-state audit · Should
@@ -1928,14 +1718,14 @@ The recap flow is built here, then all six core flows run end to end on real pro
 - **Files:** none of its own. Each issue goes to the file's owner as a one-line task.
 - **Depends on:** Milestone 3 passed
 - **Done when:**
-  - [ ] Check: every button, tab, chip, and link in the core flows shows hover, active, focus-visible, disabled, and pending states per design §8.5. The keyboard alone can send, vote, and approve.
+  - [ ] Check: every button, tab, chip, and link in the core flows shows hover, active, focus-visible, disabled, and pending states per design §8.5. The keyboard alone can send, comment, and approve.
 
-#### FE-403 · e2e 00-all-flows · Should
+#### FE-406 · e2e 00-all-flows · Should
 
 - **Files:** `web/e2e/00-all-flows.spec.ts`
-- **Depends on:** AI-214, FE-217, CO-214, VO-218, VO-219, VO-404
+- **Depends on:** AI-214, FE-222, CO-214, VO-219, FE-405
 - **Done when:**
-  - [ ] `pnpm --filter web e2e -- e2e/00-all-flows.spec.ts` passes: `the six core flows run in order with mocks: plan a day, vote, book, restaurant call, placeholder claim, then recap`.
+  - [ ] `pnpm --filter web e2e -- e2e/00-all-flows.spec.ts` passes: `the five core flows run in order with mocks: profile, plan a day, collaborate, pay, claim, then per-person itinerary`.
 - **Commit:** `test(e2e): all core flows in one run`
 
 ### M4 · CO
@@ -1998,16 +1788,6 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
     - `the card shows the line when it's kept, and nothing when it's dropped`
 - **Commit:** `feat(agent): fact-checked summary line on the plan card`
 
-#### AI-S01 · `generate_recap` tool and public recap link · Should
-
-- **Files:** `web/src/lib/tools/generate-recap/{tool.ts,card.tsx,card.test.tsx}`, `web/src/app/trip/[slug]/recap/page.tsx`
-- **Depends on:** AI-402, AI-403
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/generate-recap` passes:
-    - `the recap card offers Open and Copy link`
-    - `a share slug renders the public recap with only recap content and signed photo URLs`
-- **Commit:** `feat(recap): recap tool and public link`
-
 #### CO-S02 · Declines and covering the shortfall · Should
 
 - **Files:** `web/src/features/payments/server/{decline-hold.ts,cover-shortfall.ts}`, `web/src/app/api/mandates/[id]/{decline,cover}/route.ts`, `web/tests/db/decline-cover.test.ts`
@@ -2030,19 +1810,6 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
     - `logistics has 5 lines or fewer`
 - **Commit:** `feat(agent): summarize tool`
 
-#### AI-S03 · `update_item` tool · Should
-
-- **Files:** `packages/shared/src/tools/update-item.ts`, `packages/shared/src/cards/itinerary-change.ts`, `supabase/migrations/<timestamp>_apply_item_change.sql`, `web/src/lib/tools/update-item/{tool.ts,card.tsx}`, `web/tests/db/update-item.test.ts`
-- **Depends on:** AI-210
-- **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/update-item.test.ts` passes:
-    - `swap_option by a non-organizer returns not_permitted with "ask the group to vote"`
-    - `mark_tbd on a decided item supersedes it`
-    - `add_slot with an area creates a TBD block with a provisional stop`
-    - `every action on a booked item returns not_permitted`
-    - `apply_item_change rejects a non-member actor with not_permitted`
-- **Commit:** `feat(agent): update_item tool`
-
 #### FE-S02 · Create-trip flow · Should
 
 - **Files:** `supabase/migrations/<timestamp>_create_trip.sql`, `web/src/app/trips/new/page.tsx`, `web/src/app/api/trips/route.ts`, `packages/shared/src/api/trips.ts`, `web/tests/db/create-trip.test.ts`
@@ -2053,14 +1820,6 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
     - `a caller with no session is rejected`
   - [ ] Check: the form validates the title, city, and date, with disabled and pending states on Create.
 - **Commit:** `feat(trips): create a trip`
-
-#### FE-S03 · Comments on items · Should
-
-- **Files:** `web/src/features/itinerary/components/{item-comments.tsx,item-comments.test.tsx}`
-- **Depends on:** FE-105, FE-206
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/itinerary/components/item-comments.test.tsx` passes: `a comment is sent as a message with item_id, and shows under that item`.
-- **Commit:** `feat(itinerary): comments on items`
 
 #### AI-S04 · `search_places` tool and Google Places · Should
 
@@ -2081,13 +1840,14 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
   - [ ] Check: a thrown test error shows up in Sentry tagged with `trip_id`, `run_id`, `tool`, and `provider`.
 - **Commit:** `chore(ops): sentry in web and optimizer`
 
-#### VO-S02 · Live photo upload · Should
+#### VO-S02 · Optimizer on Vultr (last) · Should
 
-- **Files:** `web/src/app/api/photos/route.ts`, `packages/shared/src/api/photos.ts`, `web/src/features/gallery/components/{photo-upload.tsx,photo-upload.test.tsx}`
-- **Depends on:** VO-403
+- **Files:** `planning/checklist.md` (B9 Vultr runbook)
+- **Depends on:** VO-107
+- **Produces:** the optimizer image (from VO-107's `optimizer/Dockerfile`) running on a Vultr Cloud Compute host with Docker, with `OPTIMIZER_URL` on Vercel pointing at it. Do this task last: all testing runs against `http://localhost:8000` until then.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/gallery/components/photo-upload.test.tsx` passes: `reads taken_at and GPS with exifr before upload, and uploads to live/<trip_id>/`.
-- **Commit:** `feat(gallery): live photo upload`
+  - [ ] Check: `curl https://<vultr-host>/health` returns ok, and `curl https://<vercel-url>/api/health` returns all `ok` with `OPTIMIZER_URL` set to the Vultr URL. The container restarts on reboot (`--restart unless-stopped`).
+- **Commit:** `chore(deploy): optimizer on vultr`
 
 #### FE-S04 · Presence avatars · Should
 
@@ -2158,54 +1918,6 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
     - `the button is at least 44 px and has an accessible name that changes with its state`
 - **Commit:** `feat(chat): voice-note button`
 
-#### AI-S06 · Subject segmentation for best shots and recap crops · Should
-
-- **Files:** `web/src/lib/providers/segmentation/{real.ts,mock.ts,index.ts,real.test.ts}`, `supabase/migrations/<timestamp>_photo_subject_box.sql`, `web/src/features/gallery/server/{subject-score.ts,subject-score.test.ts}`
-- **Depends on:** VO-401
-- **Produces:** the segmentation provider (`SEGMENT_PROVIDER`; `sam-3.1` on the Responses API through the `openai` SDK), `photos.subject_box`, and a subject term in best-shot scoring (design §2.5).
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/segmentation src/features/gallery/server/subject-score.test.ts` passes:
-    - `the real provider sends input_text "person" with the input_image and parses boxes and scores` (SDK mocked)
-    - `a large subject near a thirds line scores above a small one in a corner`
-    - `a photo with no match scores the same as before segmentation`
-- **Commit:** `feat(gallery): sam subject boxes for best shots`
-
-#### AI-S07 · Recap cover with Muse Image · Should
-
-- **Files:** `web/src/lib/providers/image/{real.ts,mock.ts,index.ts,real.test.ts}`, `supabase/migrations/<timestamp>_recap_cover.sql`, `web/src/features/recap/server/{generate-cover.ts,generate-cover.test.ts}`
-- **Depends on:** AI-402
-- **Produces:** the image provider (`IMAGE_PROVIDER`; `muse-image-1.0` through the `openai` SDK) and `recaps.cover_path`.
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/image src/features/recap/server/generate-cover.test.ts` passes:
-    - `the cover uses the three best photos as references at 1792x1024 webp`
-    - `a failed generation keeps the previous cover`
-    - `regenerating uploads the new cover before switching cover_path`
-- **Commit:** `feat(recap): generated cover`
-
-#### AI-S08 · Search grounding behind the places adapter · Should
-
-- **Files:** `web/src/lib/providers/grounding/{real.ts,mock.ts,index.ts,real.test.ts}`, `web/src/lib/providers/places/{real.ts,mock.ts}`, `supabase/migrations/<timestamp>_places_facts.sql`
-- **Depends on:** AI-S04
-- **Produces:** the grounding provider (`GROUNDING_PROVIDER`; the `web_search` tool on the Responses API through the `openai` SDK), `PlacesProvider.groundFacts`, and `places.facts` with citations (design §2.5, ADR 0017).
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/grounding src/lib/providers/places` passes:
-    - `the real provider calls responses.create with tools [{ type: "web_search" }] and maps url_citation annotations to citations` (SDK mocked)
-    - `a response with no annotations stores facts with no citations, and nothing is invented`
-    - `groundFacts caches for 7 days and refreshes older facts`
-  - [ ] Check: with `GROUNDING_PROVIDER=real`, the aquarium's facts list its hours with at least one source URL.
-- **Commit:** `feat(places): search-grounded venue facts with citations`
-
-#### FE-S08 · Venue facts with sources in stop details · Should
-
-- **Files:** `web/src/features/itinerary/components/{venue-facts.tsx,venue-facts.test.tsx}`
-- **Depends on:** AI-S08, FE-210
-- **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/itinerary/components/venue-facts.test.tsx` passes:
-    - `hours and prices show with numbered source links that open in a new tab`
-    - `facts older than 7 days say when they were checked`
-    - `no facts renders nothing`
-- **Commit:** `feat(ui): venue facts with sources`
-
 ## Parallelization
 
 **What each engineer works on, per milestone.** Each cell lists that person's tasks, Must first. No two people edit the same file within a milestone. Files that change hands between milestones are listed in the next table.
@@ -2213,19 +1925,19 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 | Milestone | FE engineer | AI engineer | CO engineer | VO engineer |
 | --- | --- | --- | --- | --- |
 | **M1** | App, tokens, card frame, send route, chat, Realtime: FE-101–107 | FastAPI stub, contracts, web skeleton, LLM, context, runner, `plan_day` slice: AI-101–107 | Schema files 2–4, `apply_plan` and the function audit, `withPolicy`: CO-101–105. Should: CI and lint rules (CO-106) | Repo, schema file 1, env, clients, seed, sign-in, deploy: VO-101–107 |
-| **M2** | Trip view model first (FE-204), then three tracks in parallel. Lanes: FE-205, FE-206. Map: FE-210, FE-211. Data: FE-209, FE-218. Also shell, trip list, votes, and recovery: FE-201–203, FE-214. Should: FE-207, FE-208, FE-212, FE-213, FE-215–217 | Test double; scoring interface first (AI-202), then scoring, both engines, and the request builder in parallel; `plan_day`, re-plan with the seeded test, plan card, queue, photo API: AI-201–207, AI-209–212, AI-215. Should: AI-208, AI-213, AI-214 | Contracts, money, payments mock, booking, `record_reservation`, mandates, tool, approvals with the Stripe webhook route, finalize, fronting, badge; concurrency suites on mocks: CO-201–205, CO-207–210, CO-212, CO-213. Should: CO-214 | Schema file 5, webhooks, voice provider, call tool, confirm, post-call, call card, claim, invite page, joined card, mock voice (VO-212), booking and approval cards (VO-213, VO-214, moved from CO): VO-202–214. Should: VO-201 (do it early), VO-215–219 |
-| **M3** | ORS switch, badge in lanes, lanes and map check: FE-301–303. Should: FE-304, FE-305 | Meta switch, plan check, follow-up re-plan: AI-301–303. Should: AI-304 | Stripe provider, customers, Stripe switch, fronting on Stripe, concurrency suites on Stripe test mode: CO-301–305 | Callback URLs, ElevenLabs switch, run limits: VO-301, VO-302, VO-304. Should: VO-303 |
-| **M4** | Should: FE-401–403. Takes VO-403 if VO falls behind. | Vision, recap generation, recap view: AI-401–403. Should: AI-404, AI-405 | Should: CO-401, then the Should queue | Photo pipeline, past-trip seed, gallery: VO-401–403. Should: VO-404, VO-406 |
-| **Should queue** | FE-S01–S06 | AI-S01–S05 | CO-S01, CO-S02, CO-S04, CO-S05 | VO-S01, VO-S02 |
+| **M2** | Trip view model first (FE-204), then three tracks in parallel. Lanes: FE-206, FE-220. Map: FE-210, FE-211. Data: FE-209, FE-218. Also shell, trip list, person filter, recovery, comments, and profile: FE-201, FE-202, FE-208, FE-214, FE-219–221. Should: FE-207, FE-212, FE-213, FE-215, FE-216, FE-222 | Test double; scoring interface first (AI-202), then scoring, both engines, and the request builder in parallel; `plan_day`, re-plan from comments, `update_item`, plan card, queue: AI-201–207, AI-209–212, AI-216. Should: AI-208, AI-213, AI-214 | Contracts, money, payments mock, booking, mandates, tool, approvals with the Stripe webhook route, finalize, fronting, badge; concurrency suites on mocks: CO-201–204, CO-207–210, CO-212, CO-213. Should: CO-214 | Webhooks, claim, invite page, joined card, booking and approval cards (VO-213, VO-214, moved from CO), profile route: VO-203, VO-209–211, VO-213, VO-214, VO-220. Should: VO-201 (do it early), VO-215–217, VO-219 |
+| **M3** | ORS switch, badge in lanes, lanes and map check: FE-301–303. Should: FE-304, FE-305 | Meta switch, plan check, comment-driven re-plan: AI-301–303. Should: AI-304 | Stripe provider, customers, Stripe switch, fronting on Stripe, concurrency suites on Stripe test mode: CO-301–305 | Run limits: VO-304. Should: VO-303 |
+| **M4** | Per-person export: FE-404. Should: FE-401, FE-402, FE-405, FE-406 | Should: AI-404 | Should: CO-401, then the Should queue | Should: VO-406 |
+| **Should queue** | FE-S01, FE-S02, FE-S04–S07 | AI-S02, AI-S04, AI-S05 | CO-S01, CO-S02, CO-S04, CO-S05 | VO-S01–S03 |
 
 **Must tasks per engineer and milestone**, as `check_plan.py` prints them. One person works serially, so these bound each milestone:
 
 | Milestone | FE | AI | CO | VO |
 | --- | --- | --- | --- | --- |
-| M1 | 7 | 7 | 5 | 7 |
-| M2 | 11 | 12 | 11 | 13 |
-| M3 | 3 | 3 | 5 | 3 |
-| M4 | 0 | 3 | 0 | 3 |
+| M1 | 8 | 7 | 6 | 7 |
+| M2 | 13 | 12 | 10 | 7 |
+| M3 | 3 | 3 | 5 | 1 |
+| M4 | 1 | 0 | 0 | 0 |
 
 **Files that change hands.** Each file has one owner at a time. Hand-offs happen at milestone boundaries, except the two moved cards, which VO owns from the start.
 
@@ -2236,7 +1948,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 | `web/src/lib/reliability/*` | CO (CO-105, M1) | VO, from M2 |
 | `web/package.json`, `pnpm-lock.yaml`, `web/playwright.config.ts`, `web/vitest.config.ts` | FE (FE-101, FE-102, M1) | VO, from M2 |
 | `web/scripts/demo/fixtures/saturday-trip.json` | VO (VO-105, M1) | AI, from M2 |
-| `web/scripts/demo/fixtures/agent-recordings/*` | each prompt's owner (M2) | AI regenerates all four in AI-404; owners review their own file |
+| `web/scripts/demo/fixtures/agent-recordings/*` | each prompt's owner (M2) | AI regenerates all three in AI-404; owners review their own file |
 | Approval card UI: `features/payments/components/approval-card.tsx`, `features/payments/lib/approval-copy.ts`, `features/payments/hooks/use-mandates.ts`, `lib/tools/propose-purchase/card.tsx` | VO (VO-214) | — (inside CO's feature, owned by VO) |
 | `features/booking/components/booking-confirmed-card.tsx` | VO (VO-213) | — (inside CO's feature, owned by VO) |
 
@@ -2245,9 +1957,9 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 | Milestone | Task → waits on |
 | --- | --- |
 | M1 | CO-101 → VO-102 (pushed first) · AI-105 and FE-105 → CO-102 (types) · FE-104 and VO-106 → AI-103 · AI-107 → CO-104, CO-105 · VO-107 → AI-101 |
-| M2 | FE-204 → AI-102 · FE-218 → CO-101 · AI-209 → FE-209 · AI-211 → FE-205 · CO-209 → VO-203 · CO-213 → VO-214 · VO-206, VO-207, VO-208, VO-212 → CO-205 · VO-211 → CO-212 · VO-213 → CO-201 · VO-214 → CO-202, CO-209. Should: FE-217 → AI-214, VO-201, VO-217 · CO-214 → FE-217, VO-214, VO-217 · VO-218 → AI-210, AI-214 · VO-219 → CO-212, CO-214 |
-| M3 | FE-302 → CO-213 · FE-303 → AI-302 · CO-304 → VO-211 · AI-303 → VO-212 |
-| M4 | VO-401 → AI-215, AI-401 · AI-402 → VO-202. Should: AI-405 → VO-402 · VO-404 → AI-403 · FE-403 → every e2e flow spec |
+| M2 | FE-204 → AI-102 · FE-218 → CO-101 · AI-209 → FE-209 · AI-211 → FE-218 · AI-216 → AI-210 · FE-220 → FE-206 · FE-221 → VO-220 · CO-209 → VO-203 · CO-213 → VO-214 · VO-211 → CO-212 · VO-213 → CO-201 · VO-214 → CO-202, CO-209. Should: FE-222 → FE-220, AI-216, VO-201, VO-217 · CO-214 → CO-208, AI-214, VO-214, VO-217 · VO-219 → CO-212, CO-214 |
+| M3 | FE-302 → CO-213 · FE-303 → AI-302 · CO-304 → VO-211 · AI-303 → AI-216 |
+| M4 | FE-404 → FE-208, CO-213. Should: FE-405 → FE-404, CO-214, VO-219 · FE-406 → every e2e flow spec |
 
 **Could VO own the map track?** 4.2b made it independent (FE-204 → FE-210 → FE-211), so this was checked, not done:
 
@@ -2256,7 +1968,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
   - The map track only imports `lib/trip-view`, the tokens, and `features/map`'s barrel, which is frozen.
   - `features/map/server/ensure-routes.ts` stays with FE's data track.
   - `components/ui/map.tsx`, the generated mapcn component, would hand off to VO at M2.
-- **Load says no.** VO already has the most Must work in M2 (13). The map track would make it 15, against FE's 9.
+- **Load says no.** VO has 7 Must tasks in M2 against FE's 13. The map track would make it 9 against 11, and VO's claim and card work is on the critical path.
 - **Recommendation:** keep the map with FE unless VO finishes early.
 
 ---
@@ -2267,13 +1979,12 @@ This map shows that every Must task sits under a core user flow (design §5), or
 
 | Core flow | Must tasks |
 | --- | --- |
-| Foundation and enablers (every flow) | FE-101–108, FE-201, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
-| 5.1 Plan a day | FE-204, FE-206, FE-209–211, FE-214, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-301, AI-302 |
-| 5.2 Vote | FE-203, FE-205 |
-| 5.3 Book with group approval | CO-107, CO-201–204, CO-207–210, CO-213, CO-301–303, CO-305, VO-213, VO-214, FE-219, FE-302 |
-| 5.4 Restaurant call | VO-203–208, VO-212, VO-301, VO-302, CO-205, AI-210, AI-303 |
-| 5.5 Placeholder claims their lane | VO-209–211, CO-212, CO-304 |
-| 5.6 Recap | FE-202, VO-202, VO-401–403, AI-215, AI-401–403 |
+| Foundation and enablers (every flow) | FE-101–108, FE-201, FE-214, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
+| 5.1 Create profile | FE-221, VO-220 |
+| 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-301, AI-302 |
+| 5.3 Invite and collaborate | FE-220, AI-210, AI-216, AI-303, VO-209–211 |
+| 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, VO-203, VO-213, VO-214, FE-219, FE-302 |
+| 5.5 Per-person itinerary | FE-202, FE-208, FE-404 |
 
 ---
 
@@ -2286,7 +1997,7 @@ This map shows that every Must task sits under a core user flow (design §5), or
 **Frontend (4.2b).** FE-204 defines the trip view model and its fixtures, including the provisional dinner pin. After it, three tracks are independent:
 
 ```text
-FE-102, AI-102 → FE-204 ─┬─ lanes: FE-205 → FE-206            (FE-205 also needs FE-203's vote contract)
+FE-102, AI-102 → FE-204 ─┬─ lanes: FE-206 → FE-220
                          ├─ map:   FE-210 → FE-211
 CO-101 ──────────────────┴─ data:  FE-218 (rows → view)        FE-209 routing runs beside it
 ```
@@ -2302,23 +2013,20 @@ Removed dependencies that were only for convenience:
 
 | | Longest dependency chain |
 | --- | --- |
-| Before (15 Must tasks) | VO-101 → FE-101 → FE-102 → VO-103 → VO-104 → FE-103 → FE-104 → FE-106 → FE-107 → FE-204 → FE-205 → FE-206 → FE-218 → FE-301 → FE-303 |
+| Before (14 Must tasks) | VO-101 → FE-101 → FE-102 → VO-103 → VO-104 → FE-103 → FE-104 → FE-106 → FE-107 → FE-204 → FE-206 → FE-218 → FE-301 → FE-303 |
 | After (13 Must tasks) | VO-101 → FE-101 → FE-102 → VO-102 → CO-101 → CO-102 → CO-103 → CO-207 → CO-209 → CO-210 → CO-212 → VO-211 → CO-304 |
 
-The longest chains within Frontend's own work are now 8 (lanes, through FE-203's vote contract), 6 (map), and 6 (data). FE-303 reaches 12, but only because it checks a real Muse Spark plan (AI-302).
+The longest chains within Frontend's own work are now 8 (lanes, through FE-220's comments), 6 (map), and 6 (data). FE-303 reaches 12, but only because it checks a real Muse Spark plan (AI-302).
 
-A second chain ties at 13 and ends at the recap gallery: … AI-106 → AI-107 → AI-215 → VO-401 → VO-402 → VO-403. So in Milestone 2, protect CO's money chain (CO-207 → CO-209 → CO-210 → CO-212) and AI's photo endpoint (AI-215) from interruptions.
+A second chain runs through planning into collaboration: … AI-106 → AI-107 → AI-209 → AI-210 → AI-216 → AI-303. So in Milestone 2, protect CO's money chain (CO-207 → CO-209 → CO-210 → CO-212) and the comment-revision chain (AI-209 → AI-210 → AI-216) from interruptions.
 
 ## Riskiest tasks
 
-1. **VO-302, the live ElevenLabs call with the mid-call confirm.** Vendor latency, the voice agent's reliability at calling the tool, and phone networks are all outside our control, and the restaurant call flow depends on them. Mitigations:
-   - VO-212's mock plays every scenario (accept, outside the window, tool never fires, duplicate tool, webhook first, no answer) against the real routes before the switch.
-   - VO-206's window check and idempotency.
-   - A failed call leaves dinner TBD instead of half-booked.
-2. **CO-210 and CO-212, finalizing and fronting.** They sit on the longest dependency chain, and they're concurrency plus money: one winner, one paying row per share, exactly one refund. Webhooks can arrive twice or early. Mitigations:
+1. **CO-210 and CO-212, finalizing and fronting.** They sit on the longest dependency chain, and they're concurrency plus money: one winner, one paying row per share, exactly one refund. Webhooks can arrive twice or early. Mitigations:
    - `planCaptures` as one pure function, with `pays_share` written before any capture.
    - Conditional updates, and idempotency keys from our own IDs.
    - The same concurrency and webhook suites run on mocks in M2 and on Stripe test mode in CO-305.
-3. **AI-210, re-planning through `apply_plan`.** It's plpgsql that supersedes items and shifts times, it joins both the engines chain and the `plan_day` chain, and the restaurant call flow depends on it. Mitigations: AI-207 computes the shift in a pure, tested function first, and `test_seeded_replan` fails loudly if the seed or the hours drift.
+2. **AI-216, comment-driven revision through `update_item`.** It joins the engines chain and the `plan_day` chain, and the collaborate flow depends on the model asking for the right revision. Mitigations: AI-210's supersede machinery is built and tested first, and the e2e spec (FE-222) pins one comment-to-revision turn.
+3. **AI-210, re-planning through `apply_plan`.** It's plpgsql that supersedes items and shifts times, and it joins both the engines chain and the `plan_day` chain. Mitigations: AI-207 computes the shift in a pure, tested function first, and `test_seeded_replan` fails loudly if the seed or the hours drift.
 
 Next in line: AI-301. If Muse Spark picks the wrong tool, the user sees the wrong card, so the prompt checks run 5 of 5 before the switch counts.

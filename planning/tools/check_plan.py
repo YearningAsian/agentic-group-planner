@@ -157,7 +157,7 @@ def check_references(tiers: dict[str, str]) -> None:
 
 
 # Mirrors .gitignore: planning/ is tracked except its decision records and the original master plan.
-IGNORED_TOPS = {"skills", ".git", ".claude", ".codex", ".agents", ".superpowers"}
+IGNORED_TOPS = {"skills", ".git", ".claude", ".codex", ".agents", ".superpowers", ".cursor"}
 IGNORED_PATHS = {"planning/adr", "planning/master-plan.docx"}
 IGNORED_EVERYWHERE = {"AGENTS.md", "CLAUDE.md"}
 MARKDOWN_LINK = re.compile(r"\]\(([^)#\s]+)")

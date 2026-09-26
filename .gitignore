@@ -10,13 +10,13 @@ scratchpad/
 /planning/master-plan.docx
 .claude/
 .codex/
+.cursor/
 .superpowers/
 .agents/
 .mcp.json
 .ssh/
 .aws/
 .azure/
-.railway/
 
 # Secrets and environment
 .env*

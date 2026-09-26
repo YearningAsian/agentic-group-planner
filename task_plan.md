@@ -41,3 +41,14 @@ Started 2026-09-25. This file is tracked; keep it free of secrets and personal n
 
 - The local agent notes are stale: they say planning/ is gitignored and skills/ is tracked. Now the reverse.
 - check_plan.py no longer flags "Meta" as an event word.
+
+## 4. Journey pivot (2026-09-26): five flows, plan only
+
+Started 2026-09-26. Docs only; no implementation. The end goal is now five steps: create profile, AI-guided trip planner, invite plus collaborate and edit, group paying after confirmation, per-person itinerary.
+
+- [x] Decisions: restaurant call and recap/gallery dropped entirely; collaboration through item comments (not voting); per-person itinerary is exportable (screen plus calendar download).
+- [x] `planning/design.md`: §5 rewritten to the five flows with sequence diagrams; tools 7→5 and cards 11→9 (no `call_restaurant`, `generate_recap`, `call_status`, or `recap`); no `votes`, `calls`, `photos`, or `recaps` tables (17 total); no voice, segmentation, image, or grounding providers; new `/profile` and per-person itinerary routes; §11.6 records the pivot and the dormant migration content.
+- [x] `planning/plan.md`: goal, milestone criteria, and flow map rewritten; deleted vote, voice, photo, recap, and gallery tasks; new Must tasks FE-220 (comments), FE-221 (profile page), VO-220 (profile route), AI-216 (`update_item`), FE-404 (export); new e2e 02-collaborate (FE-222), 05-itinerary (FE-405), 00-all-flows (FE-406), 04-claim (VO-219); seed stages now `planned|discussed|booked`.
+- [x] `planning/checklist.md`, `planning/stack.md`, `README.md`: voice/photo/recap vendors, keys, and setup removed.
+- [x] `planning/tools/check_plan.py`: `.cursor/` added to the ignored tops, mirroring the working-tree `.gitignore`.
+- [x] Verification: `python planning/tools/check_plan.py` → 127 tasks (83 Must, 44 Should), all checks passed.

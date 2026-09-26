@@ -8,17 +8,6 @@ Keep keys in a shared password manager, never in the repo. Each line names the v
 
 - [ ] **Meta Model API:** account on dev.meta.ai, an API key, and a test call to `muse-spark-1.3` → `META_MODEL_API_KEY` (ADR 0017)
 - [ ] **Google AI Studio:** Gemini key → `GOOGLE_GENERATIVE_AI_API_KEY`
-- [ ] **Twilio:** account upgraded (no trial notice), and a voice-capable US number bought
-- [ ] **ElevenLabs Agents:**
-  - Twilio number imported → `ELEVENLABS_PHONE_NUMBER_ID`
-  - Agent created → `ELEVENLABS_AGENT_ID`
-  - API key → `ELEVENLABS_API_KEY`
-- [ ] **ElevenLabs agent setup (dashboard):**
-  - Prompt: polite reservation caller, using the dynamic variables `call_id`, `restaurant`, `party_size`, `preferred_time`, `earliest`, `latest`, `name`, `notes`
-  - Server tool `confirm_reservation(call_id, confirmed_time, party_size, name, notes?)` with the header `x-tool-secret` → `ELEVENLABS_TOOL_SECRET`
-  - Post-call webhook secret → `ELEVENLABS_WEBHOOK_SECRET`
-  - Data collection fields: `confirmed_time`, `party_size`
-- [ ] **ElevenLabs test:** one outbound call from the dashboard to a teammate's phone. That number → `VOICE_TO_NUMBER_OVERRIDE` (E.164). It goes only in `web/.env.local` and the Vercel env, never in docs, commits, or chat; `.env.example` keeps `+15555550100`.
 - [ ] **Duffel:** test token → `DUFFEL_ACCESS_TOKEN`; request Stays access (optional; no core flow needs it)
 - [ ] **Stripe:** test mode account → `STRIPE_SECRET_KEY` (`sk_test_…`); Stripe CLI installed and `stripe login` done
 - [ ] **Google Places API (New)** key → `GOOGLE_PLACES_API_KEY`
@@ -26,11 +15,9 @@ Keep keys in a shared password manager, never in the repo. Each line names the v
 - [ ] **Supabase:**
   - Project created → `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and the project ref
   - Magic-link email template pointing at `/auth/confirm` (`{{ .TokenHash }}`), anonymous sign-ins off, and custom SMTP before real use (ADR 0016)
-  - Private bucket `trip-photos` created
-- [ ] **Vercel, Railway, Sentry, and ngrok** accounts; Vercel and Railway CLIs installed; `vercel login` and `railway login` done
+- [ ] **Vercel, Vultr, and Sentry** accounts; Vercel CLI installed (`vercel login` done) and Vultr API key / SSH access to the host ready (only needed for VO-S02, last)
 - [ ] **UI reference:** Muse screenshots saved
 - [ ] **Seed content:**
-  - About 24 past-trip photos with timestamps (3 near-duplicates on purpose)
   - About 12 Atlanta venues with hours, prices, and tags
 
 ## B. Scaffold, in order
@@ -42,14 +29,13 @@ Commands are for bash (macOS, Linux, or Git Bash on Windows). Run them from the 
 ```bash
 for p in next@16.3.5 react@19.3.0 react-dom@19.3.0 typescript@6.0.3 tailwindcss@4.3.3 shadcn@4.21.0 \
   maplibre-gl@6.10.0 ai@7.0.109 @ai-sdk/openai-compatible@3.0.53 openai@7.23.0 @ai-sdk/google@4.0.76 zod@4.6.5 \
-  @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 @elevenlabs/elevenlabs-js@2.68.0 \
-  @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 exifr@7.1.3 @duffel/api@4.30.0; do
+  @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 \
+  @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 @duffel/api@4.30.0; do
   npm view "$p" version >/dev/null 2>&1 && echo "ok       $p" || echo "MISSING  $p"
 done
-for p in fastapi/0.141.1 uvicorn/0.53.0 pydantic/2.13.5 ortools/9.15.6755 pillow/12.3.0 httpx/0.28.1; do
+for p in fastapi/0.141.1 uvicorn/0.53.0 pydantic/2.13.5 ortools/9.15.6755 httpx/0.28.1; do
   echo "$(curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/$p/json)  $p"   # 200 = exists
 done
-curl -s https://pypi.org/pypi/imagehash/json | python -c "import sys,json; print('imagehash', json.load(sys.stdin)['info']['version'])"
 ```
 
 - [x] Every line prints `ok` or `200`. Replace any missing version with the nearest stable one, update `planning/stack.md`, and note the change in ADR 0001. — *done 2026-09-23: every npm pin `ok`, every PyPI pin `200`; stack.md updated*
@@ -69,7 +55,7 @@ pnpm init
   - `"private": true` and `"engines": { "node": ">=24" }`.
   - Scripts:
     - `dev`, `lint`, `typecheck`, `test`: fan out with `pnpm -r`.
-    - `seed:demo`, `reset:demo`, `demo:process-photos`: run `pnpm --filter web exec tsx scripts/demo/<name>.ts`. Each is added with its script (VO-105, VO-216, VO-401), so the root never points at a missing file.
+    - `seed:demo`, `reset:demo`: run `pnpm --filter web exec tsx scripts/demo/<name>.ts`. Each is added with its script (VO-105, VO-216), so the root never points at a missing file.
     - `db:types`: `supabase gen types typescript --linked > packages/shared/src/db/database.types.ts`.
     - `api:types`: `pnpm --filter @agp/shared exec openapi-typescript http://localhost:8000/openapi.json -o src/optimizer/openapi.ts`.
 - [x] `pnpm-workspace.yaml` lists `web` and `packages/*`. — *done; also `supportedArchitectures` (arm64) and `savePrefix: ""`*
@@ -96,8 +82,8 @@ cd ..
 
 ```bash
 pnpm --filter web add --save-exact ai@7.0.109 @ai-sdk/openai-compatible@3.0.53 openai@7.23.0 @ai-sdk/google@4.0.76 zod@4.6.5 \
-  @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 @elevenlabs/elevenlabs-js@2.68.0 \
-  @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 exifr@7.1.3 server-only @sentry/nextjs@10
+  @supabase/supabase-js@2.116.0 @supabase/ssr@0.12.7 stripe@22.6.2 \
+  @tanstack/react-query@5.103.2 motion@13.4.0 sonner@2.0.8 nanoid@6.0.1 server-only @sentry/nextjs@10
 pnpm --filter web add -D --save-exact prettier@3 vitest@4 @playwright/test @axe-core/playwright tsx
 pnpm --filter web exec playwright install chromium webkit
 ```
@@ -114,14 +100,14 @@ pnpm --filter ./packages/shared add -D --save-exact typescript@6.0.3 openapi-typ
 ```
 
 - [x] Set `"name": "@agp/shared"`, `"private": true`, and `"type": "module"` in `packages/shared/package.json`, then run `pnpm --filter web add @agp/shared@workspace:*`. — *done*
-- [x] Stub the 7 tool schemas and 11 card schemas from design §2.1, so the barrel files are stable from Milestone 1 on. — *done*
+- [x] Stub the 5 tool schemas and 9 card schemas from design §2.1, so the barrel files are stable from Milestone 1 on. — *done*
 
 ### B6. Optimizer service
 
 ```bash
 mkdir -p optimizer/app optimizer/tests && cd optimizer
 python3.12 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install fastapi==0.141.1 uvicorn==0.53.0 pydantic==2.13.5 ortools==9.15.6755 pillow==12.3.0 httpx==0.28.1 imagehash==<version from B1> sentry-sdk
+pip install fastapi==0.141.1 uvicorn==0.53.0 pydantic==2.13.5 ortools==9.15.6755 httpx==0.28.1 sentry-sdk
 pip freeze > requirements.txt
 pip install ruff pytest && pip freeze > requirements-dev.txt
 uvicorn app.main:app --reload --port 8000                  # once app/main.py exists
@@ -143,7 +129,7 @@ pnpm exec supabase db push
 pnpm db:types
 ```
 
-- [x] Files 1–4 from design §3.3 are pushed in order, with their tables, helper functions, transition triggers, RLS policies, and Realtime publication entries. File 5 (media) follows in Milestone 2 (`planning/plan.md`, VO-202). — *done locally: `supabase start` (553xx ports, no storage-api) + `migration up --local`; no linked project (design §11.4)*
+- [x] Files 1–4 from design §3.3 are pushed in order, with their tables, helper functions, transition triggers, RLS policies, and Realtime publication entries. — *done locally: `supabase start` (553xx ports, no storage-api) + `migration up --local`; no linked project (design §11.4)*
 
 ### B8. Environment
 
@@ -151,30 +137,31 @@ pnpm db:types
 cp web/.env.example web/.env.local && cp optimizer/.env.example optimizer/.env   # after writing both examples from design §9
 ```
 
-- [x] `web/.env.example` has `VOICE_TO_NUMBER_OVERRIDE=+15555550100`. Put the real number only in `web/.env.local`. — *done*
+- [x] `web/.env.example` contains no phone number. — *done*
 - [x] The build profile runs: every provider set to `mock` except Supabase, and `NEXT_PUBLIC_DEMO_MODE=true`. — *done in `web/.env.example`; boot not yet verified*
 - [ ] `pnpm --filter web dev` boots without env errors.
 
-### B9. Deploy both services
+### B9. Deploy the web app; the optimizer stays on localhost until last
 
 ```bash
 cd web && vercel link && vercel env pull .env.vercel.local && vercel deploy && cd ..
-cd optimizer && railway init && railway up && cd ..
+# Optimizer: run locally for all testing (`uvicorn app.main:app --port 8000`).
+# Vultr happens last, in VO-S02 only:
+#   docker build -t agp-optimizer ./optimizer
+#   docker run -d --restart unless-stopped -p 8000:8000 --env-file optimizer/.env agp-optimizer
 ```
 
-- [ ] Railway start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. — *skipped: no deploys this run*
-- [ ] Set every variable on Vercel and Railway, and set `OPTIMIZER_URL` to the Railway URL. — *skipped: no deploys this run*
-- [ ] `GET https://<vercel-url>/api/health` reports `web`, `db`, and `optimizer` as ok. — *skipped: no deploys; checked locally in VO-107*
+- [ ] `OPTIMIZER_URL` stays `http://localhost:8000` until VO-S02. — *skipped: no deploys this run*
+- [ ] Set every web variable on Vercel. — *skipped: no deploys this run*
+- [ ] `GET http://localhost:3000/api/health` reports `web`, `db`, and `optimizer` as ok. — *skipped: no deploys; checked locally in VO-107*
 
 ### B10. Webhooks and callbacks
 
 ```bash
 stripe listen --forward-to localhost:3000/api/webhooks/stripe       # copy the printed whsec_… into web/.env.local
-ngrok http 3000                                                     # temporary URL for ElevenLabs during development
 ```
 
 - [ ] **Stripe:** a dashboard webhook endpoint at `https://<vercel-url>/api/webhooks/stripe` for `payment_intent.amount_capturable_updated`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, and `charge.refunded`. Its secret goes in Vercel's `STRIPE_WEBHOOK_SECRET`. — *skipped: no deploys*
-- [ ] **ElevenLabs:** the server tool URL points at `https://<vercel-url>/api/voice/tools/confirm-reservation`, and the post-call webhook at `https://<vercel-url>/api/webhooks/elevenlabs`. Use ngrok URLs while developing locally. — *skipped: no deploys*
 
 ### B11. Quality gates and CI
 
