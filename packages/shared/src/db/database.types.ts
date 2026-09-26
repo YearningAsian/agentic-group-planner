@@ -701,6 +701,7 @@ export type Database = {
           id: string
           idempotency_key: string
           kind: string
+          lease_expires_at: string | null
           mandate_id: string
           payer_member_id: string | null
           pays_share: boolean | null
@@ -723,6 +724,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           kind: string
+          lease_expires_at?: string | null
           mandate_id: string
           payer_member_id?: string | null
           pays_share?: boolean | null
@@ -745,6 +747,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           kind?: string
+          lease_expires_at?: string | null
           mandate_id?: string
           payer_member_id?: string | null
           pays_share?: boolean | null
