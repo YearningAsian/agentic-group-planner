@@ -7,7 +7,7 @@ import type { AuthorizeInput } from "./types";
 const mandateId = "00000000-0000-4000-8000-0000000000e1";
 
 async function setup(card: "visa" | "declined" = "visa") {
-  const payments = createMockPaymentsProvider();
+  const payments = createMockPaymentsProvider({ acceptWebhooks: true });
   const { customerId } = await payments.ensureCustomer({ profileId: "profile-1", name: "Person 1" });
   const { paymentMethodId } = await payments.attachTestCard({ customerId, card });
   const authorizeInput = (overrides: Partial<AuthorizeInput> = {}): AuthorizeInput => ({
@@ -92,7 +92,7 @@ describe("mock payments provider", () => {
     const { paymentIntentId } = await payments.authorize(authorizeInput());
     await payments.capture({ paymentIntentId, amountCents: 8682, idempotencyKey: `pi-capture:${mandateId}:member-1` });
 
-    const refund = { paymentIntentId, amountCents: 4325, idempotencyKey: `cover-refund:${mandateId}:member-4` };
+    const refund = { paymentIntentId, amountCents: 4325, idempotencyKey: `cover-refund:${mandateId}:member-4`, metadata: { mandate_id: mandateId, share_member_id: "member-4" } };
     const first = await payments.refund(refund);
     expect(first.refundId).toMatch(/^re_mock_[0-9a-f]{24}$/);
     expect(await payments.refund(refund)).toEqual(first);
@@ -117,14 +117,28 @@ describe("mock payments provider", () => {
       type: "payment_intent.amount_capturable_updated",
       paymentIntentId: "pi_mock_abc",
       status: "requires_capture",
+      metadata: {},
+      declineCode: null,
+      refunds: [],
     });
 
     const refunded = JSON.stringify({
       id: "evt_mock_2",
       type: "charge.refunded",
-      data: { object: { id: "ch_mock_1", object: "charge", payment_intent: "pi_mock_abc", status: "succeeded" } },
+      data: {
+        object: {
+          id: "ch_mock_1",
+          object: "charge",
+          payment_intent: "pi_mock_abc",
+          status: "succeeded",
+          refunds: { data: [{ id: "re_mock_1", amount: 4325, metadata: { mandate_id: "m-1", share_member_id: "member-4" } }] },
+        },
+      },
     });
-    expect(payments.parseWebhook({ rawBody: refunded, signature: signMockWebhook(refunded) }).paymentIntentId).toBe("pi_mock_abc");
+    expect(payments.parseWebhook({ rawBody: refunded, signature: signMockWebhook(refunded) })).toMatchObject({
+      paymentIntentId: "pi_mock_abc",
+      refunds: [{ id: "re_mock_1", amountCents: 4325, metadata: { mandate_id: "m-1", share_member_id: "member-4" } }],
+    });
 
     const tampered = rawBody.replace("pi_mock_abc", "pi_mock_xyz");
     expect(() => payments.parseWebhook({ rawBody: tampered, signature: signMockWebhook(rawBody) })).toThrow(/signature/);
@@ -133,8 +147,53 @@ describe("mock payments provider", () => {
     expect(() => payments.parseWebhook({ rawBody, signature: stale })).toThrow(/signature/);
   });
 
+  it("records the events Stripe would send, once per change, and they parse back with their metadata", async () => {
+    const { payments, authorizeInput } = await setup();
+    const { paymentIntentId } = await payments.authorize(authorizeInput());
+    await payments.authorize(authorizeInput());
+    await payments.capture({ paymentIntentId, amountCents: 8682, idempotencyKey: "cap" });
+    await payments.capture({ paymentIntentId, amountCents: 8682, idempotencyKey: "cap" });
+    await payments.refund({ paymentIntentId, amountCents: 4325, idempotencyKey: "ref", metadata: { mandate_id: mandateId, share_member_id: "member-4" } });
+
+    const events = payments.eventsFor(paymentIntentId);
+    expect(events.map((e) => e.type)).toEqual(["payment_intent.amount_capturable_updated", "payment_intent.succeeded", "charge.refunded"]);
+    expect(new Set(events.map((e) => e.id)).size).toBe(3);
+    const parsed = events.map((e) => {
+      const raw = JSON.stringify(e);
+      return payments.parseWebhook({ rawBody: raw, signature: signMockWebhook(raw) });
+    });
+    expect(parsed[0]).toMatchObject({ paymentIntentId, status: "requires_capture", metadata: { mandate_id: mandateId, payer_member_id: "member-1" } });
+    expect(parsed[1]).toMatchObject({ paymentIntentId, status: "succeeded" });
+    expect(parsed[2]!.refunds).toEqual([{ id: expect.stringMatching(/^re_mock_/), amountCents: 4325, metadata: { mandate_id: mandateId, share_member_id: "member-4" } }]);
+
+    const declined = await setup("declined");
+    const failed = await declined.payments.authorize(declined.authorizeInput());
+    const [failure] = declined.payments.eventsFor(failed.paymentIntentId);
+    const raw = JSON.stringify(failure);
+    expect(declined.payments.parseWebhook({ rawBody: raw, signature: signMockWebhook(raw) })).toMatchObject({
+      type: "payment_intent.payment_failed",
+      declineCode: "generic_decline",
+    });
+    await declined.payments.release({ paymentIntentId: failed.paymentIntentId, idempotencyKey: "rel" });
+    expect(declined.payments.eventsFor(failed.paymentIntentId).map((e) => e.type)).toEqual([
+      "payment_intent.payment_failed",
+      "payment_intent.canceled",
+    ]);
+  });
+
   it("selectPaymentsProvider picks the mock, and the Stripe adapter isn't built yet", () => {
-    expect(selectPaymentsProvider({ PAYMENTS_PROVIDER: "mock" }).name).toBe("mock");
-    expect(() => selectPaymentsProvider({ PAYMENTS_PROVIDER: "real" })).toThrow(NotBuiltError);
+    expect(selectPaymentsProvider({ PAYMENTS_PROVIDER: "mock", NEXT_PUBLIC_DEMO_MODE: true }).name).toBe("mock");
+    expect(() => selectPaymentsProvider({ PAYMENTS_PROVIDER: "real", NEXT_PUBLIC_DEMO_MODE: true })).toThrow(NotBuiltError);
+  });
+
+  it("outside dev mode the mock refuses every webhook, even one signed with its own secret", () => {
+    // The mock's secret is in the source, so on a deployment anyone could sign with it.
+    const rawBody = JSON.stringify({ id: "evt_forged", type: "payment_intent.succeeded", data: { object: { id: "pi_x", object: "payment_intent" } } });
+    const signature = signMockWebhook(rawBody);
+    const deployed = selectPaymentsProvider({ PAYMENTS_PROVIDER: "mock", NEXT_PUBLIC_DEMO_MODE: false });
+    expect(() => deployed.parseWebhook({ rawBody, signature })).toThrow(/dev mode/);
+    expect(() => createMockPaymentsProvider().parseWebhook({ rawBody, signature })).toThrow(/dev mode/);
+    const dev = selectPaymentsProvider({ PAYMENTS_PROVIDER: "mock", NEXT_PUBLIC_DEMO_MODE: true });
+    expect(dev.parseWebhook({ rawBody, signature }).id).toBe("evt_forged");
   });
 });
