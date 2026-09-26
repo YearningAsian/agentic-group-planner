@@ -1796,3 +1796,11 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
 - **Dormant migration content, dropped.** Migrations 1–4 created the `votes` and `calls` tables, `agent_runs.trigger_call_id`, and `bookings.call_id`, and their CHECKs allowed the dropped tool names, card types, run trigger, and providers. `20260926063958_journey_pivot_cleanup.sql` drops those tables and columns and narrows each CHECK to the §3.1 values; `web/tests/db/pivot-cleanup.test.ts` pins it.
 - **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
 - **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.
+
+### 11.7 Interpretations while building the backend (2026-09-26)
+
+1. **A candidate's price and visit length live in `places.raw`.** §3.2 has no price column on `places`, and §2.2's `Candidate` needs `price_cents` per person. The seed writes `raw.price_cents` and `raw.duration_min` from `saturday-trip.json`, and `buildPlanRequest` offers only places with a known price, so no price is invented. A real provider's places need a price source before they can be candidates (AI-S04).
+2. **The end of a run is a write function.** `finish_agent_run` (§3.4) writes the run's one message and its final status together.
+3. **Members' messages link only within their trip.** The insert policy requires `item_id` and `reply_to_message_id` on the message's own trip (migration `20260926071157`).
+4. **A run at the step cap fails** (§4.4), on both the live and the replay provider, rather than ending with empty text.
+

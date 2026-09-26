@@ -198,11 +198,11 @@ Everything happens in dependency order, and the goal is the slice. Build profile
 - **Depends on:** VO-102, CO-101 (pushed)
 - **Produces:** `seed({ batch, stage? })` running design §10.4 steps 1, 3, 4, and 6. Step 4 sets dinner's area to Midtown (`area_label`, `area_lat`, `area_lng`). Step 3 also loads `fixtures/routes.json` when it exists (FE-305 writes it). Step 2 comes in CO-302, and step 5 in VO-201. `uuidFor(batch, name)` and `inviteTokenFor(batch)` come from `ids.ts`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
+  - [x] `pnpm --filter web test -- scripts/demo/lib/ids.test.ts` passes:
     - `uuidFor is stable for the same batch and name, and differs across batches`
     - `inviteTokenFor returns 21 URL-safe characters, is stable per batch, and changes with DEMO_SEED_SECRET`
   - [ ] Check: running `pnpm seed:demo --batch dev-vo` twice prints identical row counts. The members are `Person 1` through `Person 4`, and Person 4 is a `placeholder` with an invite token. The script prints Person 4's invite link and the trip URL.
-- **Status:** in progress (2026-09-23). `pnpm --filter web test scripts/demo/lib` → ids tests 4 passed (RED first: "Cannot find module ./ids"). Remaining: fixtures/users.ts, fixtures/saturday-trip.json, lib/args.ts, seed.ts, and the seed-twice row-count check.
+- **Status:** done (2026-09-26). Proof: `pnpm --filter web test scripts/demo` → 9 passed (ids 4 from 2026-09-23; args and time RED first: missing modules); `pnpm --filter web test:db tests/db/seed.test.ts` → 5 passed (a mutation that dropped the members' insert-if-missing guard failed the re-run test). Check: `pnpm seed:demo --batch dev-vo` twice printed identical counts (profiles 3, trips 1, trip_members 4, member_constraints 4, itinerary_items 4, places 12), and printed the trip URL and Person 4's invite link.
 - **Commit:** `feat(demo): idempotent seed with batches and a stable invite token`
 
 #### VO-106 · Sign-in: magic link, plus the dev-mode picker · Must
@@ -461,11 +461,12 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - A first `buildPlanRequest` (slots from items, candidates from `places` by category, no travel), which AI-208 replaces.
   - The `plan_day` handler, calling `applyPlan`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/optimizer/client.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/optimizer/client.test.ts` passes:
     - `sends the bearer token and parses the PlanResponse`
     - `a 5xx is retried once, then surfaces AppError provider_unavailable`
-  - [ ] `pnpm --filter web test:db -- tests/db/plan-day-slice.test.ts` passes: `plan_day moves the seeded items tbd → proposing → voting and writes one plan card`.
+  - [x] `pnpm --filter web test:db -- tests/db/plan-day-slice.test.ts` passes: `plan_day moves the seeded items tbd → proposing → voting and writes one plan card`.
   - [ ] Check: the Milestone 1 criteria above pass.
+- **Status:** done (2026-09-26), except the M1 criteria that need a real model key. Proof: `pnpm --filter web test src/lib/optimizer/client.test.ts` → 5 passed (RED first: "Cannot find module ./client"); `pnpm --filter web test:db tests/db/plan-day-slice.test.ts` → 1 passed (RED first: `createPlanDayTool` missing). A contract check sent a `buildPlanRequest` request to the real FastAPI stub on localhost, and the client parsed its answer. On a seeded trip, the recorded plan prompt ran through the mock LLM, the real `plan_day`, and the FastAPI stub: run `succeeded` with `replayed = true`, one `plan_day` call `succeeded`, one plan card and one agent text, morning/lunch/afternoon `voting`, dinner `tbd`. Per-person prices come from `places.raw.price_cents` (design §11.7).
 - **Commit:** `feat(agent): plan_day end to end through the optimizer stub`
 
 ### M1 · CO
@@ -1141,12 +1142,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Files:** `packages/shared/src/tools/propose-purchase.ts`, `packages/shared/src/cards/{approval.ts,booking-confirmed.ts,price-change.ts}`, `packages/shared/src/api/mandates.ts`, tests next to each
 - **Depends on:** AI-102
 - **Done when:**
-  - [ ] `pnpm --filter @agp/shared test` passes:
+  - [x] `pnpm --filter @agp/shared test` passes:
     - `propose_purchase has no amount field and strips unknown keys`
     - `cap_percent must be 100–125`
     - `an approval share's cap_cents is at least its share_cents`
     - `each approval hold carries share, processor fee, platform fee, total, and cap cents, and the platform fee is present even at 0`
     - `booking_confirmed allows a null total for pay at venue`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter @agp/shared test` → 13 files, 41 passed (RED first: the stubs accepted anything; `ApprovalShare`, `ApprovalHold`, and the mandate route schemas were undefined).
 - **Commit:** `feat(shared): commerce tool, card, and route schemas`
 
 #### CO-202 · Money helpers · Must
@@ -1155,11 +1157,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** FE-102, CO-107
 - **Produces:** `splitEvenly(totalCents, count, organizerIndex)`, `capFor(shareCents, percent)` (a thin wrapper over `shareCapCents` from `@agp/shared`, so caps include fees), and `formatUsd(cents)`.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/money` passes:
+  - [x] `pnpm --filter web test -- src/lib/money` passes:
     - `splitEvenly(16800, 4) gives 4200 each`
     - `splitEvenly(10001, 3, 0) gives the organizer the extra cent`
     - `capFor(4200, 110) is 4800`
     - `formatUsd(9400) is "$94" and formatUsd(4250) is "$42.50"`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/money` → 5 passed (RED first: "Cannot find module ./index").
 - **Commit:** `feat(money): even split, caps, and formatting`
 
 #### CO-203 · Payments provider mock · Must
@@ -1168,12 +1171,13 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-103, CO-105
 - **Produces:** `getPaymentsProvider()`, per the design §2.3 interface.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/payments/mock.test.ts` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/payments/mock.test.ts` passes:
     - `authorize returns authorized with a pi_mock_ id`
     - `pm_mock_declined returns declined with a decline code`
     - `capturing more than the authorized amount throws`
     - `the same idempotency key returns the same result`
     - `refund returns one refund id per key`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/providers/payments/mock.test.ts` → 7 passed (RED first: "Cannot find module ./mock"). IDs derive from the idempotency key, so every process agrees; `signMockWebhook` signs bodies in Stripe's format for CO-209.
 - **Commit:** `feat(payments): deterministic payments mock`
 
 #### CO-204 · Booking provider · Must
@@ -1182,10 +1186,11 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** AI-103, CO-105
 - **Produces:** `getBookingProvider("tickets")`: the mock merchant.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/booking` passes:
+  - [x] `pnpm --filter web test -- src/lib/providers/booking` passes:
     - `a quote is price_cents × party size and expires in 15 minutes`
     - `book with the same idempotency key returns the same providerRef`
     - `simulatePriceChange changes only the next quote`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test src/lib/providers/booking` → 5 passed (RED first: "Cannot find module ./mock-merchant").
 - **Commit:** `feat(booking): mock merchant`
 
 #### CO-207 · `create_mandate` · Must
@@ -1194,7 +1199,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-103, CO-202, CO-204
 - **Produces:** `createMandate({ ctx, itemId, optionId, capPercent?, note? }) → { mandateId, cardMessageId, shares }`. The actor is the run's requester.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/create-mandate.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/create-mandate.test.ts` passes:
     - `four attendees with Person 4 as a placeholder give own rows pending for Persons 1–3, Person 4's own row awaiting_member, and a fronted row for Person 4's share whose payer is Person 1`
     - `quote 16800, shares 4200, share caps 4800, total cap 19200, and Person 1's hold cap 9600`
     - `the card's holds come from holdFees: 4357 for each member's hold, 8682 for Person 1's with Person 4's share`
@@ -1202,6 +1207,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `the same idempotency key returns the same mandate`
     - `a second live mandate for the item is rejected`
     - `the approval card payload validates against the shared schema`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test:db tests/db/create-mandate.test.ts` → 10 passed (RED first: `NotBuiltError: createMandate`, then `PGRST202`). Migration `20260926072459_create_mandate.sql`; the seeded numbers hold: quote 16800, shares 4200, caps 4800, Person 1's hold 8682 (fee 282, cap 9600), each member's hold 4357 (fee 157). The card has one hold per possible payer, including each placeholder's own.
 - **Commit:** `feat(payments): create_mandate with own and fronted share rows`
 
 #### CO-208 · `propose_purchase` tool · Must
@@ -1345,11 +1351,12 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** CO-103, CO-105
 - **Produces:** `recordWebhook({ provider, eventId, type, payload }) → 'process' | 'skip'`, and `finishWebhook(provider, eventId, status, error?)`. Both are exported from the `lib/reliability` barrel that CO-105 created.
 - **Done when:**
-  - [ ] `pnpm --filter web test:db -- tests/db/webhooks.test.ts` passes:
+  - [x] `pnpm --filter web test:db -- tests/db/webhooks.test.ts` passes:
     - `a first delivery returns process`
     - `a processed duplicate returns skip`
     - `a received event touched within 30 s returns skip`
     - `a received or failed event older than 30 s increments attempts and returns process`
+- **Status:** done (2026-09-26, parallel worktree). Proof: `pnpm --filter web test:db tests/db/webhooks.test.ts` → 6 passed (RED first: `NotBuiltError: recordWebhook`), including concurrent deliveries processing an event once. No migration; conditional updates through supabase-js.
 - **Commit:** `feat(reliability): record-first webhook handling`
 
 #### VO-209 · Claim an invite · Must

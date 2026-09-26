@@ -53,3 +53,29 @@ Two independent reviewers, one per branch, each in its own worktree:
 - **`colin-data-backend`: mergeable after one fix.** The blocking finding was that the SDK validated tool input, so `runTool` never recorded bad input and the model never saw `invalid_input`. Fixed in `fix(agent): runTool validates tool input, and the runner trusts finish`, which also covers finish results, a shared and saved handle table (`addHandle`), `actorMemberId` in `RunContext`, and a lost insert race.
 
 Gates after the fixes: shared 32, web unit 83, db 11 files / 57 passed, optimizer 5, lint, typecheck, `check_plan.py`, and gitleaks all clean.
+
+### Merged into `testing`
+
+PR #2 (`colin-data-backend`) merged into `testing` with a merge commit, `f1885fb`. PR #1 (`feat/agent-llm-provider`) was retargeted to `testing` and closed as merged, since its head is in #2. The branch then fast-forwarded to `testing`.
+
+### Feature 3 (part 2) · The `plan_day` slice and the seed
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(agent): plan_day end to end through the optimizer` | AI-107: `createOptimizerClient`, `buildPlanRequest` (first version), `plan_day` with constraint updates | unit 5, db 1 (RED first); contract check against the real FastAPI stub |
+| `feat(demo): idempotent seed with batches and a stable invite token` | VO-105: `seed.ts`, fixtures, `args`, `time`, root and web `seed:demo` | unit 9, db 5; `seed:demo --batch dev-vo` twice, identical counts |
+
+M1 slice, server side, on a seeded trip: the recorded plan prompt, the mock LLM, the real `plan_day`, the FastAPI stub, and the database gave a `succeeded`, `replayed` run with one plan card. The browser half (Realtime in two sessions) and the real-model half (`LLM_PROVIDER=meta` needs `META_MODEL_API_KEY`) are still open.
+
+### Parallel worktrees, round 1
+
+| Worker | Tasks | Result |
+| --- | --- | --- |
+| commerce | CO-201, CO-202, CO-203, CO-204, VO-203, CO-207 | 7 commits, merged in `74640f3`; after `supabase db reset`: shared 41, web unit 110, db 15 files / 79 passed; types regenerated with no diff |
+| optimizer | AI-202 to AI-206 | running |
+
+The commerce worker's follow-ups:
+- `rpcError` is duplicated in `create-mandate.ts`; it could move to `lib/reliability`.
+- `PaymentsEvent` needs metadata for CO-209 and CO-212.
+- Price-change re-approval (CO-S01) needs a `create_mandate` variant without a tool call.
+- The `lib/reliability` barrel is server-only now that it exports the webhook ledger; no client module imports it.
