@@ -546,6 +546,7 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 | POST | `/api/mandates/:id/approve` | member | `{}` (the organizer's approval always includes their fronted shares) | `{ holds: [{hold_id, status}] }` | CO |
 | POST | `/api/mandates/:id/decline` | member | `{}` | `{ hold_status, mandate_status }` | CO |
 | POST | `/api/mandates/:id/cover` | organizer | `{}` | `{ mandate_status }` | CO |
+| POST | `/api/mandates/:id/cancel` | organizer | `{}` | `{ mandate_status }` (`cancelled`) | CO (§11.7 item 8) |
 | POST | `/api/invites/claim` | signed in | `{ token }` | `{ trip_slug, member_id }` | VO |
 | GET | `/auth/confirm` | the link's token | query `token_hash`, `type=email`, `next` (same-origin path) | redirect to `next`, or `/login?error=link` | VO |
 | POST | `/api/voice-notes` | member | multipart: `trip_id`, `client_id`, `audio` (16 kHz mono WAV, ≤ 2 min) | `{ message_id, agent_run_id \| null }` | VO (Should, §2.5) |
@@ -1100,6 +1101,7 @@ stateDiagram-v2
   | Claims and approves before capture | Person 4's own hold | authorized $96, captured $43.57, $52.43 released | captured $43.57 | none |
   | Claims and approves after capture | the organizer's hold, then Person 4 | authorized $96, captured $86.82 | captured $43.57 | $43.25, once |
   | Never claims, or claims and declines | the organizer's hold | authorized $96, captured $86.82 | none | none |
+- **Declines and cover (Should).** A member declines their pending own row. If nothing else can pay that share, the mandate moves `open → partially_declined`: a placeholder who joins and declines is still paid for by the organizer's fronted row. The organizer then covers or cancels. Covering adds a `fronted` row for each such share, on a cover hold of its own, and once every share is satisfied the mandate moves `partially_declined → authorized` and finalizes (the last approval does it, if others are still pending). Cancelling releases every hold (§11.7 item 8).
 - **Price change (Should).** `book()` re-quotes at finalize time. In development, the dev toolbar's price-change trigger changes the mock merchant's price before the last approval:
   - New total within the cap: capture the new amount, with its fees recomputed by `holdFees` (`auto_captured`).
   - A drop: capture the lower amount (`auto_captured_lower`).
@@ -1366,6 +1368,7 @@ Query defaults: `staleTime` 30 s, `refetchOnWindowFocus` true, `retry` 2. Known 
 | Create a mandate | `mandate:{run_id}:{tool_call_id}` | `mandates.idempotency_key` unique; one live mandate per item |
 | Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's rows |
 | Capture, release | `pi-capture:{mandate_id}:{payer_member_id}`, `pi-release:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional updates |
+| Cover a declined share (the organizer's cover hold) | `pi-auth:`, `pi-capture:`, and `pi-release:{mandate_id}:{organizer_member_id}:cover:{share_member_id}`; the row's own key is `cover:{mandate_id}:{share_member_id}` | Stripe, `payment_holds.idempotency_key` unique, and the conditional updates on that row only (§11.7 item 8) |
 | Refund a fronted share after the placeholder pays | `cover-refund:{mandate_id}:{share_member_id}` | Stripe, plus the conditional update `captured → refunded` on the `fronted` row |
 | Book | `booking:{mandate_id}` | `bookings.idempotency_key` unique |
 | Webhooks | `(provider, event_id)` | `webhook_events` primary key |
@@ -1825,3 +1828,5 @@ The product is now five flows (§5): create profile, AI-guided trip planner, inv
    - The target appears only when all four members list an interest the aquarium is tagged with and the `cost` weight drops to 0.1, which would make the planner nearly ignore prices.
    
    The options were (a) a budget-relative cost term, (b) lower `split_penalty` and `cost` defaults, and (c) changing the target. (a) stays a possible later improvement; none of them blocks work now.
+7. **The mandate expiry cron** ([ADR 0020](adr/0020-cron-mandate-expiry.md)). `GET /api/cron/expire-mandates`, behind `CRON_SECRET`, runs daily on Vercel. Approving an expired mandate was already refused, so the cron releases the holds of mandates nobody finished.
+8. **Covering a declined share uses a cover hold** (CO-S02). §4.2 says the organizer's cover "adds a fronted row to their hold", but by then the organizer's hold is usually authorized, and an authorized PaymentIntent can't grow. So each covered share gets its own PaymentIntent, authorized when the organizer taps Cover, for that share's cap (`$48` on the seeded trip) and charged like a member's own hold (`$43.57`). Its keys add `:cover:{share_member_id}` to the organizer's (§7.1), and its row's `idempotency_key` starts `cover:`, which is how the approval, finalize, and webhook paths keep each hold's rows apart. The organizer's own share is never covered (their card is the one covering), and a declined cover leaves the mandate partially declined, for the organizer to cancel. The organizer can't decline; they cancel instead, through `POST /api/mandates/:id/cancel`, which §2.4 lacked.
