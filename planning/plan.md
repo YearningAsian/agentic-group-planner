@@ -1646,6 +1646,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** CO-301, CO-302
 - **Done when:**
   - [ ] Check: on the deployed app, the booking flow leaves 3 PaymentIntents (Persons 1–3; Person 1's up to $96) in `requires_capture` after the approvals, then captured for $43.57, $43.57, and $86.82. Each carries `mandate_id`, `payer_member_id`, and `trip_id` metadata, Stripe's logs show the idempotency keys, and a repeated approve creates no second PaymentIntent.
+- **Status:** backend check done (2026-09-26); the deployed-app half waits on VO-107. Proof: `PAYMENTS_PROVIDER=real pnpm --filter web sandbox:smoke` on Stripe test mode and the hosted dev project → 11/11 steps. The step `Stripe holds and captures match the share rows` reads each payer's PaymentIntents from Stripe: exactly one per payer (Persons 1–3), metadata `mandate_id`, `payer_member_id`, and `trip_id`, the organizer's held for 9600¢ and captured 8682¢ (Persons 2 and 3: 4357¢ each), and a repeated approval creates none. `scripts/sandbox-smoke-stripe.test.ts` → 4 passed (RED first: missing module). Idempotency keys are shown by the repeat approval, not read from Stripe's request log, which the API doesn't expose.
 
 #### CO-304 · Fronting on Stripe · Must
 
@@ -1653,6 +1654,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** CO-303, VO-211
 - **Done when:**
   - [ ] Check: Person 4 claims and approves. Stripe shows a $42 capture on Person 4's PaymentIntent and one $42 partial refund on Person 1's. Running `settleFrontedShare` again creates no second refund. Person 4's lane reads "Paid".
+- **Status:** backend check done (2026-09-26); the lane reading "Paid" is FE-302. Proof: the same sandbox smoke run on Stripe test mode: after Person 4 claims and approves, their own PaymentIntent captured 4357¢, the organizer's has exactly one refund of 4325¢ (the share plus the fee it added; the check line's "$42" predates ADR 0019), and a second `settleFrontedShare` refunds nothing.
 
 #### CO-305 · Concurrency and webhook suites on Stripe test mode · Must
 
@@ -1664,8 +1666,8 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
     - `Stripe shows exactly one PaymentIntent per payer for the mandate, even after parallel approvals`
     - `each PaymentIntent's amount_received equals the sum of the rows it pays`
     - `in the claim-after-capture test, Person 1's PaymentIntent has exactly one refund, for 4325` (the $42 share plus the fee it added to the organizer's hold, `frontedShareRefundCents`, ADR 0019; this line said 4200 before fees were passed through)
-  - [ ] Check: with `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, one full booking flow and one claim record every real event once in `webhook_events`, all `processed`.
-- **Status:** suites done (2026-09-26); the live-forward check is part of CO-303/CO-304. Proof: `pnpm --filter web test:stripe -- tests/payments` against Stripe test mode and the hosted dev Supabase project → 3 files, 12 passed in 124 s. The kit creates real test customers with `pm_card_visa`, reads each PaymentIntent's events through the Events API (polling until the expected type is listed), and signs deliveries with `stripe.webhooks.generateTestHeaderString`. The fronting race runs five full purchases (about 70 s), so the `stripe` project's timeout is 180 s. `src/test/stripe-payments-kit.test.ts` → 8 passed (the kit's contract, Stripe mocked).
+  - [x] Check: with `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, one full booking flow and one claim record every real event once in `webhook_events`, all `processed`.
+- **Status:** done (2026-09-26). Live-forward proof: `next dev` on real payments, `stripe listen --events payment_intent.amount_capturable_updated,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,refund.created,refund.updated --forward-to localhost:<port>/api/webhooks/stripe` (Stripe CLI 1.52 requires `--events`; its listen secret matched `STRIPE_WEBHOOK_SECRET`), then `PAYMENTS_PROVIDER=real pnpm --filter web sandbox:smoke` (one booking and one claim). The CLI forwarded 13 real events, all answered 200, and `webhook_events` holds each once, `processed` on the first attempt: 5 `amount_capturable_updated`, 4 `succeeded`, 1 `canceled`, 1 `charge.refunded`, 1 `refund.created`, 1 `refund.updated`. The smoke's own signed re-deliveries were recorded as duplicates (skipped). The CLI's own login key had expired, so `stripe listen` ran with the app's test key through `STRIPE_API_KEY`. Proof: `pnpm --filter web test:stripe -- tests/payments` against Stripe test mode and the hosted dev Supabase project → 3 files, 12 passed in 124 s. The kit creates real test customers with `pm_card_visa`, reads each PaymentIntent's events through the Events API (polling until the expected type is listed), and signs deliveries with `stripe.webhooks.generateTestHeaderString`. The fronting race runs five full purchases (about 70 s), so the `stripe` project's timeout is 180 s. `src/test/stripe-payments-kit.test.ts` → 8 passed (the kit's contract, Stripe mocked).
 - **Commit:** `test(payments): concurrency and webhook suites on stripe test mode`
 
 ### M3 · VO
