@@ -13,6 +13,7 @@ export const TOOL_LABELS: Record<ToolName, string> = {
   summarize: "Summarizing the trip",
   propose_purchase: "Preparing the approval",
   remember_preference: "Remembering a preference",
+  search_stays: "Searching hotels",
 };
 
 /**

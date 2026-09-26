@@ -51,6 +51,7 @@ export const ToolName = z.enum([
   "summarize",
   "propose_purchase",
   "remember_preference",
+  "search_stays",
 ]);
 export const ToolStatus = z.enum(["started", "succeeded", "failed"]);
 export const WebhookProvider = z.enum(["stripe"]);

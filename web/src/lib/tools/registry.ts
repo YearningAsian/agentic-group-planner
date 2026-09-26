@@ -7,6 +7,7 @@ import { updateItemTool } from "./update-item/tool";
 import { summarizeTool } from "./summarize/tool";
 import { proposePurchaseTool } from "./propose-purchase/tool";
 import { rememberPreferenceTool } from "./remember-preference/tool";
+import { searchStaysTool } from "./search-stays/tool";
 
 /** The agent's tools, keyed by name. The runner hands exactly these to the model. */
 export const toolRegistry = {
@@ -16,4 +17,5 @@ export const toolRegistry = {
   summarize: summarizeTool,
   propose_purchase: proposePurchaseTool,
   remember_preference: rememberPreferenceTool,
+  search_stays: searchStaysTool,
 } satisfies Record<ToolName, ToolDefinition>;

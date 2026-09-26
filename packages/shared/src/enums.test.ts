@@ -30,6 +30,7 @@ const expected: Record<string, string[]> = {
     "summarize",
     "propose_purchase",
     "remember_preference",
+    "search_stays",
   ],
   tool_status: ["started", "succeeded", "failed"],
   webhook_provider: ["stripe"],
