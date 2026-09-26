@@ -24,10 +24,11 @@ Last updated: 2026-09-26.
   - [x] CI green (`replan.test.ts`, `test_seeded_replan.py`)
   - [ ] revision context quotes the item's comments; replan-mode non-member test
   - [ ] `update_item` `request_alternatives` (single-item replan path)
-- [ ] VO-211: member joined, and holds released to the joiner (backend half)
+- [x] VO-211: member joined, and holds released to the joiner (backend half)
   - [x] `MemberJoinedCard` schema; `afterClaim` moves shares and writes one card; claim route calls it
   - [x] CI db test green (`after-claim.test.ts`); the card component is frontend work
-- [ ] CO-S04: expire open mandates (`expireMandates` done, CI db green; needs a scheduler caller)
+- [x] CO-S04: expire open mandates (`expireMandates` done, CI db green)
+- [ ] A scheduled caller for `expireMandates` (cron route)
 - [ ] CO-S02: declines and covering the shortfall
 
 ## Before real Stripe (`PAYMENTS_PROVIDER=real`)

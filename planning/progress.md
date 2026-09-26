@@ -185,7 +185,7 @@ These merged into `testing` without a progress entry. Every PR's four CI jobs (w
 | PR | What | Tasks |
 | --- | --- | --- |
 | #4 | Duffel Stays behind `BookingProvider` (sandbox only; review fixes: paginated lookup, re-find before failed, 401/403 as `internal`, hotel-arrival fees refused); `decimalToCents`; seeded-trip invariants; `person_preferences`, the join trigger, context quotes, and the `remember_preference` tool | CO-S05, AI-208, AI-217 |
-| #5 | Stripe hardening before `PAYMENTS_PROVIDER=real`: `refund.created` and `refund.updated`, capture and release idempotent when the PaymentIntent is already there, every decline with a PaymentIntent counts as declined, the card resolved before the approval lease, `approveHold` retries finalize and settle, leftover PaymentIntents re-released | CO-209, CO-210, CO-212 |
+| #5 | Stripe hardening before `PAYMENTS_PROVIDER=real`: `refund.created` and `refund.updated`, capture and release idempotent when the PaymentIntent is already there, every decline with a PaymentIntent counts as declined, the card resolved before the approval lease, `approveHold` retries finalize and settle, leftover PaymentIntents re-released, and a pending approval while the mandate is finalizing returns a retryable conflict | CO-301, CO-303, CO-209, CO-210, CO-212 |
 | #6 | `expireMandates`; approving a cancelled or failed mandate is a conflict; the `MemberJoinedCard` schema and `afterClaim` | CO-S04, VO-211 |
 | #7 | `apply_plan` replan mode, `plan_day` `mode: "replan"`, and the seeded replan optimizer test | AI-210 (partial) |
 
@@ -193,9 +193,9 @@ These merged into `testing` without a progress entry. Every PR's four CI jobs (w
 
 ### Recovery
 
-- `git fetch --all --prune`: clean tree on `colin-data-backend`, one docs commit ahead of `testing` (`docs(checklist): AI-210 CI green`), carried into the reconcile PR. `testing` is `main` plus 144 commits. `at-frontend` branches from `main` at `d15bb2a` (prototype) with 2 commits of its own (79 files, the trip-draft prototype and Mapbox), 142 commits behind `testing`.
+- `git fetch --all --prune`: clean tree on `colin-data-backend`, one docs commit ahead of `testing` (`docs(checklist): AI-210 CI green`), carried into the reconcile PR. `testing` is `main` plus 144 commits. `at-frontend` branches from `testing` at `d15bb2a` (prototype) with 2 commits of its own (79 files, the trip-draft prototype and Mapbox), 142 commits behind `testing`.
 - No sibling worktrees were registered or present; the previous session had removed them. Their branches were checked against `testing`:
-  - `fix/fronted-refunds` and `feat/agent-llm-provider` are merged by ancestry; `fix/late-authorization` and `feat/stripe-provider` are patch-equivalent (`git cherry` shows `-`). All four local branches deleted; the remote copies stay.
+  - `fix/fronted-refunds` and `feat/agent-llm-provider` are merged by ancestry; `fix/late-authorization` and `feat/stripe-provider` are patch-equivalent (`git cherry` shows `-`). All four local branches deleted; the three that were pushed keep their remote copies (`fix/fronted-refunds` never was).
   - `feat/optimizer-score-table` (3 commits) and `feat/payments-money-and-mocks` (1 WIP commit) hold older versions of files `testing` has since rewritten. They had never been pushed, so both were pushed (gitleaks clean) and kept, not merged.
   - `test/seeded-optimizer` stays as pushed; AI-208 superseded it.
 - No stash. No open PRs.
