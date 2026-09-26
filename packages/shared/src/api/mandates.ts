@@ -27,3 +27,9 @@ export const CoverBody = z.strictObject({});
 export type CoverBody = z.infer<typeof CoverBody>;
 export const CoverResponse = z.object({ mandate_status: MandateStatus });
 export type CoverResponse = z.infer<typeof CoverResponse>;
+
+/** `POST /api/mandates/:id/cancel` (organizer only): cancels an open or partially declined purchase. */
+export const CancelBody = z.strictObject({});
+export type CancelBody = z.infer<typeof CancelBody>;
+export const CancelResponse = z.object({ mandate_status: MandateStatus });
+export type CancelResponse = z.infer<typeof CancelResponse>;
