@@ -8,18 +8,13 @@
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Briefcase, CirclePlus, Home, MoreHorizontal } from "lucide-react";
+import { Activity, Briefcase, CirclePlus, Home } from "lucide-react";
+import { AuthControls } from "@/features/auth";
 import { organizerProfile } from "@/features/trip-draft/dashboard-data";
 import { initials } from "@/features/trip-draft/format";
 import { useTrip } from "@/features/trip-draft/trip-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -124,25 +119,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {initials(profile.name)}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0 leading-tight">
+            <div className="min-w-0 flex-1 leading-tight">
               <p className="truncate text-[13.5px] font-bold text-ink">{profile.name}</p>
               <p className="truncate text-[12px] text-muted">{profile.handle}</p>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="ml-auto flex size-8 items-center justify-center rounded-md text-muted hover:bg-bg-muted"
-                aria-label="Account menu"
-              >
-                <MoreHorizontal className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="end" className="w-44">
-                <DropdownMenuItem render={<Link href="/profile" />}>Profile</DropdownMenuItem>
-                <DropdownMenuItem render={<Link href="/onboarding" onClick={() => trip.startNewTrip()} />}>
-                  New trip
-                </DropdownMenuItem>
-                <DropdownMenuItem render={<Link href="/trips" />}>Your trips</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <AuthControls className="ml-auto flex shrink-0 items-center gap-1.5" />
           </div>
         </SidebarFooter>
       </Sidebar>
@@ -150,6 +131,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2 md:hidden">
           <SidebarTrigger className="size-11" />
           <span className="text-sm font-semibold text-ink">Group Trip Agent</span>
+          <AuthControls className="ml-auto flex items-center gap-1.5" />
         </div>
         <div className={flush ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
           {children}
