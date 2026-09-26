@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { POST as stripeWebhook } from "@/app/api/webhooks/stripe/route";
 import { createMandate, onPlaceholderClaimed } from "@/features/payments/server";
 import { NotBuiltError } from "@/lib/not-built";
+import type { BookingProvider } from "@/lib/providers/booking";
 import { getPaymentsProvider } from "@/lib/providers/payments";
 import { type MockPaymentsProvider, signMockWebhook } from "@/lib/providers/payments/mock";
 import { getAdminClient } from "@/lib/supabase/admin";
@@ -113,11 +114,13 @@ export async function addMandate(
   batch: string,
   trip: { tripId: string; person: MandateScenario["person"] },
   slot: { key: string; startsAt: string; endsAt: string } = { key: "morning", startsAt: "2026-09-26T14:00:00Z", endsAt: "2026-09-26T16:30:00Z" },
+  category: "activity" | "lodging" = "activity",
+  booking?: BookingProvider,
 ): Promise<MandateScenario> {
   const admin = adminClient();
   const { tripId } = trip;
   const memberIds = trip.person;
-  const { placeId } = await createPlace(batch, { name: "Georgia Aquarium" });
+  const { placeId } = await createPlace(batch, { name: category === "lodging" ? "Midtown Inn" : "Georgia Aquarium" });
   const insert = async (table: string, row: Record<string, unknown>) => {
     const { data, error } = await admin.from(table).insert({ seed_batch: batch, ...row }).select("id").single();
     if (error) throw error;
@@ -127,7 +130,7 @@ export async function addMandate(
     trip_id: tripId,
     slot_key: slot.key,
     label: slot.key,
-    category: "activity",
+    category,
     starts_at: slot.startsAt,
     ends_at: slot.endsAt,
     position: 1,
@@ -173,6 +176,7 @@ export async function addMandate(
     itemId,
     optionId,
     idempotencyKey: `mandate:${runId}:${toolCallId}`,
+    ...(booking ? { booking } : {}),
   });
   return { tripId, itemId, optionId, runId, mandateId, person: memberIds };
 }

@@ -1,4 +1,7 @@
+import type { BookingProvider as BookingProviderId } from "@agp/shared";
+
 export type BookingKind = "tickets" | "stays" | "restaurant";
+export type { BookingProviderId };
 
 export interface Quote {
   quoteId: string;
@@ -15,6 +18,12 @@ export interface BookResult {
 }
 
 export interface BookingProvider {
+  /** Stored on the booking and its card. */
+  readonly id: BookingProviderId;
+  /** What the approval card names as the merchant. */
+  readonly merchantName: string;
+  /** Whether `book()` refuses without a lead guest's name, email, and phone. */
+  readonly needsGuest: boolean;
   quote(input: {
     kind: BookingKind;
     placeId: string;

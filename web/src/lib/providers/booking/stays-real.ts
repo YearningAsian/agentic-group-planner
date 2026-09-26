@@ -105,6 +105,10 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
   }
 
   return {
+    id: "duffel_stays",
+    merchantName: "Duffel Stays",
+    needsGuest: true,
+
     async quote(input): Promise<Quote> {
       assertStays(input.kind);
       const { data } = await duffelCall(() => client.quotes.create(input.optionId), READ_POLICY).catch((error: unknown) => {
@@ -134,11 +138,11 @@ export function createDuffelStaysProvider(options: DuffelStaysProviderOptions): 
     async book(input): Promise<BookResult> {
       assertStays(input.kind);
       const { quoteId, guest, idempotencyKey } = input;
-      if (!quoteId || !guest) {
-        throw new AppError("invalid_input", "A hotel booking needs a quote and a lead guest.", { retryable: false });
-      }
+      if (!quoteId) throw new AppError("invalid_input", "A hotel booking needs a quote.", { retryable: false });
       const existing = await findBooking(idempotencyKey);
       if (existing) return existing;
+      // Failed only once we know no earlier attempt booked it, so the caller may release the holds.
+      if (!guest) return { status: "failed", providerRef: null, failureReason: "missing_guest" };
       try {
         const { data } = await duffelCall(
           () =>
