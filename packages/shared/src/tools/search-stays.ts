@@ -7,6 +7,6 @@ import { handleOf } from "../handles";
  */
 export const SearchStaysInput = z.object({
   item_handle: handleOf("I"),
-  max_results: z.number().int().min(1).max(8).default(5),
+  max_results: z.number().int().min(1).max(6).default(5),
 });
 export type SearchStaysInput = z.infer<typeof SearchStaysInput>;

@@ -65,7 +65,7 @@ describe("search_stays", () => {
     expect(candidates.map((c) => c.id)).toEqual(expect.arrayContaining(placeHandles.map(([, id]) => id)));
   });
 
-  it("searching twice updates the same places instead of adding copies", async () => {
+  it("searching twice reuses the same places instead of adding copies", async () => {
     const { ctx } = await tripWithItem({ category: "lodging" });
     const first = await searchStaysTool.handler(searchStaysTool.input.parse({ item_handle: "I1", max_results: 2 }), ctx);
     const second = await searchStaysTool.handler(searchStaysTool.input.parse({ item_handle: "I1", max_results: 2 }), ctx);

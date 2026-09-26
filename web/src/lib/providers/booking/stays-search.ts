@@ -27,10 +27,13 @@ export interface StaysSearch {
   }): Promise<StayOffer[]>;
 }
 
-/** Whole nights between check-in and check-out, rounded up; a stay is at least one night. */
+/** Calendar nights between check-in and check-out (UTC dates); a stay is at least one night. */
 export function nightsBetween(checkIn: string, checkOut: string): number {
-  const hours = (Date.parse(checkOut) - Date.parse(checkIn)) / 3_600_000;
-  return Math.max(1, Math.ceil(hours / 24));
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  };
+  return Math.max(1, Math.round((day(checkOut) - day(checkIn)) / 86_400_000));
 }
 
 function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -58,7 +61,7 @@ export function createMockStaysSearch(): StaysSearch {
     async search({ near, checkIn, checkOut, maxResults }) {
       const nights = nightsBetween(checkIn, checkOut);
       return MOCK_HOTELS.map((h) => ({
-        providerPlaceId: `stays_mock:${h.key}`,
+        providerPlaceId: `stays_mock:${h.key}:${nights}n`,
         name: h.name,
         address: h.address,
         lat: h.lat,
