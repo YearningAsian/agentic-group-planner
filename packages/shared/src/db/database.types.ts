@@ -1080,6 +1080,38 @@ export type Database = {
           },
         ]
       }
+      studio_state: {
+        Row: {
+          active_trip_id: string | null
+          profile: Json
+          profile_id: string
+          trips: Json
+          updated_at: string
+        }
+        Insert: {
+          active_trip_id?: string | null
+          profile?: Json
+          profile_id: string
+          trips?: Json
+          updated_at?: string
+        }
+        Update: {
+          active_trip_id?: string | null
+          profile?: Json
+          profile_id?: string
+          trips?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "studio_state_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tool_calls: {
         Row: {
           created_at: string

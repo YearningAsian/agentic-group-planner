@@ -8,7 +8,7 @@ vi.mock("@/lib/env/server", () => ({ getServerEnv: () => env }));
 vi.mock("@/lib/supabase/admin", () => ({ getAdminClient: () => ({ auth: { admin: { generateLink } } }) }));
 vi.mock("@/lib/supabase/server", () => ({ getServerClient: async () => ({ auth: { verifyOtp } }) }));
 
-const { demoSignIn } = await import("./demo-sign-in");
+const { demoSignIn, demoSignInSeeded } = await import("./demo-sign-in");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,5 +47,10 @@ describe("demoSignIn", () => {
   it("a failed link or verification rejects with a retryable error", async () => {
     verifyOtp.mockResolvedValue({ data: { user: null, session: null }, error: { message: "Token has expired" } });
     await expect(demoSignIn("person1@demo.agp.test")).rejects.toMatchObject({ code: "internal", retryable: true });
+  });
+
+  it("signs in Person 1 on the demo domain", async () => {
+    await expect(demoSignInSeeded("person1")).resolves.toEqual({ userId: "user-2" });
+    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "person1@demo.agp.test" });
   });
 });

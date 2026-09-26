@@ -1,12 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PROFILE_KEY } from "@/features/trip-draft/profile-db";
+import { loadProfile } from "@/features/trip-draft/profile-db";
+import { resetStudioMemory } from "@/features/trip-draft/studio-store";
 import { ProfileForm } from "./profile-form";
 
 describe("ProfileForm", () => {
   beforeEach(() => {
-    localStorage.clear();
+    resetStudioMemory();
     vi.unstubAllGlobals();
   });
 
@@ -30,7 +31,7 @@ describe("ProfileForm", () => {
     await user.click(screen.getByRole("option", { name: /123 mission st/i }));
     await user.click(screen.getByRole("button", { name: /save address/i }));
 
-    expect(JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "{}")).toEqual({
+    expect(loadProfile()).toEqual({
       homeAddress: "123 Mission St, San Francisco, CA 94105, United States",
       homeLat: 37.7935,
       homeLng: -122.396,
@@ -44,6 +45,6 @@ describe("ProfileForm", () => {
     expect(screen.getByRole("button", { name: /save address/i })).toBeDisabled();
     await user.type(screen.getByRole("combobox", { name: /home address/i }), "not an address");
     expect(screen.getByRole("button", { name: /save address/i })).toBeDisabled();
-    expect(localStorage.getItem(PROFILE_KEY)).toBeNull();
+    expect(loadProfile()).toEqual({ homeAddress: "", homeLat: null, homeLng: null });
   });
 });

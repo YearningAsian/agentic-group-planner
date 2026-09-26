@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
+import { resetStudioMemory } from "./studio-store";
 import {
-  TRIPS_DB_KEY,
   deleteTripRecord,
   loadDatabase,
-  saveDatabase,
   upsertTripRecord,
   type TripRecord,
 } from "./trips-db";
@@ -38,16 +37,16 @@ function dummyState(overrides: Partial<TripState> = {}): TripState {
 
 describe("trips-db", () => {
   beforeEach(() => {
-    localStorage.clear();
+    resetStudioMemory();
   });
 
-  it("loads empty database by default without demo trips", () => {
+  it("loads an empty database by default", () => {
     const db = loadDatabase();
     expect(db.trips).toEqual([]);
     expect(db.activeTripId).toBeNull();
   });
 
-  it("saves and loads trips from localStorage", () => {
+  it("saves and loads trips from the studio document", () => {
     const record: TripRecord = {
       ...dummyState({ destinationId: "lisbon", destinationQuery: "Lisbon" }),
       id: "trip-1",
