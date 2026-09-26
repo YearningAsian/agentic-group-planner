@@ -13,7 +13,7 @@ Install gitleaks with your package manager: `winget install Gitleaks.Gitleaks` o
 
 ## Secrets
 
-Keys live only in gitignored env files: `web/.env.local`, `optimizer/.env`, and `.env.test.local`. The `.env.example` files hold placeholders and are the only env files in git.
+Keys live only in gitignored env files: `web/.env.local`, `optimizer/.env`, and `web/.env.test.local`. The `.env.example` files hold placeholders and are the only env files in git.
 
 A pre-commit hook in `.githooks/pre-commit` runs `gitleaks git --pre-commit --staged` and blocks any commit whose staged changes contain a secret. It also blocks the commit if gitleaks isn't installed, rather than skipping the scan. If `pnpm install` didn't enable it (for example, you haven't installed yet), run:
 
@@ -28,6 +28,20 @@ If the hook flags a finding:
 3. Don't bypass the hook with `--no-verify`.
 
 GitHub secret scanning and push protection are also on for this repository. If a real secret ever reaches GitHub, rotate it first, then remove it from history.
+
+## Database tests
+
+`pnpm --filter web test:db` (and `test:stripe`) reach Supabase through `DB_TEST_TARGET`:
+
+- **`local`** (the default): the local stack from `pnpm exec supabase start`, with its keys in `web/.env.local`. It needs Docker: on Windows, Docker Desktop running with "Use the WSL 2 based engine" checked.
+- **`dev`**: a separate hosted Supabase project used only for tests, never the one the app uses. Put its `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY` in `web/.env.test.local` (gitignored), and push the migrations to it once with `pnpm exec supabase db push --db-url "<its connection string>"`. Then:
+
+```bash
+DB_TEST_TARGET=dev pnpm --filter web test:db            # bash
+$env:DB_TEST_TARGET="dev"; pnpm --filter web test:db    # PowerShell
+```
+
+The run stops with a named error if the file or a key is missing, or if it points at the same project as `web/.env.local`.
 
 ## Before you commit
 
