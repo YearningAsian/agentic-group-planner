@@ -35,7 +35,7 @@ interface Member {
 async function payerRows(admin: AdminClient, mandateId: string, memberId: string) {
   const { data, error } = await admin
     .from("payment_holds")
-    .select("id, status, cap_cents, kind, pays_share")
+    .select("id, status, cap_cents, kind, pays_share, stripe_payment_intent_id")
     .eq("mandate_id", mandateId)
     .eq("payer_member_id", memberId)
     .order("kind", { ascending: false });
@@ -178,9 +178,27 @@ async function authorizeHold(
       excluded = pending.filter((r) => r.pays_share === false);
       if (pending.length === excluded.length) break;
     }
-    if (excluded.length > 0) {
-      // The finalizer planned without this hold: another row already pays these shares.
+    const currentRows = await payerRows(admin, mandate.id, member.id);
+    const paysAnyShare = currentRows.some((r) => r.status === "authorized" || r.status === "captured");
+    const cancelledWhileAuthorizing = currentRows.length > 0 && currentRows.every((r) => r.status === "released");
+    if (cancelledWhileAuthorizing) {
+      // The finalizer may have cancelled while authorize() was in flight, before a PI ID was
+      // available to release. Keep that ID on the released rows for reconciliation.
+      const saved = await admin
+        .from("payment_holds")
+        .update({ stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null })
+        .eq("mandate_id", mandate.id)
+        .eq("payer_member_id", member.id)
+        .eq("status", "released")
+        .is("stripe_payment_intent_id", null);
+      if (saved.error) throw readError(saved.error, "the holds");
+    }
+    if (!paysAnyShare && (excluded.length > 0 || cancelledWhileAuthorizing)) {
+      // Only release the PaymentIntent when none of its rows pays a share. An excluded fronted
+      // row can coexist with an own row that has already captured on the same PaymentIntent.
       await payments.release({ paymentIntentId: result.paymentIntentId, idempotencyKey: `pi-release:${mandate.id}:${member.id}` });
+    }
+    if (excluded.length > 0) {
       const released = await admin
         .from("payment_holds")
         .update({ status: "released", stripe_payment_intent_id: result.paymentIntentId, lease_expires_at: null })
