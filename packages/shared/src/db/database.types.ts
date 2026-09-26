@@ -1337,6 +1337,7 @@ export type Database = {
       }
       claim_invite: { Args: { p_token: string }; Returns: Json }
       complete_mandate: { Args: { payload: Json }; Returns: Json }
+      cover_shortfall: { Args: { payload: Json }; Returns: Json }
       create_mandate: { Args: { payload: Json }; Returns: Json }
       finish_agent_run: { Args: { payload: Json }; Returns: Json }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }
