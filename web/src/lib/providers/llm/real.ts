@@ -7,6 +7,8 @@ import {
   type LanguageModel,
   type LanguageModelMiddleware,
   Output,
+  type StopCondition,
+  type ToolSet,
   wrapLanguageModel,
 } from "ai";
 import { z } from "zod";
@@ -44,6 +46,9 @@ const modelCallPolicy: LanguageModelMiddleware = {
     ),
 };
 
+/** A tool that throws ends the run; the SDK would otherwise hand the error to the model and go on. */
+const toolFailed: StopCondition<ToolSet> = ({ steps }) =>
+  steps.at(-1)?.content.some((part) => part.type === "tool-error") ?? false;
 
 const ImageDescription = z.object({
   caption: z.string().min(1).max(200),
@@ -79,11 +84,13 @@ function createAiSdkProvider(name: LlmProviderName, agentModel: LanguageModel, v
         tools: input.tools,
         // Meta returns 400 for any tool_choice but "auto" (ADR 0017), so the loop never forces one.
         toolChoice: "auto",
-        stopWhen: isStepCount(input.maxSteps ?? DEFAULT_MAX_STEPS),
+        stopWhen: [isStepCount(input.maxSteps ?? DEFAULT_MAX_STEPS), toolFailed],
         timeout: { totalMs: RUN_MS },
         maxRetries: 0,
         abortSignal: input.signal,
       });
+      const failure = result.steps.at(-1)?.content.find((part) => part.type === "tool-error");
+      if (failure) throw failure.error;
       const steps = result.steps.flatMap((step) =>
         step.toolResults.map(({ toolName, input: toolInput, output }) => ({ toolName, input: toolInput, output })),
       );

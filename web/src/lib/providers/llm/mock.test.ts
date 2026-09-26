@@ -78,6 +78,31 @@ describe("mock LLM provider", () => {
     ).rejects.toThrow(/retired_tool/);
   });
 
+  it("a tool that throws ends the replay with that error", async () => {
+    const key = "throws then plans";
+    const dir = recordingsWith(key, [
+      { toolName: "broken", input: {} },
+      { toolName: "plan_day", input: {} },
+    ]);
+    const calls: string[] = [];
+    const broken = tool({
+      description: "broken",
+      inputSchema: z.looseObject({}),
+      execute: async (): Promise<{ ok: boolean }> => {
+        throw new Error("optimizer exploded");
+      },
+    });
+
+    await expect(
+      createMockLlmProvider({ recordingsDir: dir, ...noDelay }).runAgent({
+        ...base,
+        tools: { broken, plan_day: echoTool(calls, "plan_day") },
+        recordingKey: key,
+      }),
+    ).rejects.toThrow("optimizer exploded");
+    expect(calls).toEqual([]);
+  });
+
   it("mock runAgent stops after maxSteps tool calls", async () => {
     const key = "three steps";
     const dir = recordingsWith(key, [1, 2, 3].map((n) => ({ toolName: "plan_day", input: { n } })));

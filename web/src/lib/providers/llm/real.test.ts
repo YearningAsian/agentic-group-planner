@@ -174,4 +174,23 @@ describe("meta LLM provider", () => {
     await expect(run).resolves.toMatchObject({ text: "Here's a plan for Saturday.", steps: [{ toolName: "plan_day" }] });
     expect(requests).toHaveLength(2);
   });
+
+  it("a tool that throws ends the run with that error, without another model call", async () => {
+    const { fetch, requests } = scriptedFetch([
+      toolCall("plan_day", '{"mode":"initial"}'),
+      completion({ content: "Something went wrong, sorry." }, "stop"),
+    ]);
+    const broken = tool({
+      description: "Plan the day.",
+      inputSchema: z.object({ mode: z.enum(["initial", "replan"]) }),
+      execute: async (): Promise<{ ok: boolean }> => {
+        throw new Error("optimizer exploded");
+      },
+    });
+
+    await expect(metaWith(fetch).runAgent({ ...planPrompt, tools: { plan_day: broken } })).rejects.toThrow(
+      "optimizer exploded",
+    );
+    expect(requests).toHaveLength(1);
+  });
 });
