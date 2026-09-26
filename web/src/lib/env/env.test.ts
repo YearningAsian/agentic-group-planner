@@ -126,6 +126,7 @@ describe("client env", () => {
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
       NEXT_PUBLIC_DEMO_MODE: true,
+      NEXT_PUBLIC_MAPBOX_TOKEN: undefined,
     });
     expect(() => parseClientEnv({})).toThrow(EnvError);
   });

@@ -8,7 +8,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 
 export const metadata: Metadata = {
   title: { default: "Group Trip Agent", template: "%s · Group Trip Agent" },
-  description: "Plan together, pay together, remember together.",
+  description: "Questions, a flight, a stay, then a link for the people who haven't joined yet.",
 };
 
 export const viewport: Viewport = {

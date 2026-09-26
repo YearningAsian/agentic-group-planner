@@ -8,6 +8,8 @@ const clientSchema = z.object({
   /** `true` is dev mode: seeded-user picker, dev toolbar, and `/api/demo/*`. Never true in production. */
   NEXT_PUBLIC_DEMO_MODE: z.enum(["true", "false"], missing).transform((value) => value === "true"),
   NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
+  /** Mapbox public token (pk.). Optional: trip-draft map falls back to a preview SVG without it. */
+  NEXT_PUBLIC_MAPBOX_TOKEN: z.string().optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientSchema>;
@@ -32,6 +34,7 @@ export function getClientEnv(): ClientEnv {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_MAPBOX_TOKEN: process.env.NEXT_PUBLIC_MAPBOX_TOKEN,
   });
   return cached;
 }
