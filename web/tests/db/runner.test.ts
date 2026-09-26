@@ -3,10 +3,11 @@ import { type AgentStatusEvent, PlanDayInput, type ToolName, type ToolResult } f
 import type { Database } from "@agp/shared/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { resolveHandle } from "@/lib/agent/handles";
+import { addHandle, resolveHandle } from "@/lib/agent/handles";
 import { claimRun, type RunnerDeps, startAgentRun } from "@/lib/agent/runner";
 import { runTool } from "@/lib/agent/run-tool";
 import { createMockLlmProvider } from "@/lib/providers/llm/mock";
+import { createMetaProvider } from "@/lib/providers/llm/real";
 import type { LlmProvider } from "@/lib/providers/llm/types";
 import { defineTool, type RunContext, type ToolDefinition } from "@/lib/tools/define-tool";
 import { adminClient, cleanup, createTrip, createUser, testBatch } from "./helpers";
@@ -122,7 +123,7 @@ describe("agent runner", () => {
     await claimRun(admin, runId);
     const handler = vi.fn<(input: PlanDayInput, ctx: RunContext) => Promise<ToolResult>>(async () => ok("Planned the morning."));
     const tool = planDay(handler);
-    const ctx: RunContext = { tripId, runId, toolCallId: "call-1", requesterMemberId: memberIds[1]!, handles: {}, admin };
+    const ctx: RunContext = { tripId, runId, toolCallId: "call-1", requesterMemberId: memberIds[1]!, actorMemberId: memberIds[1]!, handles: {}, admin };
 
     const first = await runTool(ctx, tool, { mode: "initial" });
     const second = await runTool(ctx, tool, { mode: "initial" });
@@ -301,5 +302,109 @@ describe("finish_agent_run", () => {
     const member = await createUser({ batch });
     const { error } = await member.client.rpc("finish_agent_run", { payload: {} });
     expect(error?.code).toBe("42501");
+  });
+});
+
+describe("agent runner with the real tool loop", () => {
+  /** Meta's Chat Completions replies, one per model call. */
+  function metaReplying(replies: Record<string, unknown>[]) {
+    let call = 0;
+    const fetch = async () => {
+      const message = replies[call++] ?? { content: "Done." };
+      const body = {
+        id: "chatcmpl-test",
+        object: "chat.completion",
+        created: 0,
+        model: "muse-spark-1.3",
+        choices: [{ index: 0, message: { role: "assistant", ...message }, finish_reason: message.tool_calls ? "tool_calls" : "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      };
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    };
+    return createMetaProvider({ apiKey: "test-key", baseURL: "https://meta.test/v1", agentModel: "muse-spark-1.3", fetch });
+  }
+  const callPlanDay = (args: unknown) => ({
+    content: null,
+    tool_calls: [{ id: `call_${JSON.stringify(args).length}`, type: "function", function: { name: "plan_day", arguments: JSON.stringify(args) } }],
+  });
+
+  it("input that fails the tool's schema reaches runTool, which returns invalid_input so the model can fix it", async () => {
+    const { runId } = await queuedRun();
+    const handler = vi.fn<(input: PlanDayInput, ctx: RunContext) => Promise<ToolResult>>(async () => ok("Planned 3 slots."));
+
+    const outcome = await startAgentRun(
+      runId,
+      deps({
+        llm: metaReplying([callPlanDay({ mode: "initial", options_per_slot: 5 }), callPlanDay({ mode: "initial" }), { content: "Planned." }]),
+        tools: { plan_day: planDay(handler) },
+      }),
+    );
+
+    expect(outcome).toBe("succeeded");
+    expect(handler).toHaveBeenCalledTimes(1);
+    const { data: calls } = await admin.from("tool_calls").select("status, output").eq("run_id", runId).order("created_at");
+    expect(calls).toEqual([
+      { status: "failed", output: expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "invalid_input" }) }) },
+      { status: "succeeded", output: expect.objectContaining({ ok: true }) },
+    ]);
+  });
+
+  it("a run failed from outside mid-run reports failed, not succeeded", async () => {
+    const { runId } = await queuedRun();
+    const outcome = await startAgentRun(
+      runId,
+      deps({
+        tools: {
+          plan_day: planDay(async () => {
+            // What the lease sweep does when it decides this run died.
+            await admin.rpc("finish_agent_run", {
+              payload: {
+                trip_id: tripId,
+                actor_member_id: memberIds[1],
+                run_id: runId,
+                status: "failed",
+                message: { kind: "card", card_type: "error", card_payload: { card_type: "error", code: "timeout", message: "x", tool: null, retryable: true, retry_message_id: null } },
+              },
+            });
+            return ok("done");
+          }),
+        },
+        llm: scriptedLlm([{ toolName: "plan_day", input: { mode: "initial" } }], "All set."),
+      }),
+    );
+
+    expect(outcome).toBe("failed");
+    expect((await runMessages(runId)).map((m) => m.kind)).toEqual(["card"]);
+  });
+
+  it("handles a tool adds are saved on the run and usable by later calls", async () => {
+    const { runId } = await queuedRun();
+    const seen: string[] = [];
+    const tool = planDay(async (input, ctx) => {
+      if (input.note === "first") {
+        const handle = addHandle(ctx.handles, "O", "00000000-0000-4000-8000-00000000abcd");
+        return { ok: true, summary: `Added ${handle}.`, handles: { [handle]: "A new option" } };
+      }
+      seen.push(resolveHandle(ctx.handles, "O1", "O"));
+      expect(ctx.actorMemberId).toBe(memberIds[1]);
+      return ok("used it");
+    });
+
+    await startAgentRun(
+      runId,
+      deps({
+        llm: scriptedLlm(
+          [
+            { toolName: "plan_day", input: { mode: "initial", note: "first" } },
+            { toolName: "plan_day", input: { mode: "initial", note: "second" } },
+          ],
+          "Done.",
+        ),
+        tools: { plan_day: tool },
+      }),
+    );
+
+    expect(seen).toEqual(["00000000-0000-4000-8000-00000000abcd"]);
+    expect((await runRow(runId)).handles).toMatchObject({ O1: "00000000-0000-4000-8000-00000000abcd", M1: memberIds[0] });
   });
 });

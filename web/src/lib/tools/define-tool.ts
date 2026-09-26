@@ -15,6 +15,8 @@ export interface RunContext {
   runId: string;
   toolCallId: string;
   requesterMemberId: string | null;
+  /** The joined member the run's writes are on behalf of: the requester, or the organizer for a server-started run. */
+  actorMemberId: string;
   handles: HandleTable;
   admin: AdminClient;
 }

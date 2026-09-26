@@ -1,6 +1,6 @@
 import "server-only";
 import { type AgentStatusEvent, pairsAgentWithPaid, type ToolError, type ToolName, type ToolResult } from "@agp/shared";
-import { tool as aiTool, type ToolSet } from "ai";
+import { tool as aiTool, jsonSchema, type ToolSet, zodSchema } from "ai";
 import { getLlmProvider, type LlmProvider, RecordingNotFoundError } from "@/lib/providers/llm";
 import { AppError, toToolError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
@@ -137,13 +137,24 @@ async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admi
 
     const tools: ToolSet = {};
     for (const [name, definition] of Object.entries(overrides.tools ?? toolRegistry) as [ToolName, ToolDefinition][]) {
+      // The SDK gets the schema to describe the tool but doesn't validate against it: runTool
+      // does, so bad input is recorded and comes back to the model as invalid_input (design §2.1).
+      const described = zodSchema(definition.input);
       tools[name] = aiTool({
         description: definition.description,
-        inputSchema: definition.input,
+        inputSchema: jsonSchema(() => described.jsonSchema),
         execute: async (input: unknown, { toolCallId }: { toolCallId: string }) => {
           step += 1;
           await status({ step, state: "tool", label: TOOL_LABELS[name], tool: name });
-          const ctx = { tripId: run.trip_id, runId: run.id, toolCallId, requesterMemberId: run.requester_member_id, handles: context.handles, admin };
+          const ctx = {
+            tripId: run.trip_id,
+            runId: run.id,
+            toolCallId,
+            requesterMemberId: run.requester_member_id,
+            actorMemberId: actor,
+            handles: context.handles,
+            admin,
+          };
           try {
             return await runTool(ctx, definition, input);
           } catch (error) {
@@ -164,7 +175,9 @@ async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admi
       recordingKey: body === null ? undefined : recordingKey(body),
     });
 
-    await finishRun(admin, {
+    // Tools may have added handles; the trace keeps the whole table.
+    await admin.from("agent_runs").update({ handles: context.handles }).eq("id", run.id);
+    const finished = await finishRun(admin, {
       trip_id: run.trip_id,
       actor_member_id: actor,
       run_id: run.id,
@@ -174,6 +187,11 @@ async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admi
       usage: result.usage,
       replayed: result.replayed,
     });
+    if (!finished.finished) {
+      // Someone else ended the run first, such as a sweep that found its lease lapsed.
+      await status({ step, state: "failed", label: "Something went wrong" });
+      return finished.status === "succeeded" ? "succeeded" : "failed";
+    }
     await status({ step, state: "done", label: "Done" });
     return "succeeded";
   } catch (error) {

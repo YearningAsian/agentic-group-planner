@@ -53,6 +53,7 @@ async function finishCall(admin: AdminClient, id: string, fields: Record<string,
 export async function runTool(ctx: RunContext, tool: ToolDefinition, rawInput: unknown): Promise<ToolResult> {
   const { admin } = ctx;
   let row = await findCall(admin, ctx.runId, ctx.toolCallId);
+  let lostRace = false;
   if (!row) {
     const { data, error } = await admin
       .from("tool_calls")
@@ -67,12 +68,19 @@ export async function runTool(ctx: RunContext, tool: ToolDefinition, rawInput: u
       .select("id, status, output, error")
       .single();
     // Another executor inserted the same call first; use its row.
-    if (error?.code === "23505") row = await findCall(admin, ctx.runId, ctx.toolCallId);
-    else if (error) throw new AppError("internal", "Couldn't record the tool call.", { retryable: true, cause: error });
+    if (error?.code === "23505") {
+      lostRace = true;
+      row = await findCall(admin, ctx.runId, ctx.toolCallId);
+    } else if (error) throw new AppError("internal", "Couldn't record the tool call.", { retryable: true, cause: error });
     else row = data;
   }
   if (!row) throw new AppError("internal", "The tool call disappeared.", { retryable: true });
   if (row.status !== "started") return storedResult(row);
+  // Another executor is running this call right now; running the handler twice isn't safe.
+  if (lostRace) {
+    const error: ToolError = { code: "conflict", message: "This tool call is already running.", retryable: false };
+    return { ok: false, summary: error.message, error };
+  }
 
   const parsed = tool.input.safeParse(rawInput ?? {});
   if (!parsed.success) {

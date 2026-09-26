@@ -1,8 +1,11 @@
 import { formatHandle, type HandleKind, parseHandle } from "@agp/shared";
 import { AppError } from "@/lib/reliability";
 
-/** Handle → UUID for one run, e.g. `{ M1: "…", I2: "…" }`. */
-export type HandleTable = Readonly<Record<string, string>>;
+/**
+ * Handle → UUID for one run, e.g. `{ M1: "…", I2: "…" }`. The runner shares one table across the
+ * run's tool calls, so a handle a tool adds (`addHandle`) resolves in later calls too.
+ */
+export type HandleTable = Record<string, string>;
 
 export interface HandleInput {
   members: readonly { id: string; sort_order: number }[];
@@ -48,6 +51,23 @@ export function assignHandles(input: HandleInput): AssignedHandles {
   add("O", options.map((o) => o.id));
   add("P", places);
   return { table, byId: reverse };
+}
+
+/**
+ * Gives a row created during the run the next handle of its kind (a new option becomes O7 after
+ * O1–O6), or returns the handle it already has. Tools report new handles in `ToolResult.handles`.
+ */
+export function addHandle(handles: HandleTable, kind: HandleKind, id: string): string {
+  let last = 0;
+  for (const [handle, existing] of Object.entries(handles)) {
+    const parsed = parseHandle(handle);
+    if (parsed?.kind !== kind) continue;
+    if (existing === id) return handle;
+    last = Math.max(last, parsed.index);
+  }
+  const handle = formatHandle(kind, last + 1);
+  handles[handle] = id;
+  return handle;
 }
 
 /**

@@ -19,10 +19,17 @@ export async function actorFor(admin: AdminClient, run: Pick<AgentRunRow, "trip_
   return data.id;
 }
 
+export interface FinishResult {
+  /** False when the run had already ended; then nothing was written. */
+  finished: boolean;
+  status: "succeeded" | "failed";
+}
+
 /** Ends a run through `finish_agent_run`. A run that already ended is left as it is. */
-export async function finishRun(admin: AdminClient, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await admin.rpc("finish_agent_run", { payload: payload as never });
+export async function finishRun(admin: AdminClient, payload: Record<string, unknown>): Promise<FinishResult> {
+  const { data, error } = await admin.rpc("finish_agent_run", { payload: payload as never });
   if (error) throw new AppError("internal", "Couldn't finish the agent run.", { retryable: true, cause: error });
+  return data as unknown as FinishResult;
 }
 
 /** Fails a run with one error card whose fields come from the caller, never from a raw error. */
