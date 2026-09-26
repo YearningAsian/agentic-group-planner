@@ -72,7 +72,8 @@ export default defineConfig({
           environment: "node",
           include: ["tests/payments/**/*.test.ts"],
           env: { ...env, PAYMENTS_PROVIDER: "real" },
-          testTimeout: 60_000,
+          // The fronting race runs five full purchases against Stripe (about 70 s); mock runs take ~2 s.
+          testTimeout: 180_000,
         },
       },
     ],
