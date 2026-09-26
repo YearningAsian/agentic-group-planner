@@ -16,7 +16,8 @@ Last updated: 2026-09-26.
 - [ ] Muse tool `search_stays`: Duffel `stays.search` by the trip's coordinates (sandbox), results saved as places with rate options
 - [ ] AI-217: remember each person's preferences across trips, and feed them to Muse
   - [x] migration + RLS + join trigger; agent context quotes remembered notes
-  - [ ] `remember_preference` tool; CI db tests green
+  - [x] `remember_preference` tool (requester only; no card)
+  - [ ] CI db tests green (`person-preferences.test.ts`)
 - [ ] AI-210: re-planning from comments (`apply_plan` replan mode)
 - [ ] VO-211: member joined, and holds released to the joiner (backend half)
 - [ ] CO-S04: expire open mandates

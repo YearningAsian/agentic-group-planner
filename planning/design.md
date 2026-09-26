@@ -118,7 +118,7 @@ web/
 └── e2e/                             Playwright specs, one file per core flow                      VO (harness), each flow's owner
 ```
 
-**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 5 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the two server-originated cards.
+**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 6 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the two server-originated cards.
 
 **Public entry points.** Other code imports a feature only through `index.ts` (client-safe) or `server.ts` (starts with `import 'server-only'`). ESLint `no-restricted-imports` blocks `@/features/*/*` except those two files, and blocks `@/lib/providers/*/*` except each provider's `index.ts`.
 
@@ -164,7 +164,7 @@ Type notation: `uuid`, `text`, `int`, `number`, `bool`, `cents` (int ≥ 0, mino
 
 ### 2.1 Agent tools
 
-The agent has 5 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md)). Every handler:
+The agent has 6 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md); `remember_preference` added for cross-trip memory, plan AI-217). Every handler:
 
 - Receives a `RunContext` holding `trip_id`, `run_id`, the requester's `member_id`, and the run's handle table. The model never supplies a trip ID.
 - Resolves handles to UUIDs. An unknown handle returns `unknown_handle`, so the model can correct itself.
@@ -294,6 +294,18 @@ Card `summary`
 | logistics | text[] | yes | ≤ 5 lines, built deterministically on the server |
 
 The server computes every number. The model only writes the prose around them.
+
+#### `remember_preference` · AI · no card
+
+Input
+
+| Field | Type | Req | Notes |
+| --- | --- | --- | --- |
+| dietary | enum(dietary)[] | no | unioned onto the requester's remembered diets |
+| interests | text[] | no | ≤ 5; each ≤ 40 chars, letters/digits/spaces |
+| note | text | no | ≤ 200; one short note in the person's own words |
+
+At least one field is required. The handler writes only the requester's `person_preferences` row (never another member's), merges dietary and interests into this trip's `member_constraints`, and returns a summary with no card. The next run's context quotes up to five newest notes so Muse can choose among ranked plan options.
 
 #### `propose_purchase` · CO · card `approval`
 
@@ -591,7 +603,7 @@ The trip chat has one Meta capability beyond the core model, with its own provid
 | card_type | `place_list`, `plan`, `itinerary_change`, `summary`, `approval`, `booking_confirmed`, `price_change`, `member_joined`, `error` |
 | run_trigger | `mention`, `price_change`, `demo` |
 | run_status | `queued`, `running`, `succeeded`, `failed` |
-| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase` |
+| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase`, `remember_preference` |
 | tool_status | `started`, `succeeded`, `failed` |
 | webhook_provider | `stripe` |
 | webhook_status | `received`, `processed`, `ignored`, `failed` |
@@ -1175,7 +1187,7 @@ sequenceDiagram
     API->>Run: after() starts the runner
     Run->>DB: claim run, queued to running, set lease
     Run-->>All: broadcast agent.status "Reading the trip"
-    Run->>LLM: context with handles and 5 tools
+    Run->>LLM: context with handles and 6 tools
     LLM-->>Run: plan_day(initial, constraint_updates)
     Run->>DB: insert tool_calls row, save constraints, items to proposing
     Run-->>All: broadcast agent.status "Optimizing the day"
@@ -1793,7 +1805,7 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 The product is now five flows (§5): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. This supersedes the earlier six: voting is replaced by item comments with agent revision and organizer lock, and the restaurant call and the recap/gallery are dropped entirely.
 
 - **Votes are gone.** There is no `cast_vote`, no majority lock, and no `votes` table. Items move `voting → decided` through the organizer's `swap_option` lock or the agent on an explicit confirmation in chat. The plan card shows comment counts, not tallies.
-- **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 5 tools and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
+- **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 6 tools (including `remember_preference`) and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
 - **Dormant migration content, dropped.** Migrations 1–4 created the `votes` and `calls` tables, `agent_runs.trigger_call_id`, and `bookings.call_id`, and their CHECKs allowed the dropped tool names, card types, run trigger, and providers. `20260926063958_journey_pivot_cleanup.sql` drops those tables and columns and narrows each CHECK to the §3.1 values; `web/tests/db/pivot-cleanup.test.ts` pins it.
 - **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
 - **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.

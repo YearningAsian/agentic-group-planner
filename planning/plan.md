@@ -4,7 +4,7 @@
 
 **Goal:** Build the five core user flows in [design §5](design.md#5-core-user-flows): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. Build the development and test tooling around them.
 
-**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 5 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
+**Architecture:** A pnpm monorepo. The Next.js 16 app holds the chat, lanes, map, payments, profile, per-person itinerary, and an agent runner with 6 tools. `@agp/shared` holds the Zod contracts. A stateless FastAPI service runs CP-SAT and the enumeration fallback. Supabase provides Postgres with RLS and Realtime. Cards are message rows, and Realtime only triggers refetches. Every provider has a real adapter and a mock one, and the mock is for development and tests only.
 
 **Tech stack:** pinned in [`stack.md`](stack.md), and re-verified before installing.
 
@@ -399,7 +399,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
   - `startAgentRun(runId)`, exported from `lib/agent/index.ts` as a stub.
   - Stub `card.tsx` files that render a plain `<article>` naming the card type. The M1 slice passes with the stub plan card.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the 5 tool names from the tool_name enum`.
+  - [x] `pnpm --filter web test -- src/lib/tools/registry.test.ts` passes: `registry lists exactly the tool names from the tool_name enum`.
   - [ ] Check: `pnpm --filter web typecheck` passes with every stub in place.
 - **Status:** done (2026-09-23). Proof: `pnpm --filter web test src/lib/tools` → registry test passed (RED first: "Cannot find module ./registry"); `pnpm --filter web typecheck` → exit 0 with every stub in place; lint exit 0. Re-verified 2026-09-26 after the journey pivot: the registry lists 5 tools, `cards.tsx` maps 9 card types, the gallery, recap, and voice features and the grounding, image, segmentation, and voice providers are gone, and `features/profile` exists. `pnpm --filter web test src/lib/tools` → 4 passed (RED first: 7 tools and 11 card types).
 - **Commit:** `feat(web): feature entry points, tool folders, and provider interfaces`
@@ -1535,7 +1535,7 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Depends on:** AI-212
 - **Done when:**
   - [x] `pnpm --filter web test -- src/lib/agent/prompt.test.ts` passes:
-    - `the system prompt lists the 5 tools, says to use handles only, and forbids stating charged amounts`
+    - `the system prompt lists every tool, says to use handles only, and forbids stating charged amounts`
     - `it includes the trip date, the requester's handle, and the TBD dinner`
   - [ ] Check: on the deployed app with `LLM_PROVIDER=meta`, each of the three prompts (plan, collaborate, and book) calls the expected tool with valid handles in 5 of 5 tries. Note the median first-step latency and the chosen `AGENT_MODEL` in your `AGENTS.md`.
 - **Status:** prompt done; real-model check blocked (2026-09-26). Proof: `pnpm --filter web test src/lib/agent/prompt.test.ts` → 2 passed (RED first: no per-tool guidance in the prompt). `TOOL_GUIDE` is keyed by `ToolName`, so a new tool without guidance fails the type check. **Blocked:** the 5-of-5 check on the deployed app needs `META_MODEL_API_KEY` and a deploy.
@@ -1938,7 +1938,7 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 - **Produces:** a `person_preferences` row per signed-in user, across trips. It holds dietary rules, interests, and short notes Muse has learned, each with its source trip and time. RLS: a user reads and edits only their own row, and the agent reads it with the admin client. When a member joins a trip, their preferences seed `member_constraints`. The agent context lists each attending member's preferences, so Muse chooses among `plan_day`'s ranked options from the conversation and that memory. A `remember_preference` tool saves what a person says about themselves ("I'm vegetarian", "I hate early starts"); it never records something one member says about another.
 - **Done when:**
   - [ ] `pnpm --filter web test:db -- tests/db/person-preferences.test.ts` passes: a user can't read another user's row; joining a trip copies dietary rules and interests into `member_constraints`; `remember_preference` updates only the speaker's row; the rendered context names each attending member's remembered preferences.
-- **Status:** in progress (2026-09-26). Done: migration + own-row RLS + join/claim trigger that merges dietary and interests into `member_constraints`; `loadTripSnapshot` / `renderContext` quote up to five remembered notes per member (`context.test.ts` → 21 passed). Open: `remember_preference` tool, and the db test suite (runs in CI only; Docker is down locally).
+- **Status:** done except CI db proof (2026-09-26). Done: migration + own-row RLS + join/claim trigger; `loadTripSnapshot` / `renderContext` quote notes; `remember_preference` tool (requester only, merges into trip constraints, no card); tool_name CHECK widened. Proof: shared 65, `remember-preference/tool.test.ts` → 4 passed, registry and prompt cover 6 tools; typecheck and lint clean. Open: `person-preferences.test.ts` green in CI (Docker down locally).
 - **Commit:** `feat(agent): remember each person's preferences`
 
 ---
