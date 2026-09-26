@@ -1049,6 +1049,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - [ ] `cd optimizer && pytest tests/test_seeded.py` passes:
     - `test_seeded_trip_plan`: in the rank-1 plan, the morning is everyone at the aquarium, lunch is everyone at a vegetarian-friendly place, and the afternoon splits Person 1 and Person 4 at the High Museum from Person 2 and Person 3 at Piedmont Park. The engine is `cp_sat`, and `solve_ms` < 2000.
     - `test_mock_plan_matches_engine`: `mock-plan.json`'s assignments equal the engine's rank-1 plan.
+- **Status:** blocked on a weights decision (2026-09-26). Done: no member visits a place twice (`feat(optimizer): stop a member visiting a place twice in a day`; `pytest tests/test_repeats.py` → 14 passed, RED first: 11 failed, including both engines against a brute force on tables whose slots share places). `test_seeded.py` is written (branch `test/seeded-optimizer`) and fails: the rank-1 plan is the High Museum, Ponce City Market, then Piedmont Park, all together. A search over weights, tags, interests, and prices reached the target only with the `cost` weight at 0.1 (design §11.7, item 6, lists the evidence and the options).
 - **Commit:** `test(optimizer): pin the seeded trip plan`
 
 #### AI-209 · `plan_day`, full version · Must
@@ -1257,7 +1258,7 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
     - `a duplicate amount_capturable_updated is recorded once and changes nothing`
     - `amount_capturable_updated handled before the synchronous response leaves the payer's rows authorized once`
     - `a webhook with a bad signature returns 400 and records nothing`
-- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `pnpm --filter web test src/app/api/mandates` → 3 passed; `pnpm --filter web test:db tests/db/approve-hold.test.ts tests/payments/approve-concurrency.test.ts` → 9 passed (RED first: no approve or webhook route, `approveHold` a stub). Migration `20260926074648_payment_holds_lease.sql` leases a share row during the provider call, so concurrent approvals authorize once. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed.
+- **Status:** done on mock payments (2026-09-26, commerce worker); Stripe test mode is CO-305. Proof: `pnpm --filter web test src/app/api/mandates` → 3 passed; `pnpm --filter web test:db tests/db/approve-hold.test.ts tests/payments/approve-concurrency.test.ts` → 9 passed (RED first: no approve or webhook route, `approveHold` a stub). Migration `20260926074648_payment_holds_lease.sql` leases a share row during the provider call, so concurrent approvals authorize once. Re-run after integration (`2e22e90`, clean `supabase db reset`): web unit 192 and db 29 files / 143 passed. Follow-up 2026-09-26, `fix(payments): release late holds only when no row pays a share`: a PaymentIntent that authorizes after the finalizer released the member's rows is now released and its ID recorded, and one whose own row already captured is never released for an excluded fronted row. `pnpm --filter web test src/features/payments/server/approve-hold.test.ts` → 2 passed (RED first: both failed without the fix).
 - **Commit:** `feat(payments): approve holds, with the stripe webhook route`
 
 #### CO-210 · Finalize a mandate · Must
@@ -1612,13 +1613,14 @@ Providers switch from mock to real **one at a time**, on the deployed app. After
 - **Files:** `web/src/lib/providers/payments/{real.ts,real.test.ts}`
 - **Depends on:** CO-203
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/providers/payments/real.test.ts` passes (Stripe SDK mocked):
+  - [x] `pnpm --filter web test -- src/lib/providers/payments/real.test.ts` passes (Stripe SDK mocked):
     - `authorize creates one PaymentIntent with capture_method manual, confirm true, payment_method_types [card], the mandate and payer metadata, and Idempotency-Key pi-auth:{mandate_id}:{payer_member_id}`
     - `capture sends amount_to_capture, which may be less than the authorized amount`
     - `refund sends a partial amount with the idempotency key it's given, and mandate_id and share_member_id metadata`
     - `a card_declined error returns declined with the decline code`
     - `the client pins the API version and uses maxNetworkRetries 2 and a 10 s timeout`
     - `parseWebhook verifies the signature against the raw body`
+- **Status:** done (2026-09-26, commerce worker; integrated by the lead). Proof: `pnpm --filter web test src/lib/providers/payments` → 2 files, 16 passed, covering all six cases plus test-card attachment only in demo mode and refusal of a live key. The pinned `STRIPE_API_VERSION` (`2026-08-26.dahlia`) equals the installed SDK's `ApiVersion`. `PAYMENTS_PROVIDER=real` now needs both `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Not checked against Stripe itself: `web/.env.local` has no Stripe test key (CO-302, CO-303, and CO-305 need one).
 - **Commit:** `feat(payments): stripe test-mode provider`
 
 #### CO-302 · Seeded Stripe customers and claimer cards · Must

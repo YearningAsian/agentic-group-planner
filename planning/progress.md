@@ -125,3 +125,55 @@ The batch 3 review (`b79eb46..58deb6b`, with engine fuzzing against a brute forc
 - the enumeration fallback reports `infeasible` when it times out, and CP-SAT's thousandths rounding can break near-ties differently from enumeration: both went to the AI worker;
 - `reset:demo` drops `--stage`, and a failed user delete leaves the batch with no trip: the lead fixes these;
 - the import-boundary lint rules only see `@/` alias imports: a follow-up (every server module imports `server-only`, so `next build` still catches client leaks).
+
+### Round 4 (commerce worker and lead): finalization retries, fronted refunds, database CI
+
+Logged at the next session's recovery; these commits were pushed without an entry.
+
+| Commit | What | Tasks |
+| --- | --- | --- |
+| `fix(demo): reset keeps --stage, and a failed user delete still re-seeds` | batch 3 review follow-up | VO-216 |
+| `fix(lint): hold relative and dynamic imports to the boundary rules` | batch 3 review follow-up: one rule resolves every import to its `@/` path | CO-106 |
+| `feat(payments): persist finalization quote for retries` | migration `20260926120000_finalize_quote.sql` | CO-210, CO-S01 |
+| `fix(payments): refund stored fronted capture portions` | each fronted row refunds its own stored capture portion | CO-212 |
+| `fix(payments): keep finalization on the approved quote` | a price or currency change cancels and releases an unbooked mandate | CO-210, CO-212 |
+| `ci: run database and mock payment suites` | an isolated local Supabase stack on Ubuntu; DB suites and DB types drift | VO-108, CO-210, CO-212 |
+| `test(optimizer): stabilize the solver time-budget assertion` | the budget check uses the small table, which can't return UNKNOWN under load | AI-206 |
+| `feat(payments): persist confirmed booking before capture` | migration `20260926121000_persist_booked_merchant.sql` | CO-210 |
+| `fix(payments): resume confirmed bookings without rebooking` | a retry resumes the saved booking or an unfinished release | CO-210 |
+
+PR #3's four CI jobs (web and shared, optimizer, database and mock payments, contracts drift) were green at `6be77d6`.
+
+## 2026-09-26 · Recovery session (Windows)
+
+Environment: Windows, PowerShell, Node 26, Python 3.12 in `optimizer/.venv`. Docker Desktop's Linux engine didn't start (WSL hung), so no local Supabase: DB and RLS proofs come from CI's "database and mock payments" job. About 1.5 GB of RAM was free, so work ran with at most one helper agent at a time.
+
+### Recovery
+
+- The prompt's recovery notes were stale. PRs #1 and #2 were already merged into `testing` (`f1885fb`), and PR #3 (`colin-data-backend` → `testing`, draft) held 75 more commits, all CI green. FE-105 and the same-trip message policy were done and merged in #2; the price source was settled in design §11.7 item 1.
+- Four sibling worktrees (`agentic-group-planner-{late-auth,refund,seeded,stripe}`) were folded back and deleted:
+  - `refund` (`fix/fronted-refunds`): already merged; clean.
+  - `late-auth` (`fix/late-authorization`): an uncommitted CO-209 fix and test. RED confirmed by setting the fix aside (2 failed), GREEN with it; committed there, then cherry-picked.
+  - `seeded` (`test/seeded-optimizer`): an untracked AI-208 test; committed there. It fails (see below), so it stays off `colin-data-backend`.
+  - `stripe` (`feat/stripe-provider`): one committed CO-301 commit, cherry-picked.
+  - All three branches were pushed to `origin` before the folders were removed.
+- `feat/payments-money-and-mocks` (a WIP money commit) and `feat/optimizer-score-table` hold older versions of work that landed differently on `colin-data-backend`; left in place, not merged.
+- `web/.env.local` differs from `web/.env.example`. Missing: `META_MODEL_API_KEY`, `META_MODEL_API_BASE_URL`, `TRANSCRIBE_PROVIDER`, `TRANSCRIBE_MODEL`, and `DEMO_SEED_SECRET`. Still present, though removed from the example: `VISION_MODEL`, `XAI_API_KEY`, the `VOICE_*` and `ELEVENLABS_*` keys, and `DEMO_SEED_PASSWORD`. `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are empty, and there's no `web/.env.test.local`.
+
+### Feature 4 · Recovered payments work
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `fix(payments): release late holds only when no row pays a share` | CO-209 follow-up | `approve-hold.test.ts` 2 passed (RED first: both failed) |
+| `feat(payments): add Stripe test-mode provider` | CO-301 | `src/lib/providers/payments` 16 passed; API version equals the SDK's |
+
+Gates at `eb6a793`: typecheck and lint clean; shared 46, web unit 213; ruff clean, pytest 57; `check_plan.py` passed.
+
+### Feature 5 · AI-208: repeats fixed, target plan blocked
+
+| Commit | What | Proof |
+| --- | --- | --- |
+| `feat(optimizer): stop a member visiting a place twice in a day` | both engines and `is_feasible`; a tighter enumeration bound | `test_repeats.py` 14 passed (RED first: 11 failed); pytest 71 |
+
+- The first version of the enumeration change ran out of time at the engine limits when slots shared places: seed 11 found no plan in 10 s. A bound that skips visited places, plus removing each member's pinned places from their open choices, brought every measured case to 0.6 s or less, matching CP-SAT. `test_enumeration_finishes_at_the_limits_when_places_repeat` pins it.
+- **Blocked:** the §10.2 target plan. Three tuning rounds (weights, tags, interests, prices) reached it only with the `cost` weight at 0.1. Evidence and options are in design §11.7, item 6. Next step: a product decision among those options.
