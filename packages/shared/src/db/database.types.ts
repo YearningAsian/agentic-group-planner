@@ -1278,6 +1278,7 @@ export type Database = {
           search_path_pinned: boolean
         }[]
       }
+      create_mandate: { Args: { payload: Json }; Returns: Json }
       finish_agent_run: { Args: { payload: Json }; Returns: Json }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }
       is_trip_organizer: { Args: { p_trip_id: string }; Returns: boolean }
