@@ -7,6 +7,7 @@ import type { BookingKind, BookingProvider, BookResult, Quote } from "./types";
 
 /** What the approval card names as the merchant. */
 export const MOCK_MERCHANT_NAME = "Demo Tickets (mock merchant)";
+const MOCK_HOTELS_NAME = "Demo Hotels (mock merchant)";
 
 const QUOTE_TTL_MS = 15 * 60_000;
 const QUOTE_PREFIX = "q_mock_";
@@ -82,6 +83,10 @@ export function createMockMerchant(options: MockMerchantOptions = {}): MockMerch
   const overrideKey = (s: Pick<QuoteState, "optionId" | "partySize">) => `${s.optionId}:${s.partySize}`;
 
   return {
+    id: sells === "stays" ? "stays_mock" : "mock_merchant",
+    merchantName: sells === "stays" ? MOCK_HOTELS_NAME : MOCK_MERCHANT_NAME,
+    needsGuest: false,
+
     async quote(input): Promise<Quote> {
       assertKind(input.kind, sells);
       if (!Number.isSafeInteger(input.partySize) || input.partySize < 1) {

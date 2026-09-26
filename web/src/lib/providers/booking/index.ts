@@ -1,4 +1,5 @@
 import "server-only";
+import type { PlaceCategory } from "@agp/shared";
 import { getServerEnv, type ServerEnv } from "@/lib/env/server";
 import { NotBuiltError } from "@/lib/not-built";
 import { createMockMerchant, type MockMerchant } from "./mock-merchant";
@@ -15,6 +16,11 @@ export function selectStaysProvider(
 ): BookingProvider {
   if (env.STAYS_PROVIDER === "mock") return createMockMerchant({ kind: "stays" });
   return createDuffelStaysProvider({ token: env.DUFFEL_ACCESS_TOKEN });
+}
+
+/** What kind of purchase an item's category is: a hotel night or tickets. */
+export function bookingKindOf(category: string): Extract<BookingKind, "tickets" | "stays"> {
+  return category === ("lodging" satisfies PlaceCategory) ? "stays" : "tickets";
 }
 
 let merchant: MockMerchant | undefined;

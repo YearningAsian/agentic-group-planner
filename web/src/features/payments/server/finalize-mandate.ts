@@ -1,13 +1,14 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { BookingConfirmedCard, type MandateStatus } from "@agp/shared";
-import { type BookResult, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
+import { type BookResult, type BookingProvider, bookingKindOf, getBookingProvider } from "@/lib/providers/booking";
 import { getPaymentsProvider, type PaymentsProvider } from "@/lib/providers/payments";
 import { AppError } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { quoteChangeReason } from "../lib/approved-quote";
 import { holdOfIntent, holdSuffix } from "../lib/hold";
 import { type CapturePlan, planCaptures, type ShareRow } from "../lib/plan-captures";
+import { loadLeadGuest } from "./lead-guest";
 import { readError, rpcError } from "./rpc-error";
 
 /** Long enough to book and capture every hold with retries; a crash only delays a retry this long. */
@@ -15,7 +16,7 @@ const FINALIZE_LEASE_MS = 120_000;
 
 export interface FinalizeDeps {
   payments?: PaymentsProvider;
-  /** The merchant; tests pass one whose book() fails. */
+  /** The merchant; defaults to the adapter for the item's kind. Tests pass one whose book() fails. */
   booking?: BookingProvider;
 }
 
@@ -199,11 +200,10 @@ async function cancelMandate(
 export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}): Promise<{ status: MandateStatus }> {
   const admin = getAdminClient();
   const payments = deps.payments ?? getPaymentsProvider();
-  const booking = deps.booking ?? getBookingProvider("tickets");
 
   const { data: mandate, error } = await admin
     .from("mandates")
-    .select("id, trip_id, item_id, option_id, status, title, quote_cents, cap_cents, currency, cancel_reason, booking_quote_id, booking_provider_ref, booking_confirmation_code")
+    .select("id, trip_id, item_id, option_id, status, title, merchant, quote_cents, cap_cents, currency, cancel_reason, booking_quote_id, booking_provider_ref, booking_confirmation_code")
     .eq("id", mandateId)
     .maybeSingle();
   if (error) throw readError(error, "the purchase");
@@ -238,15 +238,26 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
       return { status: "cancelled" };
     }
     const [itemResult, optionResult, organizerResult] = await Promise.all([
-      admin.from("itinerary_items").select("starts_at").eq("id", mandate.item_id).single(),
+      admin.from("itinerary_items").select("starts_at, category").eq("id", mandate.item_id).single(),
       admin.from("item_options").select("place_id").eq("id", mandate.option_id).single(),
-      admin.from("trip_members").select("id, display_name").eq("trip_id", mandate.trip_id).eq("role", "organizer").single(),
+      admin.from("trip_members").select("id, display_name, profile_id").eq("trip_id", mandate.trip_id).eq("role", "organizer").single(),
     ]);
     for (const result of [itemResult, optionResult, organizerResult]) {
       if (result.error) throw readError(result.error, "the purchase");
     }
     const organizer = organizerResult.data!;
+    const kind = bookingKindOf(itemResult.data!.category);
+    const booking = deps.booking ?? getBookingProvider(kind);
     const { rows, plan, release } = await capturePlan(admin, mandateId);
+    // The group approved one merchant. If the adapter changed since (the item's category or
+    // STAYS_PROVIDER), cancel while nothing is quoted there; after that it needs a person.
+    if (booking.merchantName !== mandate.merchant && !mandate.booking_provider_ref) {
+      if (!mandate.booking_quote_id) {
+        await cancelMandate(admin, payments, mandateId, rows, "booking_failed");
+        return { status: "cancelled" };
+      }
+      throw new AppError("internal", `This purchase was quoted by ${mandate.merchant}, not ${booking.merchantName}.`, { retryable: false });
+    }
 
     const partySize = new Set(rows.map((r) => r.share_member_id)).size;
     const startsAt = itemResult.data!.starts_at;
@@ -254,7 +265,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
     if (!quoteId) {
       // The first attempt needs a fresh quote. A retry after booking may have captured only some
       // intents, so it must use the quote saved before that booking instead of re-pricing it.
-      const quote = await booking.quote({ kind: "tickets", placeId: optionResult.data!.place_id, optionId: mandate.option_id, partySize, startsAt });
+      const quote = await booking.quote({ kind, placeId: optionResult.data!.place_id, optionId: mandate.option_id, partySize, startsAt });
       const changed = quoteChangeReason({
         approvedCents: mandate.quote_cents,
         capCents: mandate.cap_cents,
@@ -284,12 +295,15 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
         confirmationCode: mandate.booking_confirmation_code ?? undefined,
       };
     } else {
+      // A missing guest is the adapter's call: it first returns any booking an earlier attempt made.
+      const guest = booking.needsGuest ? await loadLeadGuest(admin, organizer) : null;
       booked = await booking.book({
-        kind: "tickets",
+        kind,
         quoteId,
         partySize,
         startsAt,
         contactName: organizer.display_name,
+        ...(guest ? { guest } : {}),
         idempotencyKey: `booking:${mandateId}`,
       });
       if (booked.status !== "confirmed") {
@@ -319,7 +333,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
       card_type: "booking_confirmed",
       booking_id: bookingId,
       item_id: mandate.item_id,
-      provider: "mock_merchant",
+      provider: booking.id,
       title: mandate.title,
       starts_at: startsAt,
       party_size: partySize,
@@ -334,7 +348,7 @@ export async function finalizeMandate(mandateId: string, deps: FinalizeDeps = {}
         mandate_id: mandateId,
         booking: {
           id: bookingId,
-          provider: "mock_merchant",
+          provider: booking.id,
           provider_ref: booked.providerRef,
           confirmation_code: booked.confirmationCode ?? null,
           total_cents: mandate.quote_cents,

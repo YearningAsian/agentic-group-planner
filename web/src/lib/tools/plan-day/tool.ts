@@ -18,6 +18,7 @@ import { formatUsd } from "@/lib/money";
 import { minutesFor } from "@/lib/providers/routing";
 import { AppError } from "@/lib/reliability";
 import { defineTool, type RunContext } from "../define-tool";
+import { offerablePlaces } from "./alternatives";
 import { optionReasoning } from "./reasoning";
 
 /** Enough cached places per category for the builder to rank and cut to 6 after diet and hours. */
@@ -63,7 +64,7 @@ async function loadTrip(ctx: RunContext) {
     admin.from("trips").select("timezone").eq("id", tripId).single(),
     admin
       .from("itinerary_items")
-      .select("id, slot_key, label, category, starts_at, ends_at, together, status, pinned, position, chosen_option_id")
+      .select("id, slot_key, label, category, starts_at, ends_at, together, status, pinned, position, chosen_option_id, shifted_min")
       .eq("trip_id", tripId)
       .not("status", "in", "(cancelled,superseded)")
       .order("starts_at")
@@ -214,6 +215,11 @@ export interface PlanDayDeps {
   optimizer?: () => OptimizerClient;
 }
 
+export interface PlanDayOptions {
+  /** Places not to offer again: the item's old options, for update_item's request_alternatives. */
+  excludePlaceIds?: ReadonlySet<string>;
+}
+
 /**
  * `plan_day` (design §2.1). It resolves every handle first, so a bad one changes nothing; saves the
  * constraint updates; plans the earliest 3 open slots (or the named ones) with the optimizer, with
@@ -230,151 +236,154 @@ export function createPlanDayTool(deps: PlanDayDeps = {}) {
     description:
       "Plan the day with the optimizer: score options for up to 3 open itinerary slots, including split plans where members branch off and meet again, and post a plan card the group discusses in comments. Put any budget, dietary, or interest changes the group mentions in constraint_updates. Use mode \"replan\" after a booking changes the day. Never invent times or prices; the card carries them.",
     input: PlanDayInput,
-    handler: async (input, ctx): Promise<ToolResult> => {
-      const { admin } = ctx;
-      const members = await admin.from("trip_members").select("id, display_name").eq("trip_id", ctx.tripId).order("sort_order");
-      if (members.error) throw fail("members", members.error);
-      const memberIds = members.data.map((m: Member) => m.id);
-
-      // Every handle resolves before anything is written.
-      const wanted = input.item_handles?.map((handle) => resolveHandle(ctx.handles, handle, "I"));
-      const pinnedIds = new Set(input.pinned_item_handles?.map((handle) => resolveHandle(ctx.handles, handle, "I")));
-      const updates: ResolvedUpdate[] = (input.constraint_updates ?? []).map((update) => ({
-        targets: update.member_handle === "all" ? memberIds : [resolveHandle(ctx.handles, update.member_handle, "M")],
-        fields: {
-          ...(update.budget_cents === undefined ? {} : { budget_cents: update.budget_cents }),
-          ...(update.dietary === undefined ? {} : { dietary: update.dietary }),
-          ...(update.interests === undefined ? {} : { interests: update.interests }),
-        },
-      }));
-
-      await saveConstraints(ctx, updates);
-
-      const trip = await loadTrip(ctx);
-      const interests = [...new Set(trip.constraints.flatMap((c) => c.interests))];
-      // Items the model pinned for this run are planned around, like booked ones.
-      const items = trip.items.map((item) => (pinnedIds.has(item.id) ? { ...item, pinned: true } : item));
-      const places = await loadPlaces(ctx, items, interests);
-      const base: BuildPlanRequestInput = {
-        requestId: ctx.toolCallId,
-        mode: input.mode,
-        timezone: trip.timezone,
-        members: members.data,
-        constraints: trip.constraints,
-        items,
-        places,
-        travel: [],
-        planItemIds: wanted,
-      };
-      const draft = buildPlanRequest(base);
-      const plannedKeys = new Set(draft.slots.filter((s) => !s.pinned).map((s) => s.key));
-      const planned = items.filter((i) => plannedKeys.has(i.slot_key));
-      if (planned.length === 0) {
-        throw new AppError("conflict", "There are no open slots to plan. Every slot is decided, booked, or pinned.");
-      }
-      const open = input.mode === "replan" ? ["tbd", "proposing", "voting", "decided"] : ["tbd", "proposing"];
-      const closed = planned.find((item) => !open.includes(item.status));
-      if (closed) throw new AppError("conflict", `The ${closed.slot_key} slot is ${closed.status}, so it can't be planned again.`);
-      const empty = draft.slots.find((slot) => slot.candidates.length === 0);
-      if (empty) throw new AppError("conflict", `There are no priced places to suggest for ${empty.key} yet.`);
-
-      const pairs = travelPairs(draft.slots);
-      const minutes = await travelMinutes(pairs, { admin });
-      const request = buildPlanRequest({
-        ...base,
-        travel: pairs.map((p) => ({ from_place_id: p.from, to_place_id: p.to, minutes: minutes.get(legKey(p.from, p.to)) ?? 0 })),
-      });
-
-      const answer = await (deps.optimizer ?? getOptimizerClient)().plan(request);
-      checkPlanResponse(request, answer);
-      const names = new Map(members.data.map((m: Member) => [m.id, m.display_name]));
-      const response = { ...answer, infeasible_reasons: withNames(answer.infeasible_reasons, names) };
-      if (response.plans.length === 0) {
-        throw new AppError("conflict", `No plan fits. ${response.infeasible_reasons.join(" ") || "The constraints rule out every option."}`.slice(0, SUMMARY_MAX));
-      }
-
-      // Real routes for the legs the plan uses (the map draws them), and each option's reasoning from facts.
-      const legs = planLegs(request, response);
-      const routes: Map<string, RouteLeg> = await ensureRoutes(legs.pairs, { admin });
-      const placeById = new Map(places.map((p) => [p.id, p]));
-      const byMember = new Map(trip.constraints.map((c) => [c.member_id, c]));
-      const reasoning: Record<string, string> = {};
-      for (const slot of response.slot_options) {
-        const candidates = request.slots.find((s) => s.key === slot.slot_key)!.candidates;
-        for (const group of slot.groups) {
-          const from = legs.previous(slot.slot_key, group.member_ids);
-          for (const option of group.options) {
-            const place = placeById.get(option.place_id);
-            const leg = from ? routes.get(legKey(from, option.place_id)) : undefined;
-            reasoning[reasoningKey(slot.slot_key, group.member_ids, option.place_id)] = optionReasoning({
-              place: { tags: place?.tags ?? [], rating: place?.rating ?? null },
-              priceCents: candidates.find((c) => c.place_id === option.place_id)!.price_cents,
-              members: group.member_ids.map((id) => ({ name: names.get(id) ?? "A member", interests: byMember.get(id)?.interests ?? [] })),
-              travel: from === option.place_id ? { minutes: 0, mode: "walking" } : leg ? { minutes: minutesFor(leg.durationS), mode: leg.mode } : null,
-            });
-          }
-        }
-      }
-
-      // Handles go on a copy until the write lands, so a failed write leaves the run's table as it was.
-      const handles: HandleTable = { ...ctx.handles };
-      const describe = (slots: SlotSummary[]): PlanResultText => {
-        const added: Record<string, string> = {};
-        const known = new Set(Object.values(handles));
-        const handleOf = (kind: "I" | "O", id: string, label: string) => {
-          const isNew = !known.has(id);
-          const handle = addHandle(handles, kind, id);
-          if (isNew) added[handle] = label;
-          return handle;
-        };
-        const labels = new Map<string, string>();
-        for (const slot of slots) {
-          for (const group of slot.groups) {
-            const who = group.member_ids
-              .map((id) => names.get(id) ?? "A member")
-              .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
-              .join(", ");
-            labels.set(group.item_id, handleOf("I", group.item_id, `${slot.label} (${who})`));
-            for (const option of group.options) labels.set(option.option_id, handleOf("O", option.option_id, option.name));
-          }
-        }
-        const summary = planSummary({
-          slots,
-          handleOf: (id) => labels.get(id) ?? "?",
-          names,
-          everyone: memberIds.length,
-          timezone: trip.timezone,
-          infeasible: response.infeasible_reasons,
-        });
-        return { summary, ...(Object.keys(added).length > 0 ? { handles: added } : {}) };
-      };
-
-      const result = await applyPlan({
-        tripId: ctx.tripId,
-        actorMemberId: ctx.actorMemberId,
-        runId: ctx.runId,
-        toolCallId: ctx.toolCallId,
-        mode: input.mode,
-        request,
-        response,
-        itemsBySlot: Object.fromEntries(planned.map((i) => [i.slot_key, i.id])),
-        reasoning,
-        optionsPerSlot: input.options_per_slot,
-        describe,
-        timezone: trip.timezone,
-        ...(input.mode === "replan"
-          ? { timeShifts: Object.fromEntries([...timeShifts(items)].map(([id, t]) => [id, { starts_at: t.starts_at, ends_at: t.ends_at }])) }
-          : {}),
-      });
-      if (!result.replayed) Object.assign(ctx.handles, handles);
-      return {
-        ok: true,
-        summary: result.summary,
-        ...(result.handles ? { handles: result.handles } : {}),
-        card_message_id: result.cardMessageId,
-      };
-    },
+    handler: (input, ctx) => runPlanDay(input, ctx, deps),
   });
 }
 
 export const planDayTool = createPlanDayTool();
+
+/** plan_day's work, shared with update_item's request_alternatives, which plans one item without its old places. */
+export async function runPlanDay(input: PlanDayInput, ctx: RunContext, deps: PlanDayDeps = {}, options: PlanDayOptions = {}): Promise<ToolResult> {
+  const { admin } = ctx;
+  const members = await admin.from("trip_members").select("id, display_name").eq("trip_id", ctx.tripId).order("sort_order");
+  if (members.error) throw fail("members", members.error);
+  const memberIds = members.data.map((m: Member) => m.id);
+
+  // Every handle resolves before anything is written.
+  const wanted = input.item_handles?.map((handle) => resolveHandle(ctx.handles, handle, "I"));
+  const pinnedIds = new Set(input.pinned_item_handles?.map((handle) => resolveHandle(ctx.handles, handle, "I")));
+  const updates: ResolvedUpdate[] = (input.constraint_updates ?? []).map((update) => ({
+    targets: update.member_handle === "all" ? memberIds : [resolveHandle(ctx.handles, update.member_handle, "M")],
+    fields: {
+      ...(update.budget_cents === undefined ? {} : { budget_cents: update.budget_cents }),
+      ...(update.dietary === undefined ? {} : { dietary: update.dietary }),
+      ...(update.interests === undefined ? {} : { interests: update.interests }),
+    },
+  }));
+
+  await saveConstraints(ctx, updates);
+
+  const trip = await loadTrip(ctx);
+  const interests = [...new Set(trip.constraints.flatMap((c) => c.interests))];
+  // Items the model pinned for this run are planned around, like booked ones.
+  const items = trip.items.map((item) => (pinnedIds.has(item.id) ? { ...item, pinned: true } : item));
+  const places = offerablePlaces(await loadPlaces(ctx, items, interests), items, options.excludePlaceIds);
+  const base: BuildPlanRequestInput = {
+    requestId: ctx.toolCallId,
+    mode: input.mode,
+    timezone: trip.timezone,
+    members: members.data,
+    constraints: trip.constraints,
+    items,
+    places,
+    travel: [],
+    planItemIds: wanted,
+  };
+  const draft = buildPlanRequest(base);
+  const plannedKeys = new Set(draft.slots.filter((s) => !s.pinned).map((s) => s.key));
+  const planned = items.filter((i) => plannedKeys.has(i.slot_key));
+  if (planned.length === 0) {
+    throw new AppError("conflict", "There are no open slots to plan. Every slot is decided, booked, or pinned.");
+  }
+  const open = input.mode === "replan" ? ["tbd", "proposing", "voting", "decided"] : ["tbd", "proposing"];
+  const closed = planned.find((item) => !open.includes(item.status));
+  if (closed) throw new AppError("conflict", `The ${closed.slot_key} slot is ${closed.status}, so it can't be planned again.`);
+  const empty = draft.slots.find((slot) => slot.candidates.length === 0);
+  if (empty) throw new AppError("conflict", `There are no priced places to suggest for ${empty.key} yet.`);
+
+  const pairs = travelPairs(draft.slots);
+  const minutes = await travelMinutes(pairs, { admin });
+  const request = buildPlanRequest({
+    ...base,
+    travel: pairs.map((p) => ({ from_place_id: p.from, to_place_id: p.to, minutes: minutes.get(legKey(p.from, p.to)) ?? 0 })),
+  });
+
+  const answer = await (deps.optimizer ?? getOptimizerClient)().plan(request);
+  checkPlanResponse(request, answer);
+  const names = new Map(members.data.map((m: Member) => [m.id, m.display_name]));
+  const response = { ...answer, infeasible_reasons: withNames(answer.infeasible_reasons, names) };
+  if (response.plans.length === 0) {
+    throw new AppError("conflict", `No plan fits. ${response.infeasible_reasons.join(" ") || "The constraints rule out every option."}`.slice(0, SUMMARY_MAX));
+  }
+
+  // Real routes for the legs the plan uses (the map draws them), and each option's reasoning from facts.
+  const legs = planLegs(request, response);
+  const routes: Map<string, RouteLeg> = await ensureRoutes(legs.pairs, { admin });
+  const placeById = new Map(places.map((p) => [p.id, p]));
+  const byMember = new Map(trip.constraints.map((c) => [c.member_id, c]));
+  const reasoning: Record<string, string> = {};
+  for (const slot of response.slot_options) {
+    const candidates = request.slots.find((s) => s.key === slot.slot_key)!.candidates;
+    for (const group of slot.groups) {
+      const from = legs.previous(slot.slot_key, group.member_ids);
+      for (const option of group.options) {
+        const place = placeById.get(option.place_id);
+        const leg = from ? routes.get(legKey(from, option.place_id)) : undefined;
+        reasoning[reasoningKey(slot.slot_key, group.member_ids, option.place_id)] = optionReasoning({
+          place: { tags: place?.tags ?? [], rating: place?.rating ?? null },
+          priceCents: candidates.find((c) => c.place_id === option.place_id)!.price_cents,
+          members: group.member_ids.map((id) => ({ name: names.get(id) ?? "A member", interests: byMember.get(id)?.interests ?? [] })),
+          travel: from === option.place_id ? { minutes: 0, mode: "walking" } : leg ? { minutes: minutesFor(leg.durationS), mode: leg.mode } : null,
+        });
+      }
+    }
+  }
+
+  // Handles go on a copy until the write lands, so a failed write leaves the run's table as it was.
+  const handles: HandleTable = { ...ctx.handles };
+  const describe = (slots: SlotSummary[]): PlanResultText => {
+    const added: Record<string, string> = {};
+    const known = new Set(Object.values(handles));
+    const handleOf = (kind: "I" | "O", id: string, label: string) => {
+      const isNew = !known.has(id);
+      const handle = addHandle(handles, kind, id);
+      if (isNew) added[handle] = label;
+      return handle;
+    };
+    const labels = new Map<string, string>();
+    for (const slot of slots) {
+      for (const group of slot.groups) {
+        const who = group.member_ids
+          .map((id) => names.get(id) ?? "A member")
+          .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+          .join(", ");
+        labels.set(group.item_id, handleOf("I", group.item_id, `${slot.label} (${who})`));
+        for (const option of group.options) labels.set(option.option_id, handleOf("O", option.option_id, option.name));
+      }
+    }
+    const summary = planSummary({
+      slots,
+      handleOf: (id) => labels.get(id) ?? "?",
+      names,
+      everyone: memberIds.length,
+      timezone: trip.timezone,
+      infeasible: response.infeasible_reasons,
+    });
+    return { summary, ...(Object.keys(added).length > 0 ? { handles: added } : {}) };
+  };
+
+  const result = await applyPlan({
+    tripId: ctx.tripId,
+    actorMemberId: ctx.actorMemberId,
+    runId: ctx.runId,
+    toolCallId: ctx.toolCallId,
+    mode: input.mode,
+    request,
+    response,
+    itemsBySlot: Object.fromEntries(planned.map((i) => [i.slot_key, i.id])),
+    reasoning,
+    optionsPerSlot: input.options_per_slot,
+    describe,
+    timezone: trip.timezone,
+    ...(input.mode === "replan"
+      ? { timeShifts: Object.fromEntries(timeShifts(items)) }
+      : {}),
+  });
+  if (!result.replayed) Object.assign(ctx.handles, handles);
+  return {
+    ok: true,
+    summary: result.summary,
+    ...(result.handles ? { handles: result.handles } : {}),
+    card_message_id: result.cardMessageId,
+  };
+}

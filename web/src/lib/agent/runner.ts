@@ -58,11 +58,12 @@ export async function claimRun(admin: AdminClient, runId: string, leaseMs = LEAS
   return data;
 }
 
-async function triggerBody(admin: AdminClient, run: AgentRunRow): Promise<string | null> {
-  if (!run.trigger_message_id) return null;
-  const { data, error } = await admin.from("messages").select("body").eq("id", run.trigger_message_id).single();
+/** The message that started the run: its text, and the item it comments on, if any (a revision run). */
+async function triggerMessage(admin: AdminClient, run: AgentRunRow): Promise<{ body: string | null; itemId: string | null }> {
+  if (!run.trigger_message_id) return { body: null, itemId: null };
+  const { data, error } = await admin.from("messages").select("body, item_id").eq("id", run.trigger_message_id).single();
   if (error) throw new AppError("internal", "Couldn't read the message that started the run.", { retryable: true, cause: error });
-  return data.body;
+  return { body: data.body, itemId: data.item_id };
 }
 
 /** What a failed run's error card says. A safe message, never the raw error. */
@@ -133,7 +134,8 @@ async function execute(run: AgentRunRow, overrides: Partial<RunnerDeps> & { admi
 
   try {
     const actor = await actorFor(admin, run);
-    const [body, context] = await Promise.all([triggerBody(admin, run), buildContext(run.trip_id, run.requester_member_id, admin)]);
+    const { body, itemId } = await triggerMessage(admin, run);
+    const context = await buildContext(run.trip_id, run.requester_member_id, admin, { itemId });
     await admin.from("agent_runs").update({ handles: context.handles }).eq("id", run.id);
     await status({ step, state: "started", label: "Reading the trip" });
 
