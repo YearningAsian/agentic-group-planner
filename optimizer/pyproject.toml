@@ -1,0 +1,21 @@
+[project]
+name = "agp-optimizer"
+version = "0.0.0"
+description = "Stateless day planner (OR-Tools CP-SAT with an enumeration fallback) and photo analysis."
+requires-python = ">=3.12,<3.13"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM"]
+ignore = ["S101"]  # pytest uses bare asserts
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fixed, fake bearer tokens on purpose.
+"tests/**" = ["S105", "S106"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
