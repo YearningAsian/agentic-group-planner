@@ -12,8 +12,8 @@ Last updated: 2026-09-26.
 
 ## Next
 
-- [ ] Stays mandates: `create_mandate` and `finalizeMandate` use `getBookingProvider("stays")` for hotels, with a lead guest's email and phone (test-mode Duffel only: `duffel_test_`)
-- [ ] Muse tool `search_stays`: Duffel `stays.search` by the trip's coordinates (sandbox), results saved as places with rate options
+- [x] Stays mandates: `create_mandate` / `finalizeMandate` use `getBookingProvider("stays")` with lead guest (mock path green; Duffel real check still 403)
+- [x] Muse tool `search_stays`: rate_id plumbing (search → fetch_all_rates → `duffel_stays` places → quote) — live Search still 403 without Stays access
 - [x] AI-217: remember each person's preferences across trips, and feed them to Muse
   - [x] migration + RLS + join trigger; agent context quotes remembered notes
   - [x] `remember_preference` tool (requester only; no card)
@@ -33,7 +33,7 @@ Last updated: 2026-09-26.
 
 ## Before real Stripe (`PAYMENTS_PROVIDER=real`)
 
-Needs `STRIPE_WEBHOOK_SECRET` (whsec_…) in `.env.local` — secret key is present locally; do not flip until webhook secret is set and these land:
+Webhook secret and Stripe test path are in place. Default `.env.local` stays `PAYMENTS_PROVIDER=mock`; flip to `real` only for smoke/`test:stripe` (and keep `stripe listen` for live webhooks).
 
 - [x] Refund webhooks: handle `refund.created` / `refund.updated` (charge events carry no refunds list)
 - [x] Approval lease: resolve customer/card before claim; 90 s lease covers authorize
@@ -41,24 +41,26 @@ Needs `STRIPE_WEBHOOK_SECRET` (whsec_…) in `.env.local` — secret key is pres
 - [x] Re-release a late hold whose release failed (and cancelled holds with a leftover PI)
 - [x] Capture and release succeed when the PaymentIntent is already in that state
 - [x] Every card decline with a PaymentIntent counts as declined, not retryable
-- [ ] CO-302: seeded Stripe customers and claimer cards
-- [ ] Set `STRIPE_WEBHOOK_SECRET` and only then `PAYMENTS_PROVIDER=real` (test mode)
+- [x] CO-302: seeded Stripe customers and claimer cards
+- [x] `STRIPE_WEBHOOK_SECRET` set locally; `PAYMENTS_PROVIDER=real` proven via `sandbox:smoke` + `stripe listen` (CO-303/304/305)
 - [x] Pending approval while a mandate is finalizing returns a retryable conflict (finalize retry only for members with no pending rows)
 
 ## Blocked on accounts or keys
 
 - [ ] Docker on this machine (DB tests run only in CI for now)
-- [x] `STRIPE_SECRET_KEY` (test) present locally — still need `STRIPE_WEBHOOK_SECRET` for CO-303+
-- [ ] `META_MODEL_API_KEY` in `web/.env.local`: AI-301, AI-302, AI-303
-- [x] `DUFFEL_ACCESS_TOKEN` (`duffel_test_`) present locally — Stays search returned 403 (request Stays access)
+- [x] `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (test) present locally
+- [ ] `META_MODEL_API_KEY` in `web/.env.local`: AI-301, AI-302, AI-303 (Batch D)
+- [x] `DUFFEL_ACCESS_TOKEN` (`duffel_test_`) present — Test Hotels search still **403**; request Stays access in the Duffel Dashboard
 - [x] Hosted Supabase URL/keys present locally (project linked in `.env.local`) — VO-101 push still open
-- [ ] Hosted Vercel: VO-107
+- [ ] Hosted Vercel: VO-107 (CO-303/304 deployed-app / lane UI halves)
 
 ## Done (recent)
 
+- [x] CO-302 / CO-305 / CO-303–304 backend: seed customers, Stripe kit suites, sandbox smoke + live webhook forward (PRs #22–#25)
+- [x] CO-S05 Batch E: Duffel `rate_id` search → places → quote plumbing (PR #24); real book still blocked on Stays 403
 - [x] CO-S05 review fixes: paginate booking lookup, map 401/403 to `internal`, re-find before failed, refuse hotel-arrival fees (test tokens only)
 - [x] AI-208: seeded-trip test checks that every option is feasible, not one exact plan
-- [x] CO-S05: Duffel Stays booking adapter (`@duffel/api` 4.30.0) and the hotel mock; live check waits on a `duffel_test_` token
+- [x] CO-S05: Duffel Stays booking adapter (`@duffel/api` 4.30.0) and the hotel mock; live check waits on Stays access
 - [x] CO-301: Stripe test-mode provider
 - [x] CO-209: late holds released only when no row pays a share
 - [x] No member visits a place twice in a day (both engines)
