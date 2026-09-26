@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ApprovalCard, type ApprovalHold, ApprovalShare, holdFees } from "@agp/shared";
 import { z } from "zod";
 import { capFor, splitEvenly } from "@/lib/money";
-import { bookingKindOf, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
+import { bookingKindOf, bookingOptionId, type BookingProvider, getBookingProvider } from "@/lib/providers/booking";
 import { AppError } from "@/lib/reliability";
 import type { RunContext } from "@/lib/tools/define-tool";
 import { mandateSummary } from "../lib/mandate-summary";
@@ -108,10 +108,10 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
       .eq("trip_id", ctx.tripId)
       .eq("role", "organizer")
       .single(),
-    admin.from("itinerary_items").select("status, starts_at, category").eq("id", input.itemId).eq("trip_id", ctx.tripId).maybeSingle(),
+    admin.from("itinerary_items").select("status, starts_at, ends_at, category").eq("id", input.itemId).eq("trip_id", ctx.tripId).maybeSingle(),
     admin
       .from("item_options")
-      .select("place_id, price_cents, places(name)")
+      .select("place_id, price_cents, places(name, provider, raw)")
       .eq("id", input.optionId)
       .eq("item_id", input.itemId)
       .maybeSingle(),
@@ -152,7 +152,11 @@ export async function createMandate(input: CreateMandateInput): Promise<CreateMa
   const quote = await booking.quote({
     kind,
     placeId: option.place_id,
-    optionId: input.optionId,
+    optionId: bookingOptionId({
+      bookingProvider: booking.id, optionId: input.optionId, place: option.places,
+      itemId: input.itemId, tripId: ctx.tripId, startsAt: item.starts_at,
+      endsAt: item.ends_at, guests: attendees.length, now: Date.now(),
+    }),
     partySize: attendees.length,
     startsAt: item.starts_at,
   });

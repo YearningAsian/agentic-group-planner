@@ -1,6 +1,17 @@
 import "server-only";
+import { decimalToCents } from "@agp/shared";
+import { Duffel, DuffelError } from "@duffel/api";
 import { getServerEnv, type ServerEnv } from "@/lib/env/server";
-import { AppError } from "@/lib/reliability";
+import { AppError, withPolicy } from "@/lib/reliability";
+
+type DuffelSearchResult = Awaited<ReturnType<Duffel["stays"]["search"]>>["data"]["results"][number];
+export interface DuffelStaysSearchClient {
+  search: Duffel["stays"]["search"];
+  searchResults: Pick<Duffel["stays"]["searchResults"], "fetchAllRates">;
+}
+
+const SEARCH_POLICY = { timeoutMs: 20_000, retries: 1 } as const;
+const RATE_POLICY = { timeoutMs: 20_000, retries: 0 } as const;
 
 export interface StayOffer {
   /** Unique per provider; the `places` cache key. */
@@ -14,6 +25,10 @@ export interface StayOffer {
   /** For every night of the stay, one guest's even share. */
   pricePerGuestCents: number;
   distanceKm: number;
+  /** Only live Duffel offers carry a short-lived rate that can be quoted. */
+  rateId?: string;
+  totalCents?: number;
+  expiresAt?: string;
 }
 
 export interface StaysSearch {
@@ -77,21 +92,96 @@ export function createMockStaysSearch(): StaysSearch {
   };
 }
 
-// Duffel's stays search answers 403 until the account has Stays access, and a Duffel option needs
-// its rate_id carried through to quote(), which the places cache doesn't hold yet.
-function blockedDuffelSearch(): StaysSearch {
+function eligibleRate(result: DuffelSearchResult, now: number) {
+  const rates = result.accommodation?.rooms?.flatMap((room) => room.rates ?? []) ?? [];
+  return rates.flatMap((rate) => {
+    if (!rate.id || rate.total_currency !== "USD" || rate.payment_type !== "pay_now" ||
+      !rate.available_payment_methods?.includes("balance") || rate.loyalty_programme_required ||
+      (rate.quantity_available !== null && rate.quantity_available !== undefined && rate.quantity_available < 1) ||
+      !(Date.parse(rate.expires_at) > now)) return [];
+    try {
+      if (rate.due_at_accommodation_amount && decimalToCents(rate.due_at_accommodation_amount) !== 0) return [];
+      const cents = decimalToCents(rate.total_amount);
+      return cents > 0 ? [{ rate, cents }] : [];
+    } catch { return []; }
+  }).sort((a, b) => a.cents - b.cents)[0];
+}
+
+function staysError(error: unknown): never {
+  if (error instanceof AppError) throw error;
+  if (error instanceof DuffelError) {
+    const status = error.status ?? error.meta?.status;
+    if (status === 401 || status === 403) {
+      throw new AppError("provider_unavailable", "Duffel Stays access is unavailable for this account.", { retryable: false, cause: error });
+    }
+  }
+  throw new AppError("provider_unavailable", "Hotel search is unavailable. Try again.", { retryable: true, cause: error });
+}
+
+/** Searches Duffel Test Stays, then expands each result before selecting a bookable USD rate. */
+export function createDuffelStaysSearch(options: { token?: string; client?: DuffelStaysSearchClient; now?: () => number }): StaysSearch {
+  const client = options.client ?? (() => {
+    if (!options.token?.startsWith("duffel_test_")) throw new AppError("internal", "A Duffel test token is required.", { retryable: false });
+    return new Duffel({ token: options.token }).stays;
+  })();
+  const now = options.now ?? Date.now;
   return {
     id: "duffel_stays",
-    async search() {
-      throw new AppError("provider_unavailable", "Live hotel search needs Duffel Stays access; use STAYS_PROVIDER=mock for now.", {
-        retryable: false,
-      });
+    async search({ near, checkIn, checkOut, guests, maxResults }) {
+      if (!Number.isInteger(guests) || guests < 1 || guests > 9) {
+        throw new AppError("invalid_input", "Hotel search needs one to nine guests.", { retryable: false });
+      }
+      const params = {
+        check_in_date: checkIn.slice(0, 10), check_out_date: checkOut.slice(0, 10), rooms: 1,
+        guests: Array.from({ length: guests }, () => ({ type: "adult" as const })),
+        location: { radius: 5, geographic_coordinates: { latitude: near.lat, longitude: near.lng } },
+      };
+      let results: DuffelSearchResult[];
+      try {
+        ({ data: { results } } = await withPolicy(() => client.search(params), SEARCH_POLICY));
+      } catch (error) { return staysError(error); }
+      const offers: StayOffer[] = [];
+      const nearby = results.filter((r) => r.id && r.accommodation?.location?.geographic_coordinates)
+        .sort((a, b) => {
+          const ac = a.accommodation.location.geographic_coordinates!;
+          const bc = b.accommodation.location.geographic_coordinates!;
+          return distanceKm(near, { lat: ac.latitude, lng: ac.longitude }) - distanceKm(near, { lat: bc.latitude, lng: bc.longitude });
+        });
+      for (const result of nearby) {
+        if (offers.length >= maxResults) break;
+        let expanded: DuffelSearchResult;
+        try {
+          ({ data: expanded } = await withPolicy(() => client.searchResults.fetchAllRates(result.id), RATE_POLICY));
+        } catch (error) { return staysError(error); }
+        if (expanded.id !== result.id || expanded.check_in_date !== params.check_in_date || expanded.check_out_date !== params.check_out_date ||
+          expanded.guests.length !== guests) continue;
+        const best = eligibleRate(expanded, now());
+        const hotel = expanded.accommodation;
+        const coords = hotel?.location?.geographic_coordinates;
+        if (!best || !hotel?.id || !hotel.name || !coords || !(Date.parse(expanded.expires_at) > now())) continue;
+        const address = hotel.location.address;
+        const km = distanceKm(near, { lat: coords.latitude, lng: coords.longitude });
+        offers.push({
+          providerPlaceId: `${expanded.id}:${best.rate.id}`,
+          rateId: best.rate.id,
+          totalCents: best.cents,
+          expiresAt: new Date(Math.min(Date.parse(expanded.expires_at), Date.parse(best.rate.expires_at))).toISOString(),
+          name: hotel.name,
+          address: [address?.line_one, address?.city_name, address?.region].filter(Boolean).join(", "),
+          lat: coords.latitude, lng: coords.longitude,
+          rating: hotel.rating ?? 0,
+          tags: [],
+          pricePerGuestCents: Math.ceil(best.cents / guests),
+          distanceKm: Math.round(km * 10) / 10,
+        });
+      }
+      return offers;
     },
   };
 }
 
-export function selectStaysSearch(env: Pick<ServerEnv, "STAYS_PROVIDER">): StaysSearch {
-  return env.STAYS_PROVIDER === "mock" ? createMockStaysSearch() : blockedDuffelSearch();
+export function selectStaysSearch(env: Pick<ServerEnv, "STAYS_PROVIDER"> & Partial<Pick<ServerEnv, "DUFFEL_ACCESS_TOKEN">>): StaysSearch {
+  return env.STAYS_PROVIDER === "mock" ? createMockStaysSearch() : createDuffelStaysSearch({ token: env.DUFFEL_ACCESS_TOKEN });
 }
 
 export function getStaysSearch(): StaysSearch {

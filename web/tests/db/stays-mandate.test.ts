@@ -143,4 +143,18 @@ describe("a lodging item books through the stays adapter", () => {
     expect(booking.quote).not.toHaveBeenCalled();
     expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "booking_failed" });
   });
+
+  it("releases approved holds when the selected Duffel rate is absent at finalization", async () => {
+    const s = await lodgingMandate();
+    await approveAll(s);
+    const stays = getBookingProvider("stays");
+    const quote = vi.fn(stays.quote.bind(stays));
+    const booking = { ...stays, id: "duffel_stays" as const, quote };
+
+    expect(await finalizeMandate(s.mandateId, { booking })).toEqual({ status: "cancelled" });
+    expect(quote).not.toHaveBeenCalled();
+    expect(await mandateRow(s.mandateId)).toMatchObject({ status: "cancelled", cancel_reason: "booking_failed" });
+    const holds = await select<{ status: string }>("payment_holds", "status", s.mandateId);
+    expect(holds.map((h) => h.status)).toEqual(Array(holds.length).fill("released"));
+  });
 });

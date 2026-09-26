@@ -296,6 +296,23 @@ describe("buildPlanRequest", () => {
     expect(slot!.candidates.every((c) => Number.isInteger(c.price_cents))).toBe(true);
   });
 
+  it("offers a Duffel rate only for its searched item, dates, and guest count", () => {
+    const input = syntheticTrip([{ category: "lodging", starts_at: "2026-10-03T22:00:00Z", ends_at: "2026-10-05T15:00:00Z" }]);
+    const itemId = input.items[0]!.id;
+    const rate = (n: number, raw: Record<string, unknown>): RequestPlace => ({
+      id: `00000000-0000-4000-8000-0000000004${String(n).padStart(2, "0")}`,
+      name: `Hotel ${n}`, category: "lodging", rating: 4,
+      tags: [], dietary_tags: [], hours: null,
+      raw: { price_cents: 4000, rate_id: `rat_${n}`, item_id: itemId,
+        check_in_date: "2026-10-03", check_out_date: "2026-10-05", guests: 2, ...raw },
+    });
+    input.places = [
+      rate(1, {}), rate(2, { item_id: "another-item" }),
+      rate(3, { check_out_date: "2026-10-06" }), rate(4, { guests: 3 }),
+    ];
+    expect(buildPlanRequest(input).slots[0]!.candidates.map((c) => c.place_id)).toEqual([rate(1, {}).id]);
+  });
+
   it("the committed request fixtures equal buildPlanRequest on saturday-trip.json", async () => {
     const built = {
       "saturday-initial.json": buildPlanRequest(await saturdayInitial()),

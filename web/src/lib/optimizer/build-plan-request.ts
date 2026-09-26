@@ -220,8 +220,10 @@ function openWindow(place: RequestPlace, slotStart: string, timeZone: string): {
 function candidatesFor(
   slot: DaySlot,
   starts_at: string,
+  ends_at: string,
   input: BuildPlanRequestInput,
   group: { dietary: Set<string>; interests: Set<string> },
+  guests: number,
   visited: Set<string>,
 ): Candidate[] {
   const category = slot.items[0]!.category;
@@ -230,7 +232,14 @@ function candidatesFor(
   const liked = (place: RequestPlace) => place.tags.filter((tag) => group.interests.has(tag)).length;
   const length = minutes(Date.parse(slot.ends_at) - Date.parse(slot.starts_at));
   return input.places
-    .filter((place) => place.category === category && !visited.has(place.id))
+    .filter((place) => {
+      if (place.category !== category || visited.has(place.id)) return false;
+      const raw = place.raw as Record<string, unknown> | null;
+      if (typeof raw?.rate_id !== "string") return true;
+      return slot.items.length === 1 && raw.item_id === slot.items[0]!.id &&
+        raw.check_in_date === starts_at.slice(0, 10) && raw.check_out_date === ends_at.slice(0, 10) &&
+        raw.guests === guests;
+    })
     .flatMap((place) => {
       const priced = pricing(place);
       const window = priced && openWindow(place, starts_at, input.timezone);
@@ -362,7 +371,7 @@ export function buildPlanRequest(input: BuildPlanRequestInput): PlanRequest {
       category,
       together: slot.items.every((i) => i.together),
       pinned: null,
-      candidates: candidatesFor(slot, starts_at, input, group, visited),
+      candidates: candidatesFor(slot, starts_at, shift?.ends_at ?? toIso(Date.parse(slot.ends_at)), input, group, members.length, visited),
     };
   });
 

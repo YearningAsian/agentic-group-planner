@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { findPlaces } from "@/lib/optimizer/find-places";
-import { searchStaysTool } from "@/lib/tools/search-stays/tool";
+import { createSearchStaysTool, searchStaysTool } from "@/lib/tools/search-stays/tool";
 import { adminClient, cleanup, createTrip, createUser, testBatch } from "./helpers";
 
 const batch = testBatch();
@@ -43,6 +43,40 @@ async function tripWithItem(item: { category: string; status?: string }) {
 afterAll(() => cleanup(batch));
 
 describe("search_stays", () => {
+  it("stores a Duffel rate with the item, dates, guests, and expiry, then reuses its place", async () => {
+    const { ctx } = await tripWithItem({ category: "lodging" });
+    const search = {
+      id: "duffel_stays" as const,
+      search: async () => [{
+        providerPlaceId: "srr_test:rat_test", rateId: "rat_test", totalCents: 12001,
+        expiresAt: "2099-09-26T21:00:00.000Z", name: "Duffel Test Hotel",
+        address: "1 Test Road", lat: 33.7812, lng: -84.3857, rating: 4,
+        tags: [], pricePerGuestCents: 12001, distanceKm: 0,
+      }],
+    };
+    const tool = createSearchStaysTool({ search });
+    const args = tool.input.parse({ item_handle: "I1", max_results: 1 });
+    const first = await tool.handler(args, ctx);
+    const second = await tool.handler(args, ctx);
+    const placeId = Object.entries(first.handles ?? {}).find(([handle]) => handle.startsWith("P"))?.[1];
+    expect(placeId).toBeDefined();
+    expect(Object.values(second.handles ?? {})).toContain(placeId);
+    const { data, error } = await admin.from("places").select("provider, provider_place_id, raw").eq("id", placeId!).single();
+    if (error) throw error;
+    expect(data).toMatchObject({
+      provider: "duffel_stays", provider_place_id: "srr_test:rat_test",
+      raw: { source: "search_stays", rate_id: "rat_test", item_id: ctx.handles.I1,
+        check_in_date: "2026-09-26", check_out_date: "2026-09-27", guests: 1,
+        expires_at: "2099-09-26T21:00:00.000Z", total_cents: 12001, price_cents: 12001 },
+    });
+    const scoped = await findPlaces({ category: "lodging", limit: 50,
+      stays: { provider: "real", itemIds: [ctx.handles.I1], now: "2026-09-26T12:00:00.000Z" } }, admin as never);
+    expect(scoped.map((p) => p.id)).toContain(placeId);
+    const unrelated = await findPlaces({ category: "lodging", limit: 50,
+      stays: { provider: "real", itemIds: ["00000000-0000-4000-8000-000000000099"], now: "2026-09-26T12:00:00.000Z" } }, admin as never);
+    expect(unrelated.map((p) => p.id)).not.toContain(placeId);
+  });
+
   it("caches nearby hotels as lodging places with a per-guest price, so plan_day can offer them", async () => {
     const { ctx } = await tripWithItem({ category: "lodging" });
 

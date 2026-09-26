@@ -54,7 +54,8 @@ export function createSearchStaysTool(deps: SearchStaysDeps = {}) {
 
       // No attendee rows means everyone together, same as plan_day's RequestItem rule.
       const guests = Math.max(1, (attendeeResult.count ?? 0) || (memberResult.count ?? 1));
-      const offers = await (deps.search ?? getStaysSearch()).search({
+      const search = deps.search ?? getStaysSearch();
+      const offers = await search.search({
         near: { lat: item.area_lat, lng: item.area_lng },
         checkIn: item.starts_at,
         checkOut: item.ends_at,
@@ -63,12 +64,17 @@ export function createSearchStaysTool(deps: SearchStaysDeps = {}) {
       });
       if (offers.length === 0) return { ok: true, summary: `No hotels found near ${item.label}'s area.` };
 
+      if (search.id === "duffel_stays" && offers.some((o) => !o.rateId || !o.expiresAt || !Number.isInteger(o.totalCents))) {
+        throw new AppError("provider_unavailable", "The hotel provider returned a rate without booking details.", { retryable: false });
+      }
+
       const keys = offers.map((o) => o.providerPlaceId);
+      const provider = search.id === "duffel_stays" ? "duffel_stays" as const : "mock" as const;
       const fetchedAt = new Date().toISOString();
       // ignoreDuplicates keeps another trip's seed_batch (and its fixed per-nights price) intact.
       const { error: upsertError } = await ctx.admin.from("places").upsert(
         offers.map((o) => ({
-          provider: "mock" as const,
+          provider,
           provider_place_id: o.providerPlaceId,
           name: o.name,
           category: "lodging" as const,
@@ -77,7 +83,15 @@ export function createSearchStaysTool(deps: SearchStaysDeps = {}) {
           lng: o.lng,
           rating: o.rating,
           tags: o.tags,
-          raw: { price_cents: o.pricePerGuestCents, source: "search_stays" },
+          raw: {
+            price_cents: o.pricePerGuestCents,
+            source: "search_stays",
+            ...(provider === "duffel_stays" ? {
+              rate_id: o.rateId!, total_cents: o.totalCents!, expires_at: o.expiresAt!,
+              item_id: itemId, trip_id: ctx.tripId, check_in_date: item.starts_at.slice(0, 10),
+              check_out_date: item.ends_at.slice(0, 10), guests,
+            } : {}),
+          },
           fetched_at: fetchedAt,
           seed_batch: tripResult.data!.seed_batch,
         })),
@@ -87,7 +101,7 @@ export function createSearchStaysTool(deps: SearchStaysDeps = {}) {
       const { data: places, error } = await ctx.admin
         .from("places")
         .select("id, provider_place_id")
-        .eq("provider", "mock")
+        .eq("provider", provider)
         .in("provider_place_id", keys);
       if (error) throw new AppError("internal", "Couldn't save the hotels.", { retryable: true, cause: error });
 
