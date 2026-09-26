@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { NotBuiltError } from "@/lib/not-built";
 import { selectPaymentsProvider } from "./index";
 import { createMockPaymentsProvider, signMockWebhook } from "./mock";
 import type { AuthorizeInput } from "./types";
@@ -181,9 +180,12 @@ describe("mock payments provider", () => {
     ]);
   });
 
-  it("selectPaymentsProvider picks the mock, and the Stripe adapter isn't built yet", () => {
+  it("selectPaymentsProvider picks the mock or the test-mode Stripe adapter", () => {
     expect(selectPaymentsProvider({ PAYMENTS_PROVIDER: "mock", NEXT_PUBLIC_DEMO_MODE: true }).name).toBe("mock");
-    expect(() => selectPaymentsProvider({ PAYMENTS_PROVIDER: "real", NEXT_PUBLIC_DEMO_MODE: true })).toThrow(NotBuiltError);
+    expect(selectPaymentsProvider({
+      PAYMENTS_PROVIDER: "real", NEXT_PUBLIC_DEMO_MODE: true,
+      STRIPE_SECRET_KEY: ["sk", "test", "placeholder"].join("_"), STRIPE_WEBHOOK_SECRET: "whsec_placeholder",
+    }).name).toBe("real");
   });
 
   it("outside dev mode the mock refuses every webhook, even one signed with its own secret", () => {
