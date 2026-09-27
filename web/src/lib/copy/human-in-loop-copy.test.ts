@@ -29,6 +29,18 @@ describe("human-in-the-loop copy", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("no copy, prompt, or fixture asks members to vote", () => {
+    // Nothing is votable since the journey pivot (design §11.6): the group comments, and the organizer
+    // locks. The `voting` item status stays, so this matches the request, not the word.
+    const offenders = copyFiles().flatMap((file) =>
+      readFileSync(file, "utf8")
+        .split("\n")
+        .map((line, i) => ({ file: path.relative(web, file), line: i + 1, text: line.trim() }))
+        .filter(({ text }) => /\bvote (on|for)\b|\bto vote\b/i.test(text)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it("the scan reads the directories it claims to", () => {
     expect(copyFiles().some((f) => f.endsWith(path.join("lib", "tools", "cards.tsx")))).toBe(true);
     expect(copyFiles().some((f) => f.endsWith(path.join("cards", "approval.ts")))).toBe(true);

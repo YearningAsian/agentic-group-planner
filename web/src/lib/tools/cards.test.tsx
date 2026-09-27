@@ -9,7 +9,7 @@ function message(card_type: string, card_payload: unknown): CardMessage {
 }
 
 describe("renderCard", () => {
-  it("renderCard resolves a renderer for all 11 card types", () => {
+  it("renderCard resolves a renderer for all 9 card types", () => {
     expect(Object.keys(cardRenderers).sort()).toEqual([...CardType.options].sort());
     for (const type of CardType.options) expect(typeof cardRenderers[type]).toBe("function");
 

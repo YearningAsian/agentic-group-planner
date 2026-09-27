@@ -2,26 +2,22 @@ import { z } from "zod";
 import type { CardType } from "../enums";
 import { ApprovalCard } from "./approval";
 import { BookingConfirmedCard } from "./booking-confirmed";
-import { CallStatusCard } from "./call-status";
 import { ErrorCard } from "./error";
 import { ItineraryChangeCard } from "./itinerary-change";
 import { MemberJoinedCard } from "./member-joined";
 import { PlaceListCard } from "./place-list";
 import { PlanCard } from "./plan";
 import { PriceChangeCard } from "./price-change";
-import { RecapCard } from "./recap";
 import { SummaryCard } from "./summary";
 
 export * from "./approval";
 export * from "./booking-confirmed";
-export * from "./call-status";
 export * from "./error";
 export * from "./itinerary-change";
 export * from "./member-joined";
 export * from "./place-list";
 export * from "./plan";
 export * from "./price-change";
-export * from "./recap";
 export * from "./summary";
 
 /** Each card's payload schema, keyed by card type. */
@@ -31,8 +27,6 @@ export const cardSchemas = {
   itinerary_change: ItineraryChangeCard,
   summary: SummaryCard,
   approval: ApprovalCard,
-  call_status: CallStatusCard,
-  recap: RecapCard,
   booking_confirmed: BookingConfirmedCard,
   price_change: PriceChangeCard,
   member_joined: MemberJoinedCard,
@@ -46,8 +40,6 @@ export const CardPayload = z.discriminatedUnion("card_type", [
   ItineraryChangeCard,
   SummaryCard,
   ApprovalCard,
-  CallStatusCard,
-  RecapCard,
   BookingConfirmedCard,
   PriceChangeCard,
   MemberJoinedCard,

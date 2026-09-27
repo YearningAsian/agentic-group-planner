@@ -25,11 +25,10 @@ export const HoldStatus = z.enum([
   "expired",
 ]);
 export const HoldKind = z.enum(["own", "fronted"]);
-export const BookingProvider = z.enum(["mock_merchant", "voice_reservation", "duffel_stays", "stays_mock"]);
+export const BookingProvider = z.enum(["mock_merchant", "duffel_stays", "stays_mock"]);
 export const BookingStatus = z.enum(["pending", "confirmed", "failed", "cancelled"]);
 export const PayerType = z.enum(["split", "organizer", "pay_at_venue"]);
 export const PriceAction = z.enum(["auto_captured", "auto_captured_lower", "reapproval_requested", "notified"]);
-export const CallStatus = z.enum(["queued", "dialing", "in_progress", "completed", "failed", "no_answer"]);
 export const SenderType = z.enum(["member", "agent", "system"]);
 export const MessageKind = z.enum(["text", "card"]);
 export const CardType = z.enum([
@@ -38,14 +37,12 @@ export const CardType = z.enum([
   "itinerary_change",
   "summary",
   "approval",
-  "call_status",
-  "recap",
   "booking_confirmed",
   "price_change",
   "member_joined",
   "error",
 ]);
-export const RunTrigger = z.enum(["mention", "call_completed", "price_change", "demo"]);
+export const RunTrigger = z.enum(["mention", "price_change", "demo"]);
 export const RunStatus = z.enum(["queued", "running", "succeeded", "failed"]);
 export const ToolName = z.enum([
   "search_places",
@@ -53,14 +50,12 @@ export const ToolName = z.enum([
   "update_item",
   "summarize",
   "propose_purchase",
-  "call_restaurant",
-  "generate_recap",
+  "remember_preference",
+  "search_stays",
 ]);
 export const ToolStatus = z.enum(["started", "succeeded", "failed"]);
-export const WebhookProvider = z.enum(["stripe", "elevenlabs", "elevenlabs_tool"]);
+export const WebhookProvider = z.enum(["stripe"]);
 export const WebhookStatus = z.enum(["received", "processed", "ignored", "failed"]);
-export const PhotoStatus = z.enum(["uploaded", "processing", "processed", "failed"]);
-export const MatchMethod = z.enum(["timestamp", "gps", "manual", "none"]);
 
 export type TripStatus = z.infer<typeof TripStatus>;
 export type MemberRole = z.infer<typeof MemberRole>;
@@ -77,7 +72,6 @@ export type BookingProvider = z.infer<typeof BookingProvider>;
 export type BookingStatus = z.infer<typeof BookingStatus>;
 export type PayerType = z.infer<typeof PayerType>;
 export type PriceAction = z.infer<typeof PriceAction>;
-export type CallStatus = z.infer<typeof CallStatus>;
 export type SenderType = z.infer<typeof SenderType>;
 export type MessageKind = z.infer<typeof MessageKind>;
 export type CardType = z.infer<typeof CardType>;
@@ -87,8 +81,6 @@ export type ToolName = z.infer<typeof ToolName>;
 export type ToolStatus = z.infer<typeof ToolStatus>;
 export type WebhookProvider = z.infer<typeof WebhookProvider>;
 export type WebhookStatus = z.infer<typeof WebhookStatus>;
-export type PhotoStatus = z.infer<typeof PhotoStatus>;
-export type MatchMethod = z.infer<typeof MatchMethod>;
 
 /** The enums keyed by their database name, for tests and for code that maps columns to schemas. */
 export const enums = {
@@ -107,7 +99,6 @@ export const enums = {
   booking_status: BookingStatus,
   payer_type: PayerType,
   price_action: PriceAction,
-  call_status: CallStatus,
   sender_type: SenderType,
   message_kind: MessageKind,
   card_type: CardType,
@@ -117,6 +108,4 @@ export const enums = {
   tool_status: ToolStatus,
   webhook_provider: WebhookProvider,
   webhook_status: WebhookStatus,
-  photo_status: PhotoStatus,
-  match_method: MatchMethod,
 } as const;

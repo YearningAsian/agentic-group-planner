@@ -118,7 +118,7 @@ web/
 └── e2e/                             Playwright specs, one file per core flow                      VO (harness), each flow's owner
 ```
 
-**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 5 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the two server-originated cards.
+**Tool folders.** Each tool is one folder, `lib/tools/<tool-name>/`, holding `tool.ts` (server only: Zod input from `@agp/shared`, handler, model description) and `card.tsx` (client: card renderer). Two files are needed because a server handler and a client component can't share a module in the App Router. `lib/tools/registry.ts` (server) lists the 6 tools for the agent. `lib/tools/cards.tsx` (client) maps each `card_type` to its renderer, including the two server-originated cards.
 
 **Public entry points.** Other code imports a feature only through `index.ts` (client-safe) or `server.ts` (starts with `import 'server-only'`). ESLint `no-restricted-imports` blocks `@/features/*/*` except those two files, and blocks `@/lib/providers/*/*` except each provider's `index.ts`.
 
@@ -164,7 +164,7 @@ Type notation: `uuid`, `text`, `int`, `number`, `bool`, `cents` (int ≥ 0, mino
 
 ### 2.1 Agent tools
 
-The agent has 5 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md)). Every handler:
+The agent has 6 tools ([ADR 0003](adr/0003-agent-proposes-server-moves-money.md); `remember_preference` added for cross-trip memory, plan AI-217). Every handler:
 
 - Receives a `RunContext` holding `trip_id`, `run_id`, the requester's `member_id`, and the run's handle table. The model never supplies a trip ID.
 - Resolves handles to UUIDs. An unknown handle returns `unknown_handle`, so the model can correct itself.
@@ -273,7 +273,7 @@ Rules:
 
 - `swap_option` locks the item to that option, and only the organizer may do it; anyone else gets `not_permitted` with "discuss it in the comments".
 - `mark_tbd` on a decided item supersedes it with a new `tbd` item.
-- `request_alternatives` asks the optimizer for more options for one group.
+- `request_alternatives` asks the optimizer for more options for one item: it runs `plan_day`'s replan path for that item's slot, without the places the item already offered, and posts a `plan` card in replan mode (the item is superseded by one with the new options). In a split slot both groups are re-planned. (§11.7 item 9)
 - Booked items reject every action with `not_permitted`.
 
 Card `itinerary_change`: `requested_by_member_id` uuid (yes), and `changes` [{`item_id` uuid, `label` text, `action` enum, `summary` text}] (yes).
@@ -294,6 +294,18 @@ Card `summary`
 | logistics | text[] | yes | ≤ 5 lines, built deterministically on the server |
 
 The server computes every number. The model only writes the prose around them.
+
+#### `remember_preference` · AI · no card
+
+Input
+
+| Field | Type | Req | Notes |
+| --- | --- | --- | --- |
+| dietary | enum(dietary)[] | no | unioned onto the requester's remembered diets |
+| interests | text[] | no | ≤ 5; each ≤ 40 chars, letters/digits/spaces |
+| note | text | no | ≤ 200; one short note in the person's own words |
+
+At least one field is required. The handler writes only the requester's `person_preferences` row (never another member's), merges dietary and interests into this trip's `member_constraints`, and returns a summary with no card. The next run's context quotes up to five newest notes so Muse can choose among ranked plan options.
 
 #### `propose_purchase` · CO · card `approval`
 
@@ -422,18 +434,19 @@ Hard constraints:
 - Arrival (previous end + travel) must be no later than slot start + 15 minutes.
 - Group size must be at least `min_group_size`, with at most `max_groups_per_slot` groups per slot.
 - A `together` slot has exactly one group. A pinned slot is fixed.
+- No member visits a place twice in a day: an open slot's choice can't be a place the member visits in another slot, pinned or open. Two pinned slots may share a place.
 
 #### Engines
 
 - **CP-SAT:**
   - Variables: booleans x[m,s,c], plus y[s,c] = "someone attends c in s".
-  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y.
+  - Constraints: Σc x = 1 for each member and slot; Σc y ≤ max groups; Σm x ≥ min_group × y; x ≤ y; for each member and place, at most one x across slots, and none when a pinned slot the member attends holds the place.
   - Objective: scores scaled ×1000 to integers; fairness through z ≤ score_m for every member.
   - Top 3: solve, then add a no-good cut on the assignment pattern and solve again. Time limit per solve = `time_limit_ms ÷ max_plans`.
 - **Enumeration:**
   1. Per slot, list every partition of members into at most 2 groups of at least 2, times each group's candidate choice.
-  2. Prune each slot by dietary, budget, and hours.
-  3. Take the product across slots with the travel check, and keep the top 3 by the same scoring function.
+  2. Prune each slot by dietary, budget, hours, and the member's pinned places.
+  3. Take the product across slots with the travel and repeat checks, and keep the top 3 by the same scoring function. The branch-and-bound estimate skips places a member has already visited on the path, so it stays tight when slots offer the same places.
   - Size: with 4 members and 4 candidates, about 40 choices per open slot, or 64,000 plans across 3 slots, which takes under a second. A `together` slot has one choice per candidate, and a pinned slot has one choice.
   - Limits: 6 members, 3 unpinned slots, 6 candidates. Beyond that, the engine returns `too_large`.
 - **The interface between scoring and the engines:** `scoring.build_score_table(request)` turns the request into a `ScoreTable` (`score_table.py`): utilities, feasibility masks from `rules.py`, travel, prices, budgets, and weights. Both engines read only that table and maximize the one objective, `plan_score`. Neither engine reads the request or computes a score, so they can be built and tested against fixture tables before scoring is finished.
@@ -467,7 +480,7 @@ Real implementations wrap every call in `withPolicy` (§7.4). Mocks are determin
 
 | Method | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s per step; 90 s per run |
+| `runAgent` | `system`, `messages`, `tools` (from the registry), `maxSteps` (6), `signal`, `recordingKey?` | `{ text, steps: [{ toolName, input, output }], usage, provider, replayed }` | AI SDK 7 tool loop; 25 s and one retry per model call (tools never count against it); 90 s per run; a run still calling tools at the step cap fails |
 
 Meta's Model API accepts only `tool_choice: "auto"`; `"required"`, `"none"`, and named tools return HTTP 400. So the runner never forces a tool, and `generateObject` uses `response_format` with a JSON schema, never a forced tool call ([ADR 0017](adr/0017-meta-model-api.md)).
 
@@ -533,12 +546,14 @@ Handlers parse the body with the matching `@agp/shared/api` schema. They use the
 | POST | `/api/mandates/:id/approve` | member | `{}` (the organizer's approval always includes their fronted shares) | `{ holds: [{hold_id, status}] }` | CO |
 | POST | `/api/mandates/:id/decline` | member | `{}` | `{ hold_status, mandate_status }` | CO |
 | POST | `/api/mandates/:id/cover` | organizer | `{}` | `{ mandate_status }` | CO |
+| POST | `/api/mandates/:id/cancel` | organizer | `{}` | `{ mandate_status }` (`cancelled`) | CO (§11.7 item 8) |
 | POST | `/api/invites/claim` | signed in | `{ token }` | `{ trip_slug, member_id }` | VO |
 | GET | `/auth/confirm` | the link's token | query `token_hash`, `type=email`, `next` (same-origin path) | redirect to `next`, or `/login?error=link` | VO |
 | POST | `/api/voice-notes` | member | multipart: `trip_id`, `client_id`, `audio` (16 kHz mono WAV, ≤ 2 min) | `{ message_id, agent_run_id \| null }` | VO (Should, §2.5) |
 | POST | `/api/webhooks/stripe` | Stripe signature | raw | `200` | CO |
 | POST | `/api/demo/:action` | dev mode, organizer session, and `x-demo-token` | action: `reset` \| `price-change` (Should); development tooling only | `{ ok, detail }` | VO |
 | GET | `/api/health` | none | — | `{ web, db, optimizer }` | VO |
+| GET | `/api/cron/expire-mandates` | `Authorization: Bearer $CRON_SECRET` (Vercel cron) | — | `{ expired: uuid[], failed: uuid[] }`; 500 when `failed` isn't empty | CO ([ADR 0020](adr/0020-cron-mandate-expiry.md)) |
 
 Agent runs start inside `/api/messages` through Next.js `after()`. There is no public "run the agent" route. Routes that start runs set `maxDuration = 300`.
 
@@ -590,7 +605,7 @@ The trip chat has one Meta capability beyond the core model, with its own provid
 | card_type | `place_list`, `plan`, `itinerary_change`, `summary`, `approval`, `booking_confirmed`, `price_change`, `member_joined`, `error` |
 | run_trigger | `mention`, `price_change`, `demo` |
 | run_status | `queued`, `running`, `succeeded`, `failed` |
-| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase` |
+| tool_name | `search_places`, `plan_day`, `update_item`, `summarize`, `propose_purchase`, `remember_preference` |
 | tool_status | `started`, `succeeded`, `failed` |
 | webhook_provider | `stripe` |
 | webhook_status | `received`, `processed`, `ignored`, `failed` |
@@ -987,6 +1002,7 @@ revoke execute on function public.apply_plan(jsonb) from public, anon, authentic
 | `create_mandate(payload jsonb)` | `createMandate` (`propose_purchase`) | the mandate, its share rows (`own`, `awaiting_member`, and `fronted`), and the `approval` card | CO |
 | `complete_mandate(payload jsonb)` | `finalizeMandate`, after `book()` and the captures | the booking, the captured and released share rows (one paying row per share), `final_cents`, the item booked and pinned, and the `booking_confirmed` card | CO |
 | `apply_item_change(payload jsonb)` | `update_item` | the item change and the `itinerary_change` card | AI |
+| `finish_agent_run(payload jsonb)` | the runner (`startAgentRun`), at the end of every run | the run `succeeded` with one agent text message, or `failed` with one `error` card; step count, usage, replay flag, and error | AI |
 | `create_trip(title, city, trip_date, timezone)` | `/api/trips` (Should) | the trip and its organizer member. It runs with the user's session (`auth.uid()` becomes the organizer). | FE |
 
 ---
@@ -1085,6 +1101,7 @@ stateDiagram-v2
   | Claims and approves before capture | Person 4's own hold | authorized $96, captured $43.57, $52.43 released | captured $43.57 | none |
   | Claims and approves after capture | the organizer's hold, then Person 4 | authorized $96, captured $86.82 | captured $43.57 | $43.25, once |
   | Never claims, or claims and declines | the organizer's hold | authorized $96, captured $86.82 | none | none |
+- **Declines and cover (Should).** A member declines their pending own row. If nothing else can pay that share, the mandate moves `open → partially_declined`: a placeholder who joins and declines is still paid for by the organizer's fronted row. The organizer then covers or cancels. Covering adds a `fronted` row for each such share, on a cover hold of its own, and once every share is satisfied the mandate moves `partially_declined → authorized` and finalizes (the last approval does it, if others are still pending). Cancelling releases every hold (§11.7 item 8).
 - **Price change (Should).** `book()` re-quotes at finalize time. In development, the dev toolbar's price-change trigger changes the mock merchant's price before the last approval:
   - New total within the cap: capture the new amount, with its fees recomputed by `holdFees` (`auto_captured`).
   - A drop: capture the lower amount (`auto_captured_lower`).
@@ -1173,7 +1190,7 @@ sequenceDiagram
     API->>Run: after() starts the runner
     Run->>DB: claim run, queued to running, set lease
     Run-->>All: broadcast agent.status "Reading the trip"
-    Run->>LLM: context with handles and 5 tools
+    Run->>LLM: context with handles and 6 tools
     LLM-->>Run: plan_day(initial, constraint_updates)
     Run->>DB: insert tool_calls row, save constraints, items to proposing
     Run-->>All: broadcast agent.status "Optimizing the day"
@@ -1349,8 +1366,9 @@ Query defaults: `staleTime` 30 s, `refetchOnWindowFocus` true, `retry` 2. Known 
 | Start a run from a message | `agent_runs.trigger_message_id` | unique |
 | Execute a tool | `(run_id, tool_call_id)` | unique on `tool_calls`; a succeeded row returns its stored output |
 | Create a mandate | `mandate:{run_id}:{tool_call_id}` | `mandates.idempotency_key` unique; one live mandate per item |
-| Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's rows |
+| Authorize a payer's hold | Stripe `Idempotency-Key: pi-auth:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional update pending → authorized on that payer's main-hold rows (a cover hold's rows are separate, below) |
 | Capture, release | `pi-capture:{mandate_id}:{payer_member_id}`, `pi-release:{mandate_id}:{payer_member_id}` | Stripe, plus the conditional updates |
+| Cover a declined share (the organizer's cover hold) | `pi-auth:`, `pi-capture:`, and `pi-release:{mandate_id}:{organizer_member_id}:cover:{share_member_id}`; the row's own key is `cover:{mandate_id}:{share_member_id}` | Stripe, `payment_holds.idempotency_key` unique, and the conditional updates on that row only (§11.7 item 8) |
 | Refund a fronted share after the placeholder pays | `cover-refund:{mandate_id}:{share_member_id}` | Stripe, plus the conditional update `captured → refunded` on the `fronted` row |
 | Book | `booking:{mandate_id}` | `bookings.idempotency_key` unique |
 | Webhooks | `(provider, event_id)` | `webhook_events` primary key |
@@ -1387,7 +1405,7 @@ Signing secrets are per environment. `stripe listen` prints one secret for local
 
 | Dependency | Timeout | Retries | Fallback |
 | --- | --- | --- | --- |
-| Muse Spark, per agent step | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
+| Muse Spark, per model call | 25 s (90 s per run) | 1 | an error card with Try again. `LLM_PROVIDER=google` switches to Gemini. |
 | Meta ASR, voice note | 30 s | 1 | the composer keeps the recording and shows Try again; nothing is posted |
 | FastAPI `/v1/plan` | 8 s | 1 | an error card with Try again. Inside FastAPI, enumeration covers a CP-SAT failure (§2.2). |
 | Stripe | 10 s | 2 (SDK `maxNetworkRetries`, same idempotency key) | the hold becomes `failed`; the card shows "Try again" |
@@ -1591,6 +1609,7 @@ Card catalog:
 | `ORS_API_KEY` | server | when real | |
 | `STAYS_PROVIDER` | server | yes | `real` \| `mock` (default `mock`) |
 | `DUFFEL_ACCESS_TOKEN` | server | when real | test token (`duffel_test_`) |
+| `CRON_SECRET` | server | when `VERCEL_ENV=production` | at least 16 characters; Vercel cron sends it as a bearer token. Unset, the cron routes refuse every call |
 | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN` | public, server | no | |
 | `SENTRY_AUTH_TOKEN` | build | no | source maps |
 
@@ -1791,7 +1810,46 @@ Milestone 1 ran locally, with no git and no deploys, on Windows on Arm. Each ent
 The product is now five flows (§5): create profile, AI-guided trip planner, invite and collaborate, group pay after confirmation, and per-person itinerary. This supersedes the earlier six: voting is replaced by item comments with agent revision and organizer lock, and the restaurant call and the recap/gallery are dropped entirely.
 
 - **Votes are gone.** There is no `cast_vote`, no majority lock, and no `votes` table. Items move `voting → decided` through the organizer's `swap_option` lock or the agent on an explicit confirmation in chat. The plan card shows comment counts, not tallies.
-- **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 5 tools and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
-- **Dormant migration content.** Migrations 1–4 as applied still contain the `votes` and `calls` tables and their triggers. They are unused: no function, route, or policy writes to them. A later cleanup migration may drop them; until then, schema tests cover only the tables in §3.2.
+- **Calls, photos, and recaps are gone.** No `call_restaurant`, `generate_recap`, photo analysis endpoint, gallery, or recap; no `calls`, `photos`, or `recaps` tables; no voice, segmentation, image, or grounding providers. The agent has 6 tools (including `remember_preference`) and 9 card types. The `summarize` tool and voice-note transcription stay: summaries feed the per-person itinerary, and voice notes are chat input.
+- **Dormant migration content, dropped.** Migrations 1–4 created the `votes` and `calls` tables, `agent_runs.trigger_call_id`, and `bookings.call_id`, and their CHECKs allowed the dropped tool names, card types, run trigger, and providers. `20260926063958_journey_pivot_cleanup.sql` drops those tables and columns and narrows each CHECK to the §3.1 values; `web/tests/db/pivot-cleanup.test.ts` pins it.
 - **Dinner stays TBD the same way.** The seeded dinner is still a TBD block with a Midtown area (§10.2); only its provenance changed. A later plan run fills it from the members' comments, and booking it through the pay flow still drives the re-plan time shift.
 - **History above stands.** Earlier §11 entries that mention the dropped flows describe what was true when written.
+
+### 11.7 Interpretations while building the backend (2026-09-26)
+
+1. **A candidate's price and visit length live in `places.raw`.** §3.2 has no price column on `places`, and §2.2's `Candidate` needs `price_cents` per person. The seed writes `raw.price_cents` and `raw.duration_min` from `saturday-trip.json`, and `buildPlanRequest` offers only places with a known price, so no price is invented. A real provider's places need a price source before they can be candidates (AI-S04).
+2. **The end of a run is a write function.** `finish_agent_run` (§3.4) writes the run's one message and its final status together.
+3. **Members' messages link only within their trip.** The insert policy requires `item_id` and `reply_to_message_id` on the message's own trip (migration `20260926071157`).
+4. **A run at the step cap fails** (§4.4), on both the live and the replay provider, rather than ending with empty text.
+5. **`Slot.category` in the plan request.** §2.2's dietary rule applies to "food slots", but the request had no way to say which slots are food. `Slot` has an optional `category` (the `place_category` values), and `food` and `dessert` count as food.
+6. **Repeats fixed; the §10.2 target plan is dropped (AI-208, re-scoped 2026-09-26).** Decision: don't tune weights for one fixture. The engine returns feasible ranked options, and Muse picks and explains one from the conversation and each person's remembered preferences (AI-217). The seeded test checks invariants (feasibility, dietary rules, no repeats, budgets, solve time), not an exact plan. The evidence that led here: the engines put everyone at Piedmont Park for both the morning and the afternoon. A member's open choice can no longer revisit a place (§2.2 hard constraints), so the seeded top plan is now the High Museum, Ponce City Market, then Piedmont Park, all together. Tuning alone can't reach the target plan (2026-09-26 search over `split_penalty`, the `cost` weight, the aquarium's tags, the members' interests, and the zoo's price):
+   - A split can't pay for itself at `split_penalty` 0.3. A member's score is their mean slot value ÷ the weight span (2.0), so over 3 slots, even a perfect split adds at most about 0.17 per member. Splits first appear at 0.05.
+   - Scoring has no time of day, so "aquarium, then the park" competes with "the park, then the zoo or the aquarium". The aquarium is the slot's most expensive option, so its cost term is always −0.6, more than most interest matches earn. Persons 1 and 4 gain nothing from it over the free, higher-rated park, and Zoo Atlanta (animals and outdoors, $33) beats it for Persons 2 and 3.
+   - The target appears only when all four members list an interest the aquarium is tagged with and the `cost` weight drops to 0.1, which would make the planner nearly ignore prices.
+   
+   The options were (a) a budget-relative cost term, (b) lower `split_penalty` and `cost` defaults, and (c) changing the target. (a) stays a possible later improvement; none of them blocks work now.
+7. **The mandate expiry cron** ([ADR 0020](adr/0020-cron-mandate-expiry.md)). `GET /api/cron/expire-mandates`, behind `CRON_SECRET`, runs daily on Vercel. Approving an expired mandate was already refused, so the cron releases the holds of mandates nobody finished.
+8. **Covering a declined share uses a cover hold** (CO-S02). §4.2 says the organizer's cover "adds a fronted row to their hold", but by then the organizer's hold is usually authorized, and an authorized PaymentIntent can't grow. So each covered share gets its own PaymentIntent, authorized when the organizer taps Cover, for that share's cap (`$48` on the seeded trip) and charged like a member's own hold (`$43.57`). Its keys add `:cover:{share_member_id}` to the organizer's (§7.1), and its row's `idempotency_key` starts `cover:`, which is how the approval, finalize, and webhook paths keep each hold's rows apart. The organizer's own share is never covered (their card is the one covering), and a declined cover leaves the mandate partially declined, for the organizer to cancel. The organizer can't decline; they cancel instead, through `POST /api/mandates/:id/cancel`, which §2.4 lacked.
+9. **`request_alternatives` posts a plan card, not an itinerary change** (AI-216). New options only mean something with their scores, prices, and reasoning, which the plan card already shows, so the action runs `plan_day`'s replan for the one item with its old places excluded (a booked or pinned neighbor keeps its place as context). A revision run, one started by a comment on an item, also quotes that item's earlier comments in the system prompt, since the last 30 messages can miss them (AI-210). They're members' words, not instructions: each is JSON-quoted (a newline can't forge a prompt line) and cut to 500 characters, comments already among the recent messages are skipped, and the newest are kept within 6,000 characters. The request re-plans without every place the slot has offered, in any round or split group. A replan's time shift is applied once: `itinerary_items.shifted_min` records the minutes already moved, since the booked item's Δ never goes away.
+
+### 11.8 Screens follow the database (2026-09-26)
+
+[ADR 0021](adr/0021-supabase-session-for-trip-reads.md). The trip-draft screens read `localStorage` (`useTrip`, `trips-db`, `profile-db`). They will read Supabase through `useTripView` / `useTrips` instead. Providers stay mock.
+
+**Auth.** RLS keeps using `auth.uid()`. Dev mode signs in with the Person 1–3 magic-link picker. Production members still use a magic link. Clerk is not part of the shell ([ADR 0022](adr/0022-shared-studio-board.md)).
+
+**Field mapping.**
+
+| Screen field | localStorage today | Database | Write |
+| --- | --- | --- | --- |
+| Trip title, city, date, timezone | `TripState` | `trips` | `create_trip` once; after that the row |
+| Members, lanes, placeholder | `TripState.members` | `trip_members` | claim / seed |
+| Stops, options, statuses | `TripState` plan fields | `itinerary_items`, `item_options`, `places` | `applyPlan` and the item tools |
+| Chat and cards | none (UI fixtures) | `messages` | post message / agent tools |
+| Profile name and home | `profile-db` | `profiles` | profile update route |
+| Votes, photos, recap | UI-only or absent | none | dropped (§11.6); do not add tables |
+| Onboarding text before the first save | `TripState` | none | local draft only, until `create_trip` |
+
+### 11.9 Shared studio board (2026-09-26)
+
+[ADR 0022](adr/0022-shared-studio-board.md). The trip-draft trip list is one `studio_board` row (`id = 'demo'`), readable and writable by any signed-in user, so an edit made as one person shows up for the others. Realtime on that table is a doorbell: the client refetches `/api/studio-state` and does not apply the payload. The home address stays on the per-user `studio_state` row. A later save replaces the whole trip list. The trip-draft city list, round-trip fares from New York, and nightly stays live in `demo_catalog` (`id = 'cities'`), the same document as `web/src/lib/demo/city-catalog.json`. Those prices are display dollars, not a charge. Duffel stays available only when `STAYS_PROVIDER=real`.

@@ -1,11 +1,10 @@
 export * from "./errors";
 export * as messages from "./messages";
-export * as votes from "./votes";
+export * as profile from "./profile";
+export * as itinerary from "./itinerary";
 export * as mandates from "./mandates";
 export * as invites from "./invites";
-export * as voiceTools from "./voice-tools";
 export * as demo from "./demo";
-export * as recaps from "./recaps";
 export * as trips from "./trips";
-export * as photos from "./photos";
 export * as health from "./health";
+export * as voiceNotes from "./voice-notes";

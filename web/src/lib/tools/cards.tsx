@@ -7,8 +7,6 @@ import { CardFrame, ErrorCard } from "@/components/card-frame";
 import { BookingConfirmedCard } from "@/features/booking";
 import { MemberJoinedCard } from "@/features/invite";
 import { PriceChangeCard } from "@/features/payments";
-import { CallStatusCardView } from "./call-restaurant/card";
-import { RecapCardView } from "./generate-recap/card";
 import { PlanCardView } from "./plan-day/card";
 import { ApprovalCardView } from "./propose-purchase/card";
 import { PlaceListCardView } from "./search-places/card";
@@ -30,15 +28,13 @@ export interface CardRendererProps<T extends CardPayloadType = CardPayloadType> 
 
 type Renderers = { [K in CardType]: ComponentType<CardRendererProps<Extract<CardPayloadType, { card_type: K }>>> };
 
-/** Every card type's renderer: the 7 tool cards and the 4 server-originated ones. */
+/** Every card type's renderer: the 5 tool cards and the 4 server-originated ones. */
 export const cardRenderers: Renderers = {
   place_list: PlaceListCardView,
   plan: PlanCardView,
   itinerary_change: ItineraryChangeCardView,
   summary: SummaryCardView,
   approval: ApprovalCardView,
-  call_status: CallStatusCardView,
-  recap: RecapCardView,
   booking_confirmed: BookingConfirmedCard,
   price_change: PriceChangeCard,
   member_joined: MemberJoinedCard,

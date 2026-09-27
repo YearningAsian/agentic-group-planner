@@ -9,6 +9,11 @@ export function LanesView(): null {
   return null;
 }
 
-export function VoteButton(): null {
+export function CommentThread(): null {
+  return null;
+}
+
+/** The per-person itinerary (design §5.5). */
+export function MyItineraryView(): null {
   return null;
 }

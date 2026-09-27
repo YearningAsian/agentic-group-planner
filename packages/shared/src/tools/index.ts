@@ -1,18 +1,18 @@
 import type { z } from "zod";
 import type { ToolName } from "../enums";
-import { CallRestaurantInput } from "./call-restaurant";
-import { GenerateRecapInput } from "./generate-recap";
 import { PlanDayInput } from "./plan-day";
 import { ProposePurchaseInput } from "./propose-purchase";
+import { RememberPreferenceInput } from "./remember-preference";
 import { SearchPlacesInput } from "./search-places";
+import { SearchStaysInput } from "./search-stays";
 import { SummarizeInput } from "./summarize";
 import { UpdateItemInput } from "./update-item";
 
-export * from "./call-restaurant";
-export * from "./generate-recap";
 export * from "./plan-day";
 export * from "./propose-purchase";
+export * from "./remember-preference";
 export * from "./search-places";
+export * from "./search-stays";
 export * from "./summarize";
 export * from "./update-item";
 
@@ -23,6 +23,6 @@ export const toolInputs = {
   update_item: UpdateItemInput,
   summarize: SummarizeInput,
   propose_purchase: ProposePurchaseInput,
-  call_restaurant: CallRestaurantInput,
-  generate_recap: GenerateRecapInput,
+  remember_preference: RememberPreferenceInput,
+  search_stays: SearchStaysInput,
 } as const satisfies Record<ToolName, z.ZodType>;

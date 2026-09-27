@@ -57,11 +57,25 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: "smoke",
+          environment: "node",
+          include: ["scripts/sandbox-smoke.ts"],
+          env,
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: "stripe",
           environment: "node",
           include: ["tests/payments/**/*.test.ts"],
           env: { ...env, PAYMENTS_PROVIDER: "real" },
-          testTimeout: 60_000,
+          // The fronting race runs five full purchases against Stripe (about 70 s); mock runs take ~2 s.
+          testTimeout: 180_000,
+          // beforeAll creates three payers, each a Supabase user plus a Stripe customer and card.
+          hookTimeout: 120_000,
         },
       },
     ],

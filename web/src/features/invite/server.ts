@@ -1,7 +1,6 @@
 import "server-only";
-import { notBuilt } from "@/lib/not-built";
 
-// Server entry point. Stubs until the feature's owner builds them.
-
-export const claimInvite = notBuilt("claimInvite");
-export const previewInvite = notBuilt("previewInvite");
+// Server entry point for the invite feature.
+export { afterClaim } from "./server/after-claim";
+export { type ClaimInviteResult, claimInvite } from "./server/claim-invite";
+export { previewInvite } from "./server/preview-invite";
