@@ -20,14 +20,14 @@ export function DestinationStrip() {
           className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 outline-none focus-visible:ring-2 focus-visible:ring-paper/40 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {DESTINATIONS.map((place, index) => (
-            <Reveal key={place.src} delayMs={index * 40} className="w-[78%] shrink-0 snap-center sm:w-[46%] lg:w-[31%]">
-              <li className="overflow-hidden rounded-[16px]">
+            <li key={place.src} className="w-[78%] shrink-0 snap-center overflow-hidden rounded-[16px] sm:w-[46%] lg:w-[31%]">
+              <Reveal delayMs={index * 40}>
                 <div className="relative aspect-[5/4]">
                   <Image src={place.src} alt={place.alt} fill sizes="(min-width: 1024px) 30vw, 80vw" className="object-cover" />
                 </div>
                 <p className="bg-ink px-1 pt-3 text-[14px] font-medium text-paper/90">{place.caption}</p>
-              </li>
-            </Reveal>
+              </Reveal>
+            </li>
           ))}
         </ul>
       </div>

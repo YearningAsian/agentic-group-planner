@@ -57,15 +57,15 @@ export function HowItWorks() {
         </Reveal>
         <ol className="mt-12 grid gap-8 md:grid-cols-3 md:gap-6">
           {HOW_IT_WORKS.map((step, index) => (
-            <Reveal key={step.title} delayMs={index * 40}>
-              <li className="flex flex-col gap-4">
+            <li key={step.title} className="flex flex-col gap-4">
+              <Reveal delayMs={index * 40}>
                 <StepPreview step={step.title} />
                 <div>
                   <h3 className="text-lg font-semibold text-ink">{step.title}</h3>
                   <p className="mt-2 text-[15px] leading-relaxed text-muted text-pretty">{step.body}</p>
                 </div>
-              </li>
-            </Reveal>
+              </Reveal>
+            </li>
           ))}
         </ol>
       </div>
