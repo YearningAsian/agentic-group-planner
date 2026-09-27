@@ -66,7 +66,7 @@ describe("planner travel search", () => {
   });
 
   it("searches from airports when the city has no coordinates", async () => {
-    const search = vi.fn(async () => [stay]);
+    const search = vi.fn(async (_area: { lat: number; lng: number; radiusKm: number }) => [stay]);
     const tokyo: PlaceSuggestion = {
       kind: "city",
       name: "Tokyo",
@@ -87,10 +87,10 @@ describe("planner travel search", () => {
       },
     );
     expect(search).toHaveBeenCalledTimes(1);
-    const area = search.mock.calls[0]?.[0] as { lat: number; lng: number; radiusKm: number };
-    expect(area.lat).toBeCloseTo(35.6607, 3);
-    expect(area.lng).toBeCloseTo(140.08635, 3);
-    expect(area.radiusKm).toBeGreaterThanOrEqual(20);
+    const area = search.mock.calls[0]?.[0];
+    expect(area?.lat).toBeCloseTo(35.6607, 3);
+    expect(area?.lng).toBeCloseTo(140.08635, 3);
+    expect(area?.radiusKm).toBeGreaterThanOrEqual(20);
     expect(result).toMatchObject({ ok: true, area: { label: "Tokyo" } });
   });
 

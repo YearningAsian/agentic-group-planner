@@ -25,10 +25,14 @@ describe("planner instructions", () => {
       text: `turn ${index} ${"x".repeat(400)}`,
     }));
     const packed = modelMessages(messages);
+    const text = (index: number) => {
+      const content = packed[index]?.content;
+      return typeof content === "string" ? content : "";
+    };
     expect(packed).toHaveLength(8);
-    expect(packed[0]?.content.startsWith("turn 4")).toBe(true);
-    expect(packed[0]?.content.length).toBeLessThanOrEqual(160);
-    expect(packed[7]?.content.startsWith("turn 11")).toBe(true);
-    expect(packed[7]?.content.length).toBeGreaterThan(160);
+    expect(text(0).startsWith("turn 4")).toBe(true);
+    expect(text(0).length).toBeLessThanOrEqual(160);
+    expect(text(7).startsWith("turn 11")).toBe(true);
+    expect(text(7).length).toBeGreaterThan(160);
   });
 });
