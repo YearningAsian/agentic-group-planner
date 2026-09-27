@@ -4,10 +4,10 @@ import Link from "next/link";
 
 export function AuthDivider({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-3 py-1" role="separator" aria-label={label}>
-      <div className="h-px flex-1 bg-line" />
+    <div className="flex items-center gap-3 py-1" role="presentation">
+      <div className="h-px flex-1 bg-line" aria-hidden />
       <span className="text-xs font-medium text-muted">{label}</span>
-      <div className="h-px flex-1 bg-line" />
+      <div className="h-px flex-1 bg-line" aria-hidden />
     </div>
   );
 }

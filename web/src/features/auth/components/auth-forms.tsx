@@ -95,7 +95,7 @@ export function LoginForm({ next }: { next?: string }) {
           <button
             type="button"
             className="absolute top-1/2 right-2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted hover:text-ink"
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? "Hide characters" : "Show characters"}
             onClick={() => setShowPassword((value) => !value)}
           >
             {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -239,7 +239,7 @@ export function SignUpForm({ next }: { next?: string }) {
           <button
             type="button"
             className="absolute top-1/2 right-2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted hover:text-ink"
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? "Hide characters" : "Show characters"}
             onClick={() => setShowPassword((value) => !value)}
           >
             {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}

@@ -4,20 +4,22 @@ import AxeBuilder from "@axe-core/playwright";
 test.describe("auth pages", () => {
   test("a wrong password shows an error", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("nobody@example.com");
-    await page.getByLabel("Password", { exact: true }).fill("definitely-wrong-password");
+    await page.getByRole("textbox", { name: "Email" }).fill("nobody@example.com");
+    await page.locator('input[name="password"]').fill("definitely-wrong-password");
     await page.getByRole("button", { name: "Log in" }).click();
     await expect(page.getByText(/wrong email or password|try again|confirm your email|too many/i)).toBeVisible({
       timeout: 15_000,
     });
   });
 
-  test("?next=https://evil.example is ignored after login form redirect target", async ({ page }) => {
+  test("?next=https://evil.example is ignored", async ({ page }) => {
     await page.goto("/login?next=https://evil.example");
-    // The form posts next through the server action; the page should still render (no open redirect on load).
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    expect(page.url()).toContain("/login");
-    expect(page.url()).not.toContain("evil.example");
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/login");
+    // Query may still show the raw next= value; the page must not navigate off-origin.
+    expect(url.origin).not.toContain("evil.example");
+    expect(url.protocol).toMatch(/^https?:$/);
   });
 
   test("a signed-out visit to an app route redirects to /login", async ({ page }) => {
@@ -26,8 +28,6 @@ test.describe("auth pages", () => {
   });
 
   test("instant login cards are hidden when demo mode is off", async ({ page }) => {
-    // This project builds with NEXT_PUBLIC_DEMO_MODE from env. When true, cards show; when the
-    // action is called with demo off it refuses. Assert presence only in demo builds.
     await page.goto("/login");
     if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
       await expect(page.getByRole("heading", { name: "Try it as someone in the group" })).toBeVisible();
@@ -43,9 +43,7 @@ test.describe("auth pages", () => {
       await page.getByRole("button", { name: new RegExp(`Sign in as ${person}`) }).click();
       await expect(page).toHaveURL(/\/trips/, { timeout: 20_000 });
       await page.goto("/login");
-      // Signed-in visits to /login redirect to trips.
       await expect(page).toHaveURL(/\/trips/, { timeout: 10_000 });
-      // Sign out via cookie clear for the next person.
       await page.context().clearCookies();
     }
   });
@@ -53,11 +51,10 @@ test.describe("auth pages", () => {
   test("signup form validates and can submit", async ({ page }) => {
     await page.goto("/signup");
     await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
-    await page.getByLabel("Display name").fill("Test Traveler");
-    await page.getByLabel("Email").fill(`e2e-${Date.now()}@example.com`);
-    await page.getByLabel("Password").fill("longenough1");
+    await page.getByRole("textbox", { name: "Display name" }).fill("Test Traveler");
+    await page.getByRole("textbox", { name: "Email" }).fill(`e2e-${Date.now()}@example.com`);
+    await page.locator('input[name="password"]').fill("longenough1");
     await page.getByRole("button", { name: "Create account" }).click();
-    // Either trips home (confirmation off) or check-email state.
     await expect(
       page.getByRole("heading", { name: /Check your email|Trips/i }).or(page.getByText(/trips/i).first()),
     ).toBeVisible({ timeout: 20_000 });

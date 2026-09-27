@@ -1,4 +1,4 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
@@ -31,33 +31,38 @@ export function AuthShell({ title, subtitle, children, sideImage, footer }: Auth
       className={`${jakarta.variable} ${fraunces.variable} marketing-surface relative min-h-dvh font-sans antialiased`}
     >
       <div
-        className="pointer-events-none absolute inset-0 -z-10 bg-[url('/media/water-texture.webp')] bg-cover bg-center opacity-25 md:hidden"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[url('/media/water-texture.webp')] bg-cover bg-center opacity-[0.22] md:hidden"
         aria-hidden
       />
-      <div className="mx-auto grid min-h-dvh w-full max-w-6xl md:grid-cols-[minmax(0,420px)_1fr] lg:grid-cols-[420px_1fr]">
-        <div className="flex flex-col justify-center px-5 py-10 sm:px-8">
-          <Link href="/" className="mb-8 inline-flex w-fit items-center gap-2 text-ink">
-            <span className="inline-flex size-8 items-center justify-center rounded-md bg-ink text-sm font-bold text-paper">
-              G
-            </span>
-            <span className="text-sm font-bold tracking-tight">Group Trip Agent</span>
+      <div className="mx-auto grid min-h-dvh w-full md:grid-cols-[minmax(0,26rem)_1fr] lg:grid-cols-[26rem_1fr]">
+        <main className="flex flex-col justify-center px-5 py-10 sm:px-8 md:max-w-[26rem]">
+          <Link href="/" className="mb-10 inline-flex w-fit flex-col gap-1 text-ink">
+            <span className="font-display text-[1.35rem] font-semibold tracking-tight">Group Trip Agent</span>
+            <span className="text-[12px] font-medium text-muted">Plan it together. Pay your part.</span>
           </Link>
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-ink text-balance">{title}</h1>
-          {subtitle ? <p className="mt-2 text-sm text-muted text-pretty">{subtitle}</p> : null}
+          <h1 className="font-display text-[1.85rem] font-semibold tracking-tight text-ink text-balance sm:text-[2.05rem]">
+            {title}
+          </h1>
+          {subtitle ? <p className="mt-2 text-[15px] leading-relaxed text-muted text-pretty">{subtitle}</p> : null}
           <div className="mt-8 space-y-6">{children}</div>
           {footer ? <div className="mt-8">{footer}</div> : null}
-        </div>
-        <aside className="relative hidden overflow-hidden md:block">
+        </main>
+        <aside className="relative hidden min-h-dvh overflow-hidden md:block" aria-label="Travel photo">
           <Image
             src={sideImage.src}
             alt={sideImage.alt}
             fill
             sizes="(min-width: 768px) 55vw, 0px"
             className="object-cover"
-            priority={false}
+            priority
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[color-mix(in_oklab,var(--ink)_55%,transparent)] via-transparent to-transparent" />
-          <p className="absolute right-6 bottom-6 left-6 text-sm font-medium text-paper/95">{sideImage.caption}</p>
+          <div
+            className="absolute inset-0 bg-gradient-to-t from-[color-mix(in_oklab,var(--ink)_58%,transparent)] via-[color-mix(in_oklab,var(--ink)_12%,transparent)] to-transparent"
+            aria-hidden
+          />
+          <p className="absolute right-8 bottom-8 left-8 max-w-sm font-display text-lg font-medium tracking-tight text-paper/95 text-pretty">
+            {sideImage.caption}
+          </p>
         </aside>
       </div>
     </div>
