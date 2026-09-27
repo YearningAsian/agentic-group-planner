@@ -41,8 +41,8 @@ describe("Duffel stays provider", () => {
         data: { location: { radius: number; geographic_coordinates: { latitude: number; longitude: number } }; guests: unknown[]; rooms: number };
       };
       expect(body.data.location).toEqual({
-        radius: 2,
-        geographic_coordinates: { latitude: -24.38, longitude: -128.32 },
+        radius: 5,
+        geographic_coordinates: { latitude: 51.5071, longitude: -0.1416 },
       });
       expect(body.data.guests).toHaveLength(2);
       expect(body.data.rooms).toBe(1);

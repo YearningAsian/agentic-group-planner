@@ -7,9 +7,13 @@ vi.mock("@/lib/env/server", () => ({
   getServerEnv: () => ({ DUFFEL_ACCESS_TOKEN: "duffel_test_token" }),
 }));
 
-vi.mock("@/lib/providers/stays", () => ({
-  createDuffelStays: () => ({ search }),
-}));
+vi.mock("@/lib/providers/stays", async () => {
+  const { stayAreaForPlace } = await import("@/lib/providers/stays/place-point");
+  return {
+    createDuffelStays: () => ({ search }),
+    stayAreaForPlace,
+  };
+});
 
 vi.mock("@/lib/providers/place-suggestions", () => ({
   createDuffelPlaceSuggestions: () => ({ suggest }),
