@@ -17,7 +17,7 @@ export const HERO = {
 export const HOW_IT_WORKS = [
   {
     title: "Chat",
-    body: "Ask the agent in the group chat. It scores options and brings back clear choices to vote on.",
+    body: "Ask the agent in the group chat. It scores options and brings back clear choices to discuss.",
   },
   {
     title: "Itinerary",
@@ -33,7 +33,7 @@ export const FEATURES = [
   {
     id: "plan-together",
     title: "Plan together",
-    body: "One chat for the whole group. The agent finds scored options; you vote and comment until the day feels right.",
+    body: "One chat for the whole group. The agent finds scored options; you comment until the day feels right.",
     image: "/media/friends-planning.webp",
     alt: "Four friends planning a trip over a paper map and phones at an outdoor café.",
     imageSide: "right" as const,
@@ -133,7 +133,10 @@ export const BANNED_LANDING_TERMS = [
   "users worldwide",
 ] as const;
 
-/** True when copy wrongly claims the agent pays, charges, or books. */
+/**
+ * True when copy wrongly attributes payment or booking to the agent.
+ * Negated claims ("never …") are allowed so FAQ/feature copy can state the rule.
+ */
 export function pairsAgentWithPaid(text: string): boolean {
   if (/\bagent\b.{0,50}\bnever\s+(pays?|charges?|books?)\b/i.test(text)) return false;
   if (/\bagent\b.{0,50}\bcan'?t\s+(pay|charge|book)\b/i.test(text)) return false;
