@@ -18,6 +18,14 @@ const serverSchema = z.object({
   DEMO_ADMIN_TOKEN: secret,
   // Seeded users' email domain (design §9.3). Dev-mode sign-in accepts only this domain.
   DEMO_EMAIL_DOMAIN: z.string().min(1).default("demo.agp.test"),
+  // Keys the seeded users' passwords (features/demo/demo-credentials.ts). Unset, instant logins refuse.
+  DEMO_SEED_SECRET: secret,
+  // Instant logins on a production deploy need this too, on top of dev mode.
+  ALLOW_DEMO_LOGIN: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
+  VERCEL_ENV: z.string().optional(),
 
   LLM_PROVIDER: z.enum(["meta", "google", "mock"]).default("meta"),
   AGENT_MODEL: model("muse-spark-1.3"),

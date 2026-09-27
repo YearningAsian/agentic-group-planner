@@ -1,53 +1,47 @@
 "use server";
 import "server-only";
-import { z } from "zod";
 import { getServerEnv } from "@/lib/env/server";
-import { AppError } from "@/lib/reliability";
-import { getAdminClient } from "@/lib/supabase/admin";
 import { getServerClient } from "@/lib/supabase/server";
+import { demoPasswordFor } from "../demo-credentials";
+import { demoLoginRefusal } from "../demo-login-policy";
+import { type DemoPersonKey, isDemoPersonKey } from "../demo-people";
 
-const Email = z.email();
+export type DemoSignInResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "disabled" | "invalid" | "not_seeded" | "failed"; message: string };
+
+const NOT_SEEDED = "Demo data isn't loaded. Run pnpm --filter web seed:demo";
 
 /**
- * Dev mode only: signs the browser in as a seeded user (design §10.1), such as
- * `person2@demo.agp.test`. The admin client generates a magic link, and the session client
- * verifies its hash, which sets the session cookie, so no password ever exists and no email is sent.
+ * Dev mode only: signs the browser in as Person 1, 2, or 3 (design §10.1). The password is derived
+ * from `DEMO_SEED_SECRET` here on the server and handed straight to Supabase, so neither the
+ * secret nor the password reaches the browser; the session arrives as the usual cookie.
  *
- * Only the seeded-user domain (`DEMO_EMAIL_DOMAIN`) is accepted: generating a link for an unknown
- * address creates that user, and a dev-mode deploy must never become a way into a real account.
- *
- * @throws AppError `not_permitted` outside dev mode, `invalid_input` for an email outside the demo
- *   domain, and a retryable `internal` when Supabase rejects the link.
+ * Only the three seeded keys are accepted and the email is built here, so the action can't be
+ * pointed at any other account. Results are returned, not thrown, because Next.js hides thrown
+ * messages from the client in production.
  */
-export async function demoSignIn(email: string): Promise<{ userId: string }> {
+export async function demoSignInSeeded(person: DemoPersonKey): Promise<DemoSignInResult> {
   const env = getServerEnv();
-  if (!env.NEXT_PUBLIC_DEMO_MODE) {
-    throw new AppError("not_permitted", "Seeded-user sign-in is only available in dev mode.");
-  }
-
-  const parsed = Email.safeParse(typeof email === "string" ? email.trim().toLowerCase() : email);
-  if (!parsed.success || !parsed.data.endsWith(`@${env.DEMO_EMAIL_DOMAIN.toLowerCase()}`)) {
-    throw new AppError("invalid_input", "Pick one of the seeded users.");
-  }
-
-  const { data: link, error: linkError } = await getAdminClient().auth.admin.generateLink({
-    type: "magiclink",
-    email: parsed.data,
+  const refusal = demoLoginRefusal({
+    demoMode: env.NEXT_PUBLIC_DEMO_MODE,
+    vercelEnv: env.VERCEL_ENV,
+    allowDemoLogin: env.ALLOW_DEMO_LOGIN,
+    seedSecret: env.DEMO_SEED_SECRET,
   });
-  if (linkError || !link.properties?.hashed_token) {
-    throw new AppError("internal", "Couldn't sign in. Try again.", { retryable: true, cause: linkError });
+  if (refusal) {
+    const message = refusal === "no_secret" ? "Demo logins need DEMO_SEED_SECRET on the server." : "Demo logins are off here.";
+    return { ok: false, reason: "disabled", message };
   }
+  if (!isDemoPersonKey(person)) return { ok: false, reason: "invalid", message: "Pick Person 1, 2, or 3." };
 
+  const email = `${person}@${env.DEMO_EMAIL_DOMAIN}`.toLowerCase();
   const client = await getServerClient();
-  const { data, error } = await client.auth.verifyOtp({ token_hash: link.properties.hashed_token, type: "email" });
-  if (error || !data.user) {
-    throw new AppError("internal", "Couldn't sign in. Try again.", { retryable: true, cause: error });
-  }
-  return { userId: data.user.id };
-}
-
-/** Dev mode only: sign in as Person 1, 2, or 3. Person 4 joins through the invite link. */
-export async function demoSignInSeeded(person: "person1" | "person2" | "person3"): Promise<{ userId: string }> {
-  const env = getServerEnv();
-  return demoSignIn(`${person}@${env.DEMO_EMAIL_DOMAIN}`);
+  const { data, error } = await client.auth.signInWithPassword({
+    email,
+    password: demoPasswordFor(email, env.DEMO_SEED_SECRET!),
+  });
+  if (error?.code === "invalid_credentials") return { ok: false, reason: "not_seeded", message: NOT_SEEDED };
+  if (error || !data.user) return { ok: false, reason: "failed", message: "Couldn't sign in. Try again." };
+  return { ok: true, userId: data.user.id };
 }
