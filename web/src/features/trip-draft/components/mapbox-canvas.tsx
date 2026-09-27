@@ -67,7 +67,7 @@ export function MapboxCanvas({
       ref={mapRef}
       mapboxAccessToken={token}
       initialViewState={{ longitude: -30, latitude: 24, zoom: 1.25 }}
-      mapStyle="mapbox://styles/mapbox/light-v11"
+      mapStyle="mapbox://styles/alextruong63/cmuikqsyl00cr01rwfrd1ex27"
       style={{ width: "100%", height: "100%" }}
       onLoad={() => {
         loadedRef.current = true;
@@ -83,6 +83,7 @@ export function MapboxCanvas({
           ) : (
             <button
               type="button"
+              title={marker.title}
               onClick={() => onSelectMarker?.(marker.id)}
               className={
                 marker.selected

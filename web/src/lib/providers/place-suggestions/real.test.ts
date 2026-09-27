@@ -9,7 +9,7 @@ const DUFFEL_BODY = {
       name: "Lisbon",
       latitude: 38.7223,
       longitude: -9.1393,
-      airports: [{ iata_code: "LIS", name: "Humberto Delgado Airport" }],
+      airports: [{ iata_code: "LIS", name: "Humberto Delgado Airport", latitude: 38.7742, longitude: -9.1342 }],
     },
     {
       type: "airport",
@@ -44,11 +44,12 @@ describe("Duffel place suggestions provider", () => {
         iataCode: "LIS",
         lat: 38.7223,
         lng: -9.1393,
-        airports: [{ iataCode: "LIS", name: "Humberto Delgado Airport" }],
+        airports: [{ iataCode: "LIS", name: "Humberto Delgado Airport", lat: 38.7742, lng: -9.1342 }],
       },
       {
         kind: "airport",
         name: "Heathrow",
+        cityName: "London",
         iataCode: "LHR",
         lat: 51.47,
         lng: -0.4543,

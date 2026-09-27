@@ -14,6 +14,7 @@ export function SuggestField<T>({
   getKey,
   getLabel,
   getHint,
+  listId = "suggest-field-list",
 }: {
   label: string;
   value: string;
@@ -25,6 +26,7 @@ export function SuggestField<T>({
   getKey: (item: T) => string;
   getLabel: (item: T) => string;
   getHint?: (item: T) => string | undefined;
+  listId?: string;
 }) {
   return (
     <div className="relative">
@@ -37,7 +39,7 @@ export function SuggestField<T>({
           autoComplete="off"
           role="combobox"
           aria-expanded={suggestions.length > 0}
-          aria-controls="suggest-field-list"
+          aria-controls={listId}
           aria-autocomplete="list"
           className="h-14 w-full rounded-xl border border-[#b0b0b0] px-4 text-[16px] outline-none focus:border-ink"
         />
@@ -45,7 +47,7 @@ export function SuggestField<T>({
       {loading ? <p className="mt-2 text-[13px] text-muted">Searching…</p> : null}
       {suggestions.length > 0 ? (
         <ul
-          id="suggest-field-list"
+          id={listId}
           role="listbox"
           className="mt-2 max-h-56 overflow-auto rounded-xl border border-line bg-surface"
         >

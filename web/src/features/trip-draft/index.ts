@@ -7,7 +7,6 @@ export { ItineraryView } from "./components/itinerary-view";
 export { OnboardingEntry } from "./components/onboarding-entry";
 export { PlanPicker } from "./components/plan-picker";
 export { PlannerStudio } from "./components/planner-studio";
-export { ProfileScreen } from "./components/profile-screen";
 export { ProgressGraph } from "./components/progress-graph";
 export { StayListing } from "./components/stay-listing";
 export { TripSummary } from "./components/trip-summary";

@@ -87,6 +87,7 @@ export function MapLibreCanvas({
           ) : (
             <button
               type="button"
+              title={marker.title}
               onClick={() => onSelectMarker?.(marker.id)}
               className={
                 marker.selected

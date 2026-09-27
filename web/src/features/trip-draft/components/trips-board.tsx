@@ -4,17 +4,113 @@
  * Trips list inside the dashboard shell.
  * Shows all user trips from local storage, or an empty state if none exist.
  */
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { TripPeople } from "@/features/trip-draft/components/trip-people";
-import { tripListCards } from "@/features/trip-draft/dashboard-data";
+import { tripListCards, type TripListCard } from "@/features/trip-draft/dashboard-data";
 import { useTrip } from "@/features/trip-draft/trip-context";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+function TripCard({
+  card,
+  onSelect,
+  onDelete,
+}: {
+  card: TripListCard;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  return (
+    <Card className="gap-0 overflow-hidden rounded-[20px] border border-line py-0 shadow-[var(--shadow)]">
+      <div className="relative h-[132px]">
+        <Image src={card.image} alt="" fill sizes="360px" className="object-cover" />
+        <Badge className="absolute top-2.5 left-2.5 border-transparent bg-white/90 text-accent">
+          {card.stage}
+        </Badge>
+      </div>
+      <div className="px-4 pt-3.5 pb-4">
+        <h2 className="text-[15px] font-bold">{card.title}</h2>
+        <p className="mt-1 mb-3 text-[12.5px] text-muted">
+          {card.datesLabel}, {card.place}
+        </p>
+        <div className="flex items-center justify-between">
+          <TripPeople people={card.people} size="sm" />
+          <span className="text-[11.5px] font-semibold text-muted">{card.pending}</span>
+        </div>
+        <div className="mt-3.5 flex gap-2">
+          <Link
+            href="/studio"
+            onClick={() => onSelect(card.id)}
+            className={cn(
+              buttonVariants({ variant: "default" }),
+              "h-9 flex-1 rounded-[10px] bg-ink text-[13px] font-bold text-white hover:bg-[#302a22]",
+            )}
+          >
+            Studio
+          </Link>
+          <Link
+            href="/current"
+            onClick={() => onSelect(card.id)}
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "h-9 flex-1 rounded-[10px] text-[13px] font-bold",
+            )}
+          >
+            Summary
+          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={`Delete ${card.title}`}
+            className="size-9 rounded-[10px]"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      </div>
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this trip?</DialogTitle>
+            <DialogDescription>
+              {card.title} will be removed from your trips. This can&rsquo;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onDelete(card.id);
+                setConfirmOpen(false);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
 
 export function TripsBoard() {
   const trip = useTrip();
@@ -69,49 +165,12 @@ export function TripsBoard() {
         ) : (
           <div className="grid gap-[18px] sm:grid-cols-2 xl:grid-cols-3">
             {cards.map((card) => (
-              <Card
+              <TripCard
                 key={card.id}
-                className="gap-0 overflow-hidden rounded-[20px] border border-line py-0 shadow-[var(--shadow)]"
-              >
-                <div className="relative h-[132px]">
-                  <Image src={card.image} alt="" fill sizes="360px" className="object-cover" />
-                  <Badge className="absolute top-2.5 left-2.5 border-transparent bg-white/90 text-accent">
-                    {card.stage}
-                  </Badge>
-                </div>
-                <div className="px-4 pt-3.5 pb-4">
-                  <h2 className="text-[15px] font-bold">{card.title}</h2>
-                  <p className="mt-1 mb-3 text-[12.5px] text-muted">
-                    {card.datesLabel}, {card.place}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <TripPeople people={card.people} size="sm" />
-                    <span className="text-[11.5px] font-semibold text-muted">{card.pending}</span>
-                  </div>
-                  <div className="mt-3.5 flex gap-2">
-                    <Link
-                      href="/studio"
-                      onClick={() => trip.selectTrip(card.id)}
-                      className={cn(
-                        buttonVariants({ variant: "default" }),
-                        "h-9 flex-1 rounded-[10px] bg-ink text-[13px] font-bold text-white hover:bg-[#302a22]",
-                      )}
-                    >
-                      Studio
-                    </Link>
-                    <Link
-                      href="/current"
-                      onClick={() => trip.selectTrip(card.id)}
-                      className={cn(
-                        buttonVariants({ variant: "outline" }),
-                        "h-9 flex-1 rounded-[10px] text-[13px] font-bold",
-                      )}
-                    >
-                      Summary
-                    </Link>
-                  </div>
-                </div>
-              </Card>
+                card={card}
+                onSelect={trip.selectTrip}
+                onDelete={trip.deleteTrip}
+              />
             ))}
           </div>
         )}

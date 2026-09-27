@@ -37,9 +37,15 @@ describe("Duffel stays provider", () => {
       const headers = new Headers(init?.headers);
       expect(headers.get("Authorization")).toBe("Bearer duffel_test_abc");
       expect(headers.get("Duffel-Version")).toBe("v2");
-      const body = JSON.parse(String(init?.body)) as { data: { location: { radius: number }; guests: unknown[] } };
-      expect(body.data.location.radius).toBe(5);
+      const body = JSON.parse(String(init?.body)) as {
+        data: { location: { radius: number; geographic_coordinates: { latitude: number; longitude: number } }; guests: unknown[]; rooms: number };
+      };
+      expect(body.data.location).toEqual({
+        radius: 2,
+        geographic_coordinates: { latitude: -24.38, longitude: -128.32 },
+      });
       expect(body.data.guests).toHaveLength(2);
+      expect(body.data.rooms).toBe(1);
       return jsonResponse({
         data: {
           results: [
@@ -76,7 +82,9 @@ describe("Duffel stays provider", () => {
         reviewCount: 336,
         starRating: 4,
         nightlyAmount: 100,
+        totalAmount: 300,
         currency: "GBP",
+        amenities: ["Parking", "Wi-Fi"],
       },
     ]);
   });
