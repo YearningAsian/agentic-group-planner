@@ -663,12 +663,14 @@ function SummaryBody() {
                     <p className="text-[13px] font-bold">{liveStay.name}</p>
                     <p className="text-[13.5px] font-semibold">{liveStay.area}</p>
                     <p className="mt-1 text-[14px] font-semibold tabular-nums">
-                      {liveStay.nightlyAmount != null
-                        ? formatMoney(liveStay.nightlyAmount, liveStay.currency ?? "USD")
-                        : "Price unavailable"}
                       {liveStay.nightlyAmount != null ? (
-                        <span className="text-[12px] font-medium text-muted"> / night</span>
-                      ) : null}
+                        <>
+                          {formatMoney(liveStay.nightlyAmount, liveStay.currency ?? "USD")}
+                          <span className="text-[12px] font-medium text-muted"> / night</span>
+                        </>
+                      ) : (
+                        "Price unavailable"
+                      )}
                     </p>
                     <div className="mt-3 flex justify-end">
                       <MemberChoiceStrip
@@ -763,6 +765,9 @@ function SummaryBody() {
             members={joinedChoices}
             chosenFlight={liveFlight}
             chosenStay={liveStay}
+            tripId={null}
+            itemId={null}
+            optionId={null}
           />
         ) : null}
 

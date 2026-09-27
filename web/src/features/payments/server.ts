@@ -13,6 +13,7 @@ export { expireMandates } from "./server/expire-mandates";
 export { type FinalizeDeps, finalizeMandate } from "./server/finalize-mandate";
 export { handleStripeEvent, type StripeEventOutcome } from "./server/handle-stripe-event";
 export { onPlaceholderClaimed } from "./server/on-placeholder-claimed";
+export { openCheckoutMandate, type CheckoutHold, type OpenCheckoutMandate } from "./server/open-checkout-mandate";
 export { settleFrontedShare } from "./server/settle-fronted-share";
 
 // Stubs until the feature's owner builds them.

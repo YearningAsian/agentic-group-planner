@@ -102,6 +102,7 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
 describe("TripSummary live choices", () => {
   beforeEach(() => {
     currentState = state();
+    sessionStorage.clear();
     assignFlight.mockClear();
     assignStay.mockClear();
   });
@@ -164,6 +165,21 @@ describe("TripSummary live choices", () => {
     expect(checkout).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Confirm I'll pay" }));
     expect(checkout).toBeEnabled();
+  });
+
+  it("shows a hold as held or paid, and names who the group is waiting on", () => {
+    sessionStorage.setItem(
+      "group-buy-holds",
+      JSON.stringify([
+        { memberId: "a", name: "Ada", url: null, totalCents: 4800, currency: "USD", status: "authorized" },
+        { memberId: "b", name: "Bea", url: null, totalCents: 4800, currency: "USD", status: "captured" },
+        { memberId: "c", name: "Cam", url: null, totalCents: 4800, currency: "USD", status: "declined" },
+      ]),
+    );
+    render(<TripSummary />);
+    expect(screen.getByText("Held")).toBeInTheDocument();
+    expect(screen.getByText("Paid")).toBeInTheDocument();
+    expect(screen.getByText("Waiting on Cam")).toBeInTheDocument();
   });
 
   it("lets another joined person pick the same locked flight", async () => {

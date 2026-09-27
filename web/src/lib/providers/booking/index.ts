@@ -7,7 +7,7 @@ import { createDuffelStaysProvider } from "./stays-real";
 import type { BookingKind, BookingProvider } from "./types";
 
 export type * from "./types";
-export { MOCK_MERCHANT_NAME } from "./mock-merchant";
+export { bookingForMockMerchant, createMockMerchant, MOCK_HOTELS_NAME, MOCK_MERCHANT_NAME } from "./mock-merchant";
 export { approvalDeadline, bookingOptionId, MIN_RATE_LIFETIME_MS } from "./rate-selection";
 export { stayDates } from "./stay-dates";
 export { getStaysSearch, type StayOffer, type StaysSearch } from "./stays-search";
