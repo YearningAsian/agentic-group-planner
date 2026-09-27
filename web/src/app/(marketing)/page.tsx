@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
+import { EnvError } from "@/lib/env/error";
 import { getServerClient } from "@/lib/supabase/server";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -22,11 +23,21 @@ export const metadata: Metadata = {
     "An AI travel agent in your group chat that finds the options, builds the itinerary, and lets everyone approve and pay their own share.",
 };
 
+/** Session check for CTA copy. Missing public env (preview builds) → signed out. */
+async function readSignedIn(): Promise<boolean> {
+  try {
+    const client = await getServerClient();
+    const { data } = await client.auth.getUser();
+    return Boolean(data.user);
+  } catch (error) {
+    if (error instanceof EnvError) return false;
+    throw error;
+  }
+}
+
 /** Temporary public home until FE-S09 ships the full marketing page. */
 export default async function MarketingHomePage() {
-  const client = await getServerClient();
-  const { data } = await client.auth.getUser();
-  const signedIn = Boolean(data.user);
+  const signedIn = await readSignedIn();
 
   return (
     <main className={`${jakarta.variable} ${fraunces.variable} marketing-surface min-h-dvh px-5 py-16 antialiased`}>
