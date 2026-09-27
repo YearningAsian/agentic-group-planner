@@ -4,7 +4,7 @@ import { z } from "zod";
 import { quoteShares, type QuotedShare } from "@/features/trip-draft/group-share";
 import { getServerEnv } from "@/lib/env/server";
 import { AppError } from "@/lib/reliability";
-import { STRIPE_OPTIONS, STRIPE_POLICY } from "@/lib/providers/payments/stripe-config";
+import { STRIPE_OPTIONS, STRIPE_POLICY } from "@/lib/providers/payments";
 import { withPolicy } from "@/lib/reliability/with-policy";
 
 const memberSchema = z.object({

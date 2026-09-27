@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createGroupCheckout, readPaidSession } from "@/features/trip-draft/server/group-checkout";
+import { createGroupCheckout, readPaidSession } from "@/features/trip-draft/server";
 import { toHttpError } from "@/lib/reliability/app-error";
 
 export async function POST(request: Request): Promise<Response> {

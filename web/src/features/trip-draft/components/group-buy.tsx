@@ -56,15 +56,16 @@ export function GroupBuy({
   });
   const shares = quote.shares;
   const [confirmed, setConfirmed] = useState<Record<string, number>>({});
-  const [links, setLinks] = useState<StoredLink[]>([]);
-  const [paid, setPaid] = useState<string[]>([]);
+  const [links, setLinks] = useState<StoredLink[]>(() =>
+    typeof window === "undefined"
+      ? []
+      : readJson<StoredLink[]>(LINKS_KEY, []).filter((link) => typeof link?.url === "string"),
+  );
+  const [paid, setPaid] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : readJson<string[]>(PAID_KEY, []).filter((id) => typeof id === "string"),
+  );
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLinks(readJson<StoredLink[]>(LINKS_KEY, []).filter((link) => typeof link?.url === "string"));
-    setPaid(readJson<string[]>(PAID_KEY, []).filter((id) => typeof id === "string"));
-  }, []);
 
   useEffect(() => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
