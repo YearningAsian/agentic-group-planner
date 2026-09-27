@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
-import { PRODUCT_NAME } from "../copy";
+import { BrandLogo } from "@/components/brand-logo";
 import { cn } from "cn";
 
 const LINKS = [
@@ -42,16 +42,8 @@ export function LandingNav({ signedIn }: { signedIn: boolean }) {
       )}
     >
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-5 sm:h-16 sm:px-8">
-        <a href="#top" className="inline-flex min-h-11 items-center gap-2.5 font-semibold tracking-tight">
-          <span
-            className={cn(
-              "inline-flex size-8 items-center justify-center rounded-md text-sm font-bold",
-              solid || open ? "bg-ink text-paper" : "bg-paper/15 text-paper ring-1 ring-paper/30",
-            )}
-          >
-            G
-          </span>
-          <span className="text-[15px]">{PRODUCT_NAME}</span>
+        <a href="#top" className="inline-flex min-h-11 items-center">
+          <BrandLogo priority className="h-9 sm:h-10" />
         </a>
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">

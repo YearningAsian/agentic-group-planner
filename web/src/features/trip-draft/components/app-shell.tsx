@@ -9,10 +9,10 @@ import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, Briefcase, Home } from "lucide-react";
-import { AuthControls } from "@/features/auth";
 import { organizerProfile } from "@/features/trip-draft/dashboard-data";
 import { initials } from "@/features/trip-draft/format";
 import { useTrip } from "@/features/trip-draft/trip-context";
+import { BrandLogo } from "@/components/brand-logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,11 +59,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     >
       <Sidebar collapsible="offcanvas" className="border-sidebar-border">
         <SidebarHeader className="px-4 pt-5 pb-2">
-          <Link href="/home" className="flex items-center gap-2.5 px-2">
-            <span className="flex size-[30px] items-center justify-center rounded-md bg-ink text-[15px] font-semibold text-white">
-              G
-            </span>
-            <span className="text-[15px] font-bold tracking-tight text-ink">Group Trip Agent</span>
+          <Link href="/home" className="flex items-center px-2">
+            <BrandLogo className="h-10" />
           </Link>
         </SidebarHeader>
         <SidebarContent>
@@ -116,15 +113,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-[13.5px] font-bold text-ink">{profile.name}</p>
               <p className="truncate text-[12px] text-muted">{profile.handle}</p>
             </div>
-            <AuthControls className="ml-auto flex shrink-0 flex-col items-end gap-1.5" />
           </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-h-0 overflow-hidden bg-bg">
         <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2 md:hidden">
           <SidebarTrigger className="size-11" />
-          <span className="text-sm font-semibold text-ink">Group Trip Agent</span>
-          <AuthControls className="ml-auto flex items-center gap-1.5" />
+          <BrandLogo className="h-8" />
         </div>
         <div className={flush ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
           {children}

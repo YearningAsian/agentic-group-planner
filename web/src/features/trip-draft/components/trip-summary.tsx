@@ -7,7 +7,7 @@
  * Comments are local to this screen and start empty until someone posts.
  * TODO: replace the simulated join with live trip-view events.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -21,6 +21,7 @@ import {
 } from "@/features/trip-draft/fixtures";
 import { formatMoney, formatRange, initials, money } from "@/features/trip-draft/format";
 import { useTrip, type Member } from "@/features/trip-draft/trip-context";
+import { useItineraryShareLink } from "@/features/trip-draft/use-itinerary-share-link";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { GroupBuy } from "@/features/trip-draft/components/group-buy";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
@@ -148,12 +149,8 @@ function SummaryBody() {
     return { name: picked.name, price: picked.price, currency: "USD" };
   }
 
-  const origin = useSyncExternalStore(
-    () => () => {},
-    () => window.location.origin,
-    () => "",
-  );
-  const link = origin ? `${origin}/itinerary` : "https://grouptrip.app/join/demo";
+  const share = useItineraryShareLink();
+  const link = share.url;
 
   const [openedAt] = useState(() => Date.now());
   const [now, setNow] = useState(openedAt);
@@ -469,7 +466,9 @@ function SummaryBody() {
             })}
           </ul>
           <div className="mt-3.5 flex items-center gap-2.5 rounded-xl border border-dashed border-line-soft bg-bg-muted py-2.5 pr-2.5 pl-3.5">
-            <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-muted">{link}</span>
+            <Link href={`/i/${share.code}`} className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-muted hover:text-ink">
+              {link}
+            </Link>
             <button
               type="button"
               onClick={() => void copyLink()}

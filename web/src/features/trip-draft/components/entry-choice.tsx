@@ -2,6 +2,7 @@
 
 import { useContext } from "react";
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 import { TripContext } from "@/features/trip-draft/trip-context";
 
 const linkClass =
@@ -19,7 +20,7 @@ export function EntryChoice() {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-5 py-6">
-      <p className="text-[13px] font-semibold text-muted">Group Trip Agent</p>
+      <BrandLogo className="h-10" />
       <h1 className="font-display mt-2 text-[2.15rem] leading-[1.08] font-medium tracking-[-0.03em] text-balance">Start a new trip</h1>
       <p className="mt-2 text-[15px] text-muted">Answer a few questions, or just chat. Both open the live map.</p>
       <div className="mt-6 flex flex-col gap-3">

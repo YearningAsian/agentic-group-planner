@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRef } from "react";
+import { BrandLogo } from "@/components/brand-logo";
 import { HERO } from "../copy";
-import { ProductPreview } from "./product-preview";
 import { usePrefersReducedMotion } from "./reveal";
 
 export function LandingHero({ signedIn, demoMode }: { signedIn: boolean; demoMode: boolean }) {
@@ -45,11 +45,9 @@ export function LandingHero({ signedIn, demoMode }: { signedIn: boolean; demoMod
         aria-hidden
       />
 
-      <div className="relative mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-end px-5 pb-36 pt-28 sm:px-8 sm:pb-40 lg:justify-center lg:pb-24 lg:pt-24">
+      <div className="relative mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-center px-5 pb-16 pt-28 sm:px-8 lg:pb-24 lg:pt-24">
         <div className="max-w-xl">
-          <p className="font-display text-[1.35rem] font-medium tracking-tight text-paper/90 sm:text-[1.5rem]">
-            Group Trip Agent
-          </p>
+          <BrandLogo layout="lockup" priority className="h-28 sm:h-36" />
           <h1 className="font-display mt-3 text-[2.35rem] leading-[1.05] font-semibold tracking-[-0.03em] text-balance sm:text-[3.15rem]">
             {HERO.headline}
           </h1>
@@ -83,12 +81,6 @@ export function LandingHero({ signedIn, demoMode }: { signedIn: boolean; demoMod
               </>
             )}
           </div>
-        </div>
-      </div>
-
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-[28%] px-5 sm:px-8 lg:translate-y-[22%]">
-        <div className="mx-auto max-w-md lg:ml-auto lg:mr-8 lg:max-w-sm">
-          <ProductPreview />
         </div>
       </div>
     </section>

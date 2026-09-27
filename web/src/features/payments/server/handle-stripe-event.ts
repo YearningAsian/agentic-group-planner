@@ -6,7 +6,6 @@ import { finishWebhook, recordWebhook } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { holdFilter, holdForMetadata } from "../lib/hold";
 import { finalizeIfWon, isSatisfied } from "./approve-hold";
-import { captureCheckoutGroup } from "./capture-checkout-group";
 import { finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 
@@ -110,13 +109,11 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
  * After a hold is authorized, finish the purchase once every share can be captured. Decline leaves
  * the other holds in place and marks the mandate so the group is waiting on that member.
  * `finalizeMandate` is the only place that books and captures; its lease ignores a second delivery.
+ * A draft group checkout (group id, no mandate) stays authorized until the organizer captures it.
  */
 async function resumeIfReady(admin: AdminClient, event: PaymentsEvent): Promise<void> {
   const mandateId = event.metadata.mandate_id;
-  if (event.type === "payment_intent.amount_capturable_updated" && event.metadata.group_id && !mandateId && event.paymentIntentId) {
-    await captureCheckoutGroup(event.paymentIntentId);
-    return;
-  }
+  if (event.metadata.group_id && !mandateId) return;
   if (!mandateId) return;
   if (event.type === "payment_intent.payment_failed") {
     const declined = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandateId).eq("status", "open");

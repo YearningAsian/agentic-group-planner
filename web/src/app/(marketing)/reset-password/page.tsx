@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { PRODUCT_NAME } from "@/components/brand-logo";
 import { AuthShell, ResetPasswordForm } from "@/features/auth";
 
 export const metadata: Metadata = {
   title: "Set new password",
-  description: "Choose a new password for Group Trip Agent.",
+  description: `Choose a new password for ${PRODUCT_NAME}.`,
 };
 
 export default function ResetPasswordPage() {

@@ -1,6 +1,8 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import { z } from "zod";
+import { captureCheckoutGroup } from "@/features/payments/server/capture-checkout-group";
 import { type CheckoutHold, openCheckoutMandate } from "@/features/payments/server";
 import { quoteShares, type QuotedShare } from "@/features/trip-draft/group-share";
 import { getServerEnv } from "@/lib/env/server";
@@ -61,6 +63,7 @@ export type GroupCheckoutLink = {
   memberId: string;
   name: string;
   url: string | null;
+  sessionId: string | null;
   totalCents: number;
   currency: string;
   status: string;
@@ -81,6 +84,21 @@ function stripeClient(): Stripe {
   const secret = getServerEnv().STRIPE_SECRET_KEY;
   if (!secret) throw new AppError("provider_unavailable", "Stripe isn't configured for checkout.");
   return new Stripe(secret, STRIPE_OPTIONS);
+}
+
+/** Node rejects non-ASCII Idempotency-Key bytes. Flight labels include "·" and "→". */
+function draftIdempotencyKey(share: QuotedShare): string {
+  const raw = `group-hold:v4:${share.memberId}:${share.totalCents}:${share.flightLabel}:${share.stayLabel}`;
+  return raw.replace(/[^\t\x20-\x7E]/g, "-").slice(0, 255);
+}
+
+/** Same quote must send the same Checkout parameters, or Stripe rejects the idempotency key. */
+function stableGroupKey(shares: QuotedShare[]): string {
+  const raw = shares
+    .map((share) => `${share.memberId}:${share.totalCents}:${share.flightLabel}:${share.stayLabel}`)
+    .sort()
+    .join("|");
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 function integrationIdentifier(): string {
@@ -144,8 +162,9 @@ async function createDraftCheckout(
   if (!quote.ok) throw new AppError("invalid_input", quote.message);
   const stripe = deps.stripe ?? stripeClient();
   const appUrl = (deps.appUrl ?? getServerEnv().NEXT_PUBLIC_APP_URL).replace(/\/$/, "");
-  const integration = integrationIdentifier();
-  const groupId = crypto.randomUUID();
+  const groupKey = stableGroupKey(quote.shares);
+  const groupId = groupKey.slice(0, 32);
+  const integration = `group-buy-${groupKey.slice(32, 40)}`;
   const created = await Promise.all(
     quote.shares.map((share) =>
       openDraftSession(stripe, groupId, quote.shares.length, share, appUrl, integration),
@@ -176,6 +195,7 @@ async function createDraftCheckout(
         memberId: share.memberId,
         name: share.name,
         url: session.url,
+        sessionId: session.id,
         totalCents: share.totalCents,
         currency: quote.currency,
         status: "pending",
@@ -192,8 +212,7 @@ async function openDraftSession(
   appUrl: string,
   integrationIdentifier: string,
 ): Promise<Stripe.Checkout.Session> {
-  // v2 so a retry does not reuse a Checkout Session created before holds existed.
-  const idempotencyKey = `group-hold:v2:${share.memberId}:${share.totalCents}:${share.flightLabel}:${share.stayLabel}`.slice(0, 255);
+  const idempotencyKey = draftIdempotencyKey(share);
   return stripeCall(() =>
     stripe.checkout.sessions.create(
       {
@@ -247,7 +266,7 @@ async function openSession(
   integrationIdentifier: string,
 ): Promise<GroupCheckoutLink> {
   if (hold.status !== "pending") {
-    return { memberId: hold.memberId, name: hold.name, url: null, totalCents: hold.capCents, currency, status: hold.status };
+    return { memberId: hold.memberId, name: hold.name, url: null, sessionId: null, totalCents: hold.capCents, currency, status: hold.status };
   }
   const idempotencyKey = `group-checkout:${mandateId}:${hold.memberId}`.slice(0, 255);
   const session = await stripeCall(() =>
@@ -294,10 +313,22 @@ async function openSession(
     memberId: hold.memberId,
     name: hold.name,
     url: session.url,
+    sessionId: session.id,
     totalCents: hold.capCents,
     currency,
     status: "pending",
   };
+}
+
+/** Captures a draft group's held cards once every traveler has authorized. */
+export async function captureHeldGroup(sessionId: string, deps: { stripe?: Stripe } = {}): Promise<"captured" | "waiting"> {
+  if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) throw new AppError("invalid_input", "That checkout session is invalid.");
+  const stripe = deps.stripe ?? stripeClient();
+  const session = await stripeCall(() => stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] }));
+  const paymentIntent = session.payment_intent;
+  const paymentIntentId = typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
+  if (!paymentIntentId) return "waiting";
+  return captureCheckoutGroup(paymentIntentId, stripe);
 }
 
 export async function readPaidSession(sessionId: string, deps: { stripe?: Stripe } = {}): Promise<PaidSession> {

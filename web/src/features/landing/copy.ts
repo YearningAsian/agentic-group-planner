@@ -3,7 +3,7 @@
  * Advertise only features that ship today; money copy is "Agent proposed · You approve".
  */
 
-export const PRODUCT_NAME = "Group Trip Agent";
+export { PRODUCT_NAME } from "@/components/brand-logo";
 
 export const HERO = {
   headline: "Plan it together. Pay your part.",

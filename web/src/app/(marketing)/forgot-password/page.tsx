@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { PRODUCT_NAME } from "@/components/brand-logo";
 import { AuthShell, AuthSwitchLink, ForgotPasswordForm } from "@/features/auth";
 
 export const metadata: Metadata = {
   title: "Forgot password",
-  description: "Reset your Group Trip Agent password.",
+  description: `Reset your ${PRODUCT_NAME} password.`,
 };
 
 export default function ForgotPasswordPage() {

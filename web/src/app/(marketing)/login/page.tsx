@@ -6,11 +6,12 @@ import {
   LoginForm,
 } from "@/features/auth";
 import { InstantLoginCards } from "@/features/demo";
+import { PRODUCT_NAME } from "@/components/brand-logo";
 import { safeNextPath } from "@/lib/supabase/auth-routes";
 
 export const metadata: Metadata = {
   title: "Log in",
-  description: "Log in to Group Trip Agent to plan with your group.",
+  description: `Log in to ${PRODUCT_NAME} to plan with your group.`,
 };
 
 type PageProps = {

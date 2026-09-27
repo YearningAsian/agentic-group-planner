@@ -6,6 +6,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandLogo } from "@/components/brand-logo";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -460,7 +461,7 @@ export function OnboardingFlow() {
       {handingOff ? (
         <div className="rise fixed inset-0 z-40 flex items-center justify-center bg-white px-6">
           <div className="max-w-sm text-center">
-            <p className="text-[13px] font-semibold text-muted">Group Trip Agent</p>
+            <BrandLogo className="mx-auto h-10" />
             <h2 className="mt-2 text-[28px] font-semibold tracking-tight">
               Opening the map{destination?.label || state.destinationLabel ? ` for ${destination?.label || state.destinationLabel}` : ""}…
             </h2>

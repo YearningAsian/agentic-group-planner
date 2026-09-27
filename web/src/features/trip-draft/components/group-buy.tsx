@@ -12,6 +12,7 @@ type StoredLink = {
   memberId: string;
   name?: string;
   url: string | null;
+  sessionId?: string | null;
   totalCents: number;
   currency?: string;
   status?: string;
@@ -21,6 +22,12 @@ type Choice = { member: Member; index: number };
 
 function centsLabel(cents: number, currency: string): string {
   return formatMoney(cents / 100, currency, cents % 100 === 0 ? 0 : 2);
+}
+
+function sessionIdOf(link: StoredLink): string | null {
+  if (typeof link.sessionId === "string" && /^cs_[A-Za-z0-9_]+$/.test(link.sessionId)) return link.sessionId;
+  const match = link.url?.match(/cs_[A-Za-z0-9_]+/);
+  return match?.[0] ?? null;
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -71,6 +78,7 @@ export function GroupBuy({
   const [links, setLinks] = useState<StoredLink[]>([]);
   const [restored, setRestored] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [charging, setCharging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!restored && typeof window !== "undefined") {
     setRestored(true);
@@ -100,8 +108,61 @@ export function GroupBuy({
     };
   }, []);
 
+  const sessionKey = links
+    .map((link) => sessionIdOf(link))
+    .filter((id): id is string => id !== null)
+    .join(",");
+
+  const watchingHolds = links.some((link) => {
+    const sessionId = sessionIdOf(link);
+    return sessionId && link.status !== "captured" && link.status !== "declined" && link.status !== "failed";
+  });
+
+  useEffect(() => {
+    if (!sessionKey || !watchingHolds) return;
+    let cancelled = false;
+    async function refresh() {
+      const updates = await Promise.all(
+        sessionKey.split(",").map(async (sessionId) => {
+          try {
+            const response = await fetch(`/api/group-checkout?session_id=${encodeURIComponent(sessionId)}`);
+            if (!response.ok) return null;
+            return (await response.json()) as { state?: "paid" | "authorized" | "open"; memberId?: string | null };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setLinks((current) => {
+        let changed = false;
+        const next = current.map((link) => {
+          const hit = updates.find((item) => item?.memberId && item.memberId === link.memberId);
+          if (!hit || (hit.state !== "paid" && hit.state !== "authorized")) return link;
+          const status = hit.state === "paid" ? "captured" : "authorized";
+          if (link.status === status) return link;
+          changed = true;
+          return { ...link, status };
+        });
+        if (!changed) return current;
+        sessionStorage.setItem(LINKS_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionKey, watchingHolds]);
+
   const allConfirmed = quote.ok && shares.every((share) => confirmed[share.memberId] === share.totalCents);
   const activeLinks = links.filter((link) => shares.some((share) => share.memberId === link.memberId && share.totalCents === link.totalCents));
+  const readyToCharge =
+    activeLinks.length > 0 &&
+    activeLinks.every((link) => link.status === "authorized" || link.status === "captured") &&
+    activeLinks.some((link) => link.status === "authorized" && sessionIdOf(link));
 
   async function startCheckout() {
     if (!quote.ok || !allConfirmed) return;
@@ -140,11 +201,40 @@ export function GroupBuy({
     }
   }
 
+  async function chargeGroup() {
+    const held = activeLinks.find((link) => link.status === "authorized" && sessionIdOf(link));
+    const sessionId = held ? sessionIdOf(held) : null;
+    if (!sessionId) return;
+    setCharging(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/group-checkout/capture", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      const body = (await response.json()) as { state?: "captured" | "waiting"; error?: { message?: string } };
+      if (!response.ok || body.state !== "captured") {
+        setError(body.error?.message ?? "The group is still waiting on a hold.");
+        return;
+      }
+      setLinks((current) => {
+        const next = current.map((link) => (link.status === "authorized" ? { ...link, status: "captured" } : link));
+        sessionStorage.setItem(LINKS_KEY, JSON.stringify(next));
+        return next;
+      });
+    } catch {
+      setError("The group charge didn't go through.");
+    } finally {
+      setCharging(false);
+    }
+  }
+
   return (
     <section className="mb-4 rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: "var(--shadow)" }}>
       <div className="mb-3.5 flex items-baseline justify-between gap-3">
         <h2 className="text-[15px] font-bold">Group buy</h2>
-        <span className="text-[12px] text-ink-faint">Authorized now. Charged only when everyone pays</span>
+        <span className="text-[12px] text-ink-faint">Cards stay held until you checkout for the group</span>
       </div>
       {links.length > 0 ? (
         <ul className="flex flex-col gap-2.5">
@@ -174,15 +264,29 @@ export function GroupBuy({
       {quote.ok ? (
         <div className="mt-3.5 flex items-center justify-between gap-3">
           <p className="text-[14px] font-bold tabular-nums">Group total {centsLabel(quote.totalCents, quote.currency)}</p>
-          <button
-            type="button"
-            disabled={!allConfirmed || opening}
-            onClick={() => void startCheckout()}
-            className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {opening ? "Opening checkout…" : "Checkout"}
-          </button>
+          {readyToCharge ? (
+            <button
+              type="button"
+              disabled={charging}
+              onClick={() => void chargeGroup()}
+              className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {charging ? "Charging the group…" : "Checkout for the group"}
+            </button>
+          ) : links.length === 0 ? (
+            <button
+              type="button"
+              disabled={!allConfirmed || opening}
+              onClick={() => void startCheckout()}
+              className="h-11 shrink-0 rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {opening ? "Opening checkout…" : "Checkout"}
+            </button>
+          ) : null}
         </div>
+      ) : null}
+      {readyToCharge ? (
+        <p className="mt-2 text-[12.5px] text-ink-faint">Everyone's card is held. Checkout moves that money to Stripe.</p>
       ) : null}
       {quote.ok && !allConfirmed ? (
         <p className="mt-2 text-[12.5px] text-ink-faint">Everyone confirms their share, then the organizer can open checkout.</p>

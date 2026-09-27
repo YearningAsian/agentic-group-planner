@@ -26,6 +26,7 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/auth/callback")).toBe(true);
     expect(isPublicPath("/auth/confirm")).toBe(true);
     expect(isPublicPath("/join/token")).toBe(true);
+    expect(isPublicPath("/i/k7m2qx")).toBe(true);
     expect(isPublicPath("/api/health")).toBe(true);
     expect(isPublicPath("/trips")).toBe(false);
     expect(isPublicPath("/home")).toBe(false);

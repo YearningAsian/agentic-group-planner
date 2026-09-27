@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { AuthShell, AuthSwitchLink, SignUpForm } from "@/features/auth";
+import { PRODUCT_NAME } from "@/components/brand-logo";
 import { safeNextPath } from "@/lib/supabase/auth-routes";
 
 export const metadata: Metadata = {
   title: "Create account",
-  description: "Create a Group Trip Agent account to plan trips with your group.",
+  description: `Create a ${PRODUCT_NAME} account to plan trips with your group.`,
 };
 
 type PageProps = {

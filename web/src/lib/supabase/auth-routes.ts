@@ -24,7 +24,7 @@ const PUBLIC_EXACT = new Set([
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true;
   // Prefixes are split so routes.test.ts doesn't treat them as dead internal links.
-  const publicPrefixes = ["auth", "join", "invite", "api"] as const;
+  const publicPrefixes = ["auth", "join", "invite", "api", "i"] as const;
   return publicPrefixes.some((segment) => pathname.startsWith("/" + segment + "/"));
 }
 

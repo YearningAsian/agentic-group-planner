@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
+import { BrandLogo } from "@/components/brand-logo";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -36,9 +37,8 @@ export function AuthShell({ title, subtitle, children, sideImage, footer }: Auth
       />
       <div className="mx-auto grid min-h-dvh w-full md:grid-cols-[minmax(0,26rem)_1fr] lg:grid-cols-[26rem_1fr]">
         <main className="flex flex-col justify-center px-5 py-10 sm:px-8 md:max-w-[26rem]">
-          <Link href="/" className="mb-10 inline-flex w-fit flex-col gap-1 text-ink">
-            <span className="font-display text-[1.35rem] font-semibold tracking-tight">Group Trip Agent</span>
-            <span className="text-[12px] font-medium text-muted">Plan it together. Pay your part.</span>
+          <Link href="/" className="mb-10 inline-flex w-fit">
+            <BrandLogo layout="lockup" priority className="h-28" />
           </Link>
           <h1 className="font-display text-[1.85rem] font-semibold tracking-tight text-ink text-balance sm:text-[2.05rem]">
             {title}

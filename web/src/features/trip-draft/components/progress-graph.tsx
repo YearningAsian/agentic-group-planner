@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { destinationById, findFlight, findStay } from "@/features/trip-draft/fixtures";
 import { formatRange, initials, money, nightsBetween } from "@/features/trip-draft/format";
 import { useTrip, type Member } from "@/features/trip-draft/trip-context";
+import { useItineraryShareLink } from "@/features/trip-draft/use-itinerary-share-link";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
 import { ScreenHeader } from "@/features/trip-draft/components/chrome";
 import { cn } from "@/lib/utils";
@@ -16,12 +17,8 @@ export function ProgressGraph() {
   const router = useRouter();
   const trip = useTrip();
   const { state } = trip;
-  const origin = useSyncExternalStore(
-    () => () => {},
-    () => window.location.origin,
-    () => "",
-  );
-  const link = origin ? `${origin}/itinerary` : "https://grouptrip.app/join/demo";
+  const share = useItineraryShareLink();
+  const link = share.url;
   const [copied, setCopied] = useState(false);
 
   const destination = destinationById(state.destinationId);
@@ -202,7 +199,7 @@ export function ProgressGraph() {
                         onShare={() => void shareLink()}
                         onItinerary={() => {
                           trip.markInviteShared();
-                          router.push("/itinerary");
+                          router.push(`/i/${share.code}`);
                         }}
                       />
                     ) : null}

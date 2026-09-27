@@ -74,6 +74,8 @@ export type TripState = {
   inviteShared: boolean;
   didSimulateJoin: boolean;
   justJoinedName: string | null;
+  /** Short code for the summary share link. Set the first time a summary is shown. */
+  shareCode?: string | null;
 };
 
 export type { TripRecord, TripsDatabase };
@@ -121,6 +123,7 @@ function initialState(): TripState {
     inviteShared: false,
     didSimulateJoin: false,
     justJoinedName: null,
+    shareCode: null,
   };
 }
 
@@ -612,6 +615,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       },
       markInviteShared() {
         commit((current) => ({ ...current, inviteShared: true }));
+      },
+      setShareCode(code: string) {
+        commit((current) => (current.shareCode ? current : { ...current, shareCode: code }));
       },
       markFirstPendingJoined() {
         commit((current) => {

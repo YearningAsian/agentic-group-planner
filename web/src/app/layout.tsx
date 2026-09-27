@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { PRODUCT_NAME } from "@/components/brand-logo";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -10,7 +11,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Group Trip Agent", template: "%s · Group Trip Agent" },
+  title: { default: PRODUCT_NAME, template: `%s · ${PRODUCT_NAME}` },
   description:
     "Questions, a flight, a stay, then a link for the people who haven't joined yet.",
 };

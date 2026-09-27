@@ -95,6 +95,7 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
       assignStay,
       markInviteShared: vi.fn(),
       markFirstPendingJoined: vi.fn(),
+      setShareCode: vi.fn(),
     }),
   };
 });
@@ -180,6 +181,47 @@ describe("TripSummary live choices", () => {
     expect(screen.getByText("Held")).toBeInTheDocument();
     expect(screen.getByText("Paid")).toBeInTheDocument();
     expect(screen.getByText("Waiting on Cam")).toBeInTheDocument();
+  });
+
+  it("charges the group once every card is held", async () => {
+    const user = userEvent.setup();
+    currentState = state({ chosenStay: { ...chosenStay, currency: "USD" } });
+    sessionStorage.setItem(
+      "group-buy-holds",
+      JSON.stringify([
+        {
+          memberId: "p1",
+          name: "Person 1",
+          url: "https://checkout.stripe.test/pay/cs_test_held",
+          sessionId: "cs_test_held",
+          totalCents: 103000,
+          currency: "USD",
+          status: "authorized",
+        },
+      ]),
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/group-checkout/capture")) {
+        return { ok: true, json: async () => ({ state: "captured" }) };
+      }
+      return { ok: true, json: async () => ({ state: "authorized", memberId: "p1" }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<TripSummary />);
+      await user.click(screen.getByRole("button", { name: "Checkout for the group" }));
+      expect(await screen.findByText("Paid")).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/group-checkout/capture",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ sessionId: "cs_test_held" }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("lets another joined person pick the same locked flight", async () => {

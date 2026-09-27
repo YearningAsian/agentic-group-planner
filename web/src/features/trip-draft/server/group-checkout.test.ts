@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openCheckoutMandate } from "@/features/payments/server";
 import { AppError } from "@/lib/reliability";
-import { createGroupCheckout, readPaidSession } from "./group-checkout";
+import { captureHeldGroup, createGroupCheckout, readPaidSession } from "./group-checkout";
 
 vi.mock("@/features/payments/server", () => ({
   openCheckoutMandate: vi.fn(),
@@ -166,5 +166,29 @@ describe("readPaidSession", () => {
       metadata: { member_id: memberId },
     });
     await expect(readPaidSession("cs_test_paid", { stripe: stripe as never })).resolves.toEqual({ state: "paid", memberId });
+  });
+});
+
+describe("captureHeldGroup", () => {
+  it("captures every held card once the organizer checks out for the group", async () => {
+    const capture = vi.fn(async () => ({}));
+    const session = (id: string, paymentIntentId: string) => ({
+      id,
+      status: "complete",
+      payment_intent: { id: paymentIntentId, status: "requires_capture", capture_method: "manual" },
+      metadata: { group_id: "group-1", peer_session_ids: "cs_test_a,cs_test_b", member_id: id },
+    });
+    const stripe = {
+      checkout: {
+        sessions: {
+          retrieve: async (id: string) => session(id, id === "cs_test_a" ? "pi_a" : "pi_b"),
+          list: async () => ({ data: [session("cs_test_a", "pi_a")] }),
+        },
+      },
+      paymentIntents: { capture },
+    };
+
+    await expect(captureHeldGroup("cs_test_a", { stripe: stripe as never })).resolves.toBe("captured");
+    expect(capture.mock.calls.map((call) => call[0])).toEqual(["pi_a", "pi_b"]);
   });
 });

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { FINAL_CTA, PRODUCT_NAME } from "../copy";
+import { BrandLogo } from "@/components/brand-logo";
+import { FINAL_CTA } from "../copy";
 import { Reveal } from "./reveal";
 
 export function FinalCta({ signedIn }: { signedIn: boolean }) {
@@ -33,7 +34,7 @@ export function LandingFooter() {
   return (
     <footer className="border-t border-line bg-sand px-5 py-10 sm:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-semibold text-ink">{PRODUCT_NAME}</p>
+        <BrandLogo className="h-10" />
         <p className="text-sm text-muted">
           <a
             href="https://github.com/YearningAsian/agentic-group-planner"
