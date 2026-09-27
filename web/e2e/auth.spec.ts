@@ -55,9 +55,12 @@ test.describe("auth pages", () => {
     await page.getByRole("textbox", { name: "Email" }).fill(`e2e-${Date.now()}@example.com`);
     await page.locator('input[name="password"]').fill("longenough1");
     await page.getByRole("button", { name: "Create account" }).click();
-    await expect(
-      page.getByRole("heading", { name: /Check your email|Trips/i }).or(page.getByText(/trips/i).first()),
-    ).toBeVisible({ timeout: 20_000 });
+    // Confirmation-on: check-email panel. Confirmation-off: trips home.
+    await expect(async () => {
+      const checkEmail = await page.getByRole("heading", { name: "Check your email" }).isVisible();
+      const onTrips = /\/(trips|home)/.test(page.url());
+      expect(checkEmail || onTrips).toBe(true);
+    }).toPass({ timeout: 20_000 });
   });
 
   for (const path of ["/login", "/signup"] as const) {
