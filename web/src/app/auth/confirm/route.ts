@@ -1,11 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerClient } from "@/lib/supabase/server";
 
-// `/` sends a signed-in member on to their trips (design §8.1), so it's a safe landing for any link.
-const DEFAULT_NEXT = "/";
-// Design §2.4 sends a failed link to `/login?error=link`. Until the login page exists, `/` takes it,
-// so no redirect points at a missing page (src/app/routes.test.ts). The login page (VO-106) switches it.
-const FAILED_LINK = "/?error=link";
+const DEFAULT_NEXT = "/trips";
+const FAILED_LINK = "/login?error=link";
 
 /**
  * The same-origin URL for `next`, or null for anything that could leave the site. Resolving it

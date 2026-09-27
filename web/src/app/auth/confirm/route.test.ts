@@ -39,17 +39,17 @@ describe("GET /auth/confirm", () => {
     // A used or expired link: Supabase rejects the hash.
     verifyOtp.mockResolvedValue({ data: { user: null, session: null }, error: { message: "Email link is invalid or has expired" } });
     const used = await confirm({ token_hash: "hash-1", type: "email", next: "/trips" });
-    expect(location(used).href).toBe(`${ORIGIN}/?error=link`);
+    expect(location(used).href).toBe(`${ORIGIN}/login?error=link`);
 
     // A link with no hash, or another OTP type, never reaches Supabase.
     verifyOtp.mockClear();
-    expect(location(await confirm({ type: "email", next: "/trips" })).href).toBe(`${ORIGIN}/?error=link`);
-    expect(location(await confirm({ token_hash: "hash-2", type: "recovery" })).href).toBe(`${ORIGIN}/?error=link`);
+    expect(location(await confirm({ type: "email", next: "/trips" })).href).toBe(`${ORIGIN}/login?error=link`);
+    expect(location(await confirm({ token_hash: "hash-2", type: "recovery" })).href).toBe(`${ORIGIN}/login?error=link`);
     expect(verifyOtp).not.toHaveBeenCalled();
 
     // A thrown client error is a bad link too, not a 500.
     verifyOtp.mockRejectedValue(new TypeError("fetch failed"));
-    expect(location(await confirm({ token_hash: "hash-3", type: "email" })).href).toBe(`${ORIGIN}/?error=link`);
+    expect(location(await confirm({ token_hash: "hash-3", type: "email" })).href).toBe(`${ORIGIN}/login?error=link`);
   });
 
   it("/auth/confirm ignores a next that isn't a same-origin path", async () => {
@@ -67,7 +67,7 @@ describe("GET /auth/confirm", () => {
     for (const next of offOrigin) {
       const target = location(await confirm({ token_hash: "hash-1", type: "email", next }));
       expect(target.origin, next).toBe(ORIGIN);
-      expect(target.pathname, next).toBe("/");
+      expect(target.pathname, next).toBe("/trips");
     }
 
     // A same-origin path keeps its query, such as an invite page or a filtered lane view.

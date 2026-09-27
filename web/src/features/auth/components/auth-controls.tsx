@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { DemoLoginPicker } from "@/features/demo";
-import { signOut } from "@/features/auth/server/sign-out";
-import { sessionLabel } from "@/features/auth/session-label";
+import { signOut } from "../server/sign-out";
+import { sessionLabel } from "../session-label";
 import { getBrowserClient } from "@/lib/supabase/browser";
 
 /** Person switcher, and sign-out once a Supabase session exists. */

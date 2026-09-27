@@ -70,6 +70,36 @@ describe("demoSignInSeeded", () => {
     });
   });
 
+  it("says the demo data isn't loaded when an older Supabase sends only the message, no code", async () => {
+    signInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { status: 400, message: "Invalid login credentials" },
+    });
+    await expect(demoSignInSeeded("person1")).resolves.toMatchObject({ ok: false, reason: "not_seeded" });
+  });
+
+  it("names the missing DEMO_SEED_SECRET instead of calling Supabase", async () => {
+    env.DEMO_SEED_SECRET = undefined;
+    await expect(demoSignInSeeded("person1")).resolves.toEqual({
+      ok: false,
+      reason: "disabled",
+      message: "Demo logins need DEMO_SEED_SECRET on the server.",
+    });
+    expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("says to wait when Supabase rate-limits sign-ins", async () => {
+    signInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { code: "over_request_rate_limit", status: 429, message: "Request rate limit reached" },
+    });
+    await expect(demoSignInSeeded("person2")).resolves.toEqual({
+      ok: false,
+      reason: "rate_limited",
+      message: "Too many sign-ins just now. Wait a minute and try again.",
+    });
+  });
+
   it("any other failure is a retryable message, never the raw Supabase error", async () => {
     signInWithPassword.mockResolvedValue({ data: { user: null, session: null }, error: { status: 500, message: "db down" } });
     const result = await demoSignInSeeded("person1");

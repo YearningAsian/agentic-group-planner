@@ -68,6 +68,16 @@
 
   /* Controls: 8 px. */
   --radius: 0.5rem;
+
+  /* Marketing / auth surfaces (design §11.10). Coral is CTA-only; lagoon-ink for links on paper. */
+  --ink: #0b1b2b;
+  --lagoon: #0fa3a3;
+  --lagoon-ink: #0a7a7a;
+  --coral: #ff7a59;
+  --sky: #7cc4f5;
+  --sand: #f6efe6;
+  --paper: #ffffff;
+  --mist: #eef3f6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -87,7 +97,27 @@
     --focus: #80b5f0;
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.4);
+
+    --ink: #e8eef4;
+    --lagoon: #3ecfcf;
+    --lagoon-ink: #7adede;
+    --coral: #ff8f73;
+    --sky: #9ad4f8;
+    --sand: #2a2620;
+    --paper: #1b1e1c;
+    --mist: #262a27;
   }
+}
+
+[data-theme="dark"] {
+  --ink: #e8eef4;
+  --lagoon: #3ecfcf;
+  --lagoon-ink: #7adede;
+  --coral: #ff8f73;
+  --sky: #9ad4f8;
+  --sand: #2a2620;
+  --paper: #1b1e1c;
+  --mist: #262a27;
 }
 
 @theme inline {
@@ -112,6 +142,13 @@
   /* Trip-draft palette. Values are set on `.trip-draft` so they don't replace the app tokens. */
   --color-ink: var(--ink);
   --color-ink-faint: var(--ink-faint);
+  --color-lagoon: var(--lagoon);
+  --color-lagoon-ink: var(--lagoon-ink);
+  --color-coral: var(--coral);
+  --color-sky: var(--sky);
+  --color-sand: var(--sand);
+  --color-paper: var(--paper);
+  --color-mist: var(--mist);
   --color-bg-muted: var(--bg-muted);
   --color-surface-sunken: var(--surface-sunken);
   --color-line: var(--line);
@@ -407,4 +444,42 @@
 .mapboxgl-ctrl-logo,
 .mapboxgl-ctrl-attrib {
   font-size: 11px !important;
+}
+
+/* Public marketing and auth pages: bright paper surface using the §11.10 tokens. */
+.marketing-surface {
+  --bg: var(--sand);
+  --surface: var(--paper);
+  --text: var(--ink);
+  --text-muted: #5b6878;
+  --border: #d5dee6;
+  --background: var(--sand);
+  --foreground: var(--ink);
+  /* Match trip-draft: `text-muted` is secondary copy, not a surface. */
+  --muted: #5b6878;
+  --muted-foreground: #5b6878;
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --primary: var(--lagoon);
+  --primary-foreground: var(--paper);
+  --ring: var(--lagoon);
+  --ink-faint: #8a97a5;
+  --line: #d5dee6;
+  --line-soft: #e4ebf0;
+  --bg-muted: var(--mist);
+  background-color: var(--sand);
+  color: var(--ink);
+  font-family: var(--font-jakarta), "Nunito Sans", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .marketing-surface {
+    --text-muted: #a8b4c0;
+    --muted: #a8b4c0;
+    --muted-foreground: #a8b4c0;
+    --border: #363b37;
+    --line: #363b37;
+    --line-soft: #2e3330;
+    --ink-faint: #8a97a5;
+  }
 }

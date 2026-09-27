@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { demoSignInSeeded } from "@/features/demo/server/demo-sign-in";
+import { demoSignInSeeded } from "../server/demo-sign-in";
 
 const PEOPLE = ["person1", "person2", "person3"] as const;
 

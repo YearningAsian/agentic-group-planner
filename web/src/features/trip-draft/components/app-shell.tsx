@@ -32,13 +32,13 @@ import {
 } from "@/components/ui/sidebar";
 
 const NAV = [
-  { href: "/", id: "home", label: "Home", icon: Home },
+  { href: "/home", id: "home", label: "Home", icon: Home },
   { href: "/current", id: "current", label: "Current trip", icon: Activity },
   { href: "/trips", id: "trips", label: "Trips", icon: Briefcase },
 ] as const;
 
 function activeNav(pathname: string) {
-  if (pathname === "/") return "home";
+  if (pathname === "/home") return "home";
   if (pathname.startsWith("/current")) return "current";
   if (pathname.startsWith("/trips") || pathname.startsWith("/studio")) return "trips";
   return null;
@@ -59,7 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     >
       <Sidebar collapsible="offcanvas" className="border-sidebar-border">
         <SidebarHeader className="px-4 pt-5 pb-2">
-          <Link href="/" className="flex items-center gap-2.5 px-2">
+          <Link href="/home" className="flex items-center gap-2.5 px-2">
             <span className="flex size-[30px] items-center justify-center rounded-md bg-ink text-[15px] font-semibold text-white">
               G
             </span>

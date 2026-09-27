@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <!--
-      Sign-up confirmation (ADR 0023). The sign-up action sets emailRedirectTo to
-      <app origin>/auth/callback?next=<path>, so .RedirectTo already carries a query string and the
-      token hash is appended to it. /auth/callback verifies the hash on the server, sets the session
-      cookie, and sends the member on to next (same-origin paths only).
+      Sign-up confirmation (ADR 0023). The link is built from the Site URL, not RedirectTo, because
+      Supabase swaps a redirect it doesn't allow (or a missing one) for the bare Site URL, and
+      appending a query to that yields an invalid link. /auth/callback verifies the hash on the
+      server, sets the session cookie, and opens the trips home.
     -->
   </head>
   <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#0b1b2b;background:#eef3f6;">
@@ -19,7 +19,7 @@
           </p>
           <p style="margin:0 0 20px;">
             <a
-              href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email"
+              href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email"
               style="display:inline-block;min-height:44px;padding:12px 20px;box-sizing:border-box;border-radius:999px;background:#0b1b2b;color:#ffffff;font-size:16px;text-decoration:none;"
               >Confirm email</a
             >
