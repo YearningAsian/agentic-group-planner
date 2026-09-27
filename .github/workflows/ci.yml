@@ -36,7 +36,36 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
 
-  optimizer:
+  e2e:
+    name: playwright auth
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start local Supabase
+        run: pnpm exec supabase start >/dev/null 2>&1
+      - name: Configure web env for e2e
+        run: pnpm exec supabase status -o json | node scripts/ci/write-local-supabase-env.mjs
+      - name: Seed demo users
+        working-directory: web
+        run: pnpm seed:demo
+        env:
+          NEXT_PUBLIC_DEMO_MODE: "true"
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run auth e2e
+        working-directory: web
+        run: pnpm e2e -- e2e/auth.spec.ts
+        env:
+          NEXT_PUBLIC_DEMO_MODE: "true"
+          ALLOW_DEMO_LOGIN: "false"
     runs-on: ubuntu-latest
     defaults:
       run:

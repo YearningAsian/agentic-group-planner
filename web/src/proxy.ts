@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { resolveAuthGate } from "@/lib/supabase/auth-routes";
 
-/** Refreshes the Supabase session cookie on every matched request. */
-async function refreshSupabaseSession(request: NextRequest): Promise<NextResponse> {
+/** Refreshes the Supabase session and gates app routes behind sign-in. */
+export default async function proxy(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -19,15 +20,23 @@ async function refreshSupabaseSession(request: NextRequest): Promise<NextRespons
       },
     },
   });
-  await supabase.auth.getClaims();
+
+  const { data } = await supabase.auth.getClaims();
+  const signedIn = Boolean(data?.claims?.sub);
+  const gate = resolveAuthGate({ pathname: request.nextUrl.pathname, signedIn });
+  if (gate.type === "redirect") {
+    const redirect = NextResponse.redirect(new URL(gate.to, request.url));
+    for (const cookie of response.cookies.getAll()) {
+      redirect.cookies.set(cookie);
+    }
+    return redirect;
+  }
   return response;
 }
 
-export default refreshSupabaseSession;
-
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|maplibre/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|maplibre/|favicon.ico|media/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|mp4|webm)$).*)",
     "/(api|trpc)(.*)",
   ],
 };

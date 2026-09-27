@@ -27,7 +27,7 @@ export function ScreenHeader({
     <header className="sticky top-0 z-20 border-b border-line-soft bg-white/90 px-5 py-4 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/" className="text-[13px] font-semibold tracking-tight text-ink">
+          <Link href="/home" className="text-[13px] font-semibold tracking-tight text-ink">
             Group Trip Agent
           </Link>
           <nav className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] font-medium">

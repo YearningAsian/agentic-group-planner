@@ -21,7 +21,7 @@ const fraunces = Fraunces({
  * Sidebar: `components/app-shell.tsx`. Older-screen header/chips: `components/chrome.tsx`. Map entry: `components/trip-map.tsx`.
  *
  * Route → page file → component:
- * `/` → `page.tsx` → `dashboard-home.tsx`
+ * `/home` → `home/page.tsx` → `dashboard-home.tsx`
  * `/onboarding` → `onboarding/page.tsx` → `onboarding-entry.tsx` (choice). `?entry=questions` → `onboarding-flow.tsx` (no sidebar; finish goes to `/studio`)
  * `/studio` → `studio/page.tsx` → `planner-studio.tsx` (chat + map)
  * `/trips` → `trips/page.tsx` → `trips-board.tsx`
