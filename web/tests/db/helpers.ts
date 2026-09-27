@@ -4,7 +4,7 @@
  * `seed_batch`, so parallel files never see each other's data, and `cleanup(batch)` removes
  * exactly what a file made.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function env(name: string): string {
@@ -82,18 +82,16 @@ export async function createTrip(
   const organizer = opts.members[organizerIndex];
   if (!organizer?.profileId) throw new Error("createTrip: the organizer needs a profileId");
 
-  const slug = randomBytes(9).toString("base64url").slice(0, 11);
   const { data: trip, error } = await admin
     .from("trips")
     .insert({
-      slug,
       title: opts.title ?? "Test trip",
       city: "Atlanta",
       trip_date: opts.tripDate ?? "2026-09-26",
       organizer_profile_id: organizer.profileId,
       seed_batch: batch,
     })
-    .select("id")
+    .select("id, slug")
     .single();
   if (error) throw error;
 
@@ -111,7 +109,7 @@ export async function createTrip(
   const { data: members, error: memberError } = await admin.from("trip_members").insert(rows).select("id, sort_order");
   if (memberError) throw memberError;
   const memberIds = [...members].sort((a, b) => a.sort_order - b.sort_order).map((m) => m.id as string);
-  return { tripId: trip.id as string, slug, memberIds };
+  return { tripId: trip.id as string, slug: trip.slug as string, memberIds };
 }
 
 /** Adds a place to the global cache, tagged with the batch so `cleanup` removes it. */

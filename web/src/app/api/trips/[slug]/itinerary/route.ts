@@ -1,6 +1,6 @@
 import { itinerary } from "@agp/shared";
-import { z } from "zod";
 import { buildItineraryExport, toIcs } from "@/features/itinerary/server";
+import { findVisibleTripBySlug } from "@/lib/trips/visible-trip";
 import { AppError, toHttpError } from "@/lib/reliability";
 import { getServerClient } from "@/lib/supabase/server";
 
@@ -16,11 +16,10 @@ function fileName(title: string, member: string): string {
 
 /**
  * A member's schedule as a calendar file (design §5.5): one event per attended item, rendered from
- * live rows with the caller's session, so a non-member gets 403 and nothing is stored.
+ * live rows with the caller's session. A missing or forbidden slug gets the same 404.
  */
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
-  const { id } = await params;
-  if (!z.uuid().safeParse(id).success) return badRequest("The trip ID must be a UUID.");
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }): Promise<Response> {
+  const { slug } = await params;
   const url = new URL(request.url);
   const query = itinerary.ItineraryQuery.safeParse(Object.fromEntries(url.searchParams));
   if (!query.success) {
@@ -32,7 +31,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const client = await getServerClient();
     const { data } = await client.auth.getUser();
     if (!data.user) throw new AppError("unauthenticated", "Sign in to download your itinerary.");
-    const schedule = await buildItineraryExport(client, { tripId: id, memberId: query.data.member });
+    const trip = await findVisibleTripBySlug(client, slug);
+    if (!trip) return Response.json({ error: { code: "not_found", message: "Trip not found.", retryable: false } }, { status: 404 });
+    const schedule = await buildItineraryExport(client, { tripId: trip.id, memberId: query.data.member });
     return new Response(toIcs(schedule), {
       headers: {
         "content-type": "text/calendar; charset=utf-8",

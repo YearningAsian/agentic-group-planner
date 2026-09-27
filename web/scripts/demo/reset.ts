@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   );
   const app = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   console.log(`Trip:              ${app}/trip/${result.seeded.slug}`);
-  console.log(`Person 4's invite: ${app}/invite/${result.seeded.inviteToken}`);
+  console.log(`Person 4's invite: ${app}/join/${result.seeded.inviteToken}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
