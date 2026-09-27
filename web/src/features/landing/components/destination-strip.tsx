@@ -14,7 +14,11 @@ export function DestinationStrip() {
             Atmosphere only — no prices, no claims. Just the feeling of the trip you’re planning.
           </p>
         </Reveal>
-        <ul className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ul
+          tabIndex={0}
+          aria-label="Destination photos"
+          className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 outline-none focus-visible:ring-2 focus-visible:ring-paper/40 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           {DESTINATIONS.map((place, index) => (
             <Reveal key={place.src} delayMs={index * 40} className="w-[78%] shrink-0 snap-center sm:w-[46%] lg:w-[31%]">
               <li className="overflow-hidden rounded-[16px]">
