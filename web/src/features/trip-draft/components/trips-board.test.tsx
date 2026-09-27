@@ -36,8 +36,9 @@ let mockState: TripState = {
 
 let mockTrips: TripRecord[] = [];
 
-const { selectTrip } = vi.hoisted(() => ({
+const { selectTrip, deleteTrip } = vi.hoisted(() => ({
   selectTrip: vi.fn(),
+  deleteTrip: vi.fn(),
 }));
 
 vi.mock("@/features/trip-draft/trip-context", async () => {
@@ -54,7 +55,7 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
       startNewTrip: vi.fn(),
       commitDraft: vi.fn(),
       selectTrip,
-      deleteTrip: vi.fn(),
+      deleteTrip,
     }),
   };
 });
@@ -80,6 +81,7 @@ function seedLisbonTrip() {
 describe("TripsBoard", () => {
   beforeEach(() => {
     selectTrip.mockClear();
+    deleteTrip.mockClear();
     mockState = {
       id: null,
       destinationId: null,
@@ -136,5 +138,25 @@ describe("TripsBoard", () => {
     selectTrip.mockClear();
     await userEvent.click(summary);
     expect(selectTrip).toHaveBeenCalledWith("trip-1");
+  });
+
+  it("deletes a trip after confirmation", async () => {
+    seedLisbonTrip();
+    render(<TripsBoard />);
+
+    await userEvent.click(screen.getByRole("button", { name: /delete trip to lisbon/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    expect(deleteTrip).toHaveBeenCalledWith("trip-1");
+  });
+
+  it("keeps the trip when delete is cancelled", async () => {
+    seedLisbonTrip();
+    render(<TripsBoard />);
+
+    await userEvent.click(screen.getByRole("button", { name: /delete trip to lisbon/i }));
+    await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(deleteTrip).not.toHaveBeenCalled();
   });
 });

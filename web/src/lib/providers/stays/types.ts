@@ -11,7 +11,11 @@ export interface StayCard {
   starRating: number | null;
   /** Cheapest stay total divided by nights. Null when Duffel has no rate. */
   nightlyAmount: number | null;
+  /** Duffel `cheapest_rate_total_amount`. Null when Duffel has no rate. */
+  totalAmount?: number | null;
   currency: string | null;
+  /** Amenity descriptions from the accommodation. Omitted when the source lists none. */
+  amenities?: string[];
 }
 
 export interface StaySearchInput {
@@ -21,6 +25,8 @@ export interface StaySearchInput {
   checkIn: string;
   checkOut: string;
   adults: number;
+  /** Duffel `rooms`. Defaults to 1. */
+  rooms?: number;
 }
 
 export interface StayPhoto {

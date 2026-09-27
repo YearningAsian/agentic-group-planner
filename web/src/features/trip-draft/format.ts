@@ -5,7 +5,28 @@
  * `lib/mapbox/token` (providers may not import features) and is re-exported here for UI code.
  */
 
+import { destinationById } from "@/features/trip-draft/fixtures";
+
 export { isLiveMapboxToken } from "@/lib/mapbox/token";
+
+/** Set by the questionnaire handoff; the studio consumes it once. */
+export const QUESTIONNAIRE_KICKOFF_KEY = "planner-questionnaire-kickoff";
+
+export type QuestionnaireBriefInput = {
+  destinationId: string | null;
+  destinationLabel?: string;
+  destinationIata?: string | null;
+  originLabel?: string;
+  startDate: string;
+  endDate: string;
+  roundTrip?: boolean;
+  placesToVisit?: string;
+  stayPreference?: string;
+  budget: number | null;
+  dietary: string[];
+  vibes: string[];
+  members: Array<{ name: string; placeholder: boolean }>;
+};
 
 
 /** Converts whole dollars to integer cents for the future server handoff. */
@@ -41,6 +62,12 @@ export function stayOverBudget(nightly: number, nights: number, budgetPerPerson:
   return nightly * Math.max(nights, 1) > budgetPerPerson;
 }
 
+export function formatDay(iso: string): string {
+  if (!iso) return "Dates flexible";
+  const date = new Date(`${iso}T12:00:00`);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+}
+
 export function formatRange(start: string, end: string): string {
   if (!start || !end) return "Dates flexible";
   const a = new Date(`${start}T12:00:00`);
@@ -62,5 +89,25 @@ export function initials(name: string): string {
 export function validRange(start: string, end: string): boolean {
   if (!start || !end) return false;
   return Date.parse(`${end}T12:00:00`) > Date.parse(`${start}T12:00:00`);
+}
+
+/** One paragraph the studio sends so the agent starts from every questionnaire answer. */
+export function questionnaireBrief(state: QuestionnaireBriefInput): string {
+  const fixture = destinationById(state.destinationId);
+  const label = state.destinationLabel?.trim() || fixture?.label || "the destination";
+  const origin = state.originLabel?.trim();
+  const where = origin ? `from ${origin} to ${label}` : `to ${label}`;
+  const roundTrip = state.roundTrip !== false;
+  const when = roundTrip
+    ? `${formatRange(state.startDate, state.endDate)}, round trip`
+    : `${formatDay(state.startDate)}, one way`;
+  const budget =
+    state.budget != null && state.budget > 0 ? `Budget is ${money(state.budget)} per person.` : "Budget is open.";
+  const parts = [`Plan a trip ${where}, ${when}. Recommend the airports.`, budget];
+  const visit = state.placesToVisit?.trim();
+  if (visit) parts.push(`They want to visit: ${visit}. Recommend places that match.`);
+  const stay = state.stayPreference?.trim();
+  if (stay) parts.push(`Stay: ${stay}.`);
+  return parts.join(" ");
 }
 

@@ -28,6 +28,9 @@ const serverSchema = z.object({
   META_MODEL_API_KEY: secret,
   META_MODEL_API_BASE_URL: z.url().default("https://api.meta.ai/v1"),
   GOOGLE_GENERATIVE_AI_API_KEY: secret,
+  // Studio trip chat on Muse. Optional: the chat route explains that it is unavailable when the Meta key is unset.
+  // Does not change LLM_PROVIDER, so the day-planning agent stays on its own model.
+  PLANNER_CHAT_MODEL: model("muse-spark-1.3"),
 
   // Each Meta capability beyond the model has its own flag, so it can go real on its own.
   TRANSCRIBE_PROVIDER: optionalFlag,

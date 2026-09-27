@@ -83,6 +83,7 @@ describe("server env", () => {
     const env = parseServerEnv(buildProfile);
     expect(env.META_MODEL_API_BASE_URL).toBe("https://api.meta.ai/v1");
     expect(env.AGENT_MODEL).toBe("muse-spark-1.3");
+    expect(env.PLANNER_CHAT_MODEL).toBe("muse-spark-1.3");
     expect(env.TRANSCRIBE_MODEL).toBe("muse-voice-transcribe-1.0");
     expect(parseServerEnv({ ...buildProfile, AGENT_MODEL: "muse-spark-1.2" }).AGENT_MODEL).toBe("muse-spark-1.2");
   });

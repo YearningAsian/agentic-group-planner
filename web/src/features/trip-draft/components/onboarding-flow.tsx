@@ -2,24 +2,26 @@
 
 /**
  * Questionnaire at `/onboarding?entry=questions`. The two-option screen is `entry-choice.tsx`.
- * No `AppShell`. Continue writes `useTrip`; the last step and Skip on "who" call `finish()` → `/studio`.
+ * No `AppShell`. Continue writes `useTrip`; the last step calls `finish()` → `/studio`.
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { DestinationSearch } from "@/features/trip-draft/components/destination-search";
-import { BUDGETS, DESTINATIONS, DIETARY, VIBES, destinationById, type Destination } from "@/features/trip-draft/fixtures";
-import { money, validRange } from "@/features/trip-draft/format";
+import { BUDGETS, DESTINATIONS, destinationById, type Destination } from "@/features/trip-draft/fixtures";
+import { money, QUESTIONNAIRE_KICKOFF_KEY, validRange } from "@/features/trip-draft/format";
 import { useTrip, type TripState } from "@/features/trip-draft/trip-context";
 import { Chip, PrimaryButton } from "@/features/trip-draft/components/chrome";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
-import { cn } from "@/lib/utils";
 
 const STEPS = [
   {
     id: "where",
     optional: false,
     title: "Where to?",
-    tip: "Tip: a city name lets the map settle before the agent looks for flights.",
+    tip: "Tip: pick where you're leaving from and where you're going. The agent chooses the airports.",
   },
   {
     id: "when",
@@ -34,26 +36,35 @@ const STEPS = [
     tip: "Tip: budgets help the agent avoid pricey outliers.",
   },
   {
-    id: "dietary",
+    id: "visit",
     optional: true,
-    title: "Any dietary restrictions?",
-    tip: "Tip: the agent keeps restaurants that work for the whole group.",
+    title: "Any place you want to visit?",
+    tip: "Tip: name a neighborhood, landmark, or idea. The agent recommends places that match.",
   },
   {
-    id: "vibe",
+    id: "stay",
     optional: true,
-    title: "What's the vibe?",
-    tip: "Tip: a few interests beat a long list. The agent plans around them.",
-  },
-  {
-    id: "who",
-    optional: true,
-    title: "Who's coming?",
-    tip: "Tip: add a placeholder for anyone who hasn't joined. They'll get the invite link.",
+    title: "What kind of place do you want to stay in?",
+    tip: "Tip: a sentence is enough, like a quiet ryokan near the station.",
   },
 ] as const;
 
 type StepId = (typeof STEPS)[number]["id"];
+
+const calendarClass =
+  "w-full rounded-2xl border border-line bg-surface p-3 text-ink [--cell-size:2.75rem] [--background:var(--surface)] [--foreground:var(--ink)] [--muted:var(--surface-sunken)] [--muted-foreground:var(--ink-faint)]";
+
+function isoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function parseIso(value: string): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
 
 function mapPreview(state: TripState): Destination | null {
   const fixture = destinationById(state.destinationId);
@@ -62,7 +73,7 @@ function mapPreview(state: TripState): Destination | null {
   return {
     id: state.destinationIata ?? "picked",
     label: state.destinationLabel || state.destinationQuery,
-    country: state.destinationIata ?? "",
+    country: "",
     code: state.destinationIata ?? "",
     lat: state.destinationLat,
     lng: state.destinationLng,
@@ -85,6 +96,7 @@ export function OnboardingFlow() {
   const step = STEPS[index];
   const destination = destinationById(state.destinationId);
   const preview = mapPreview(state);
+  const roundTrip = state.roundTrip !== false;
 
   function go(next: number) {
     if (next === index || handingOff) return;
@@ -97,11 +109,14 @@ export function OnboardingFlow() {
     }, 180);
   }
 
+  function datesReady(): boolean {
+    return roundTrip ? validRange(state.startDate, state.endDate) : Boolean(state.startDate);
+  }
+
   function canContinue(id: StepId = step.id): boolean {
-    if (id === "where") return Boolean(state.destinationIata);
-    if (id === "when") return validRange(state.startDate, state.endDate);
+    if (id === "where") return Boolean(state.destinationIata && state.originIata);
+    if (id === "when") return datesReady();
     if (id === "budget") return state.budget != null && state.budget > 0;
-    if (id === "who") return state.members[0]?.name.trim().length > 0;
     return true;
   }
 
@@ -109,18 +124,23 @@ export function OnboardingFlow() {
     if (handingOff) return;
     setHandingOff(true);
     trip.commitDraft();
+    sessionStorage.setItem(QUESTIONNAIRE_KICKOFF_KEY, "1");
     window.setTimeout(() => router.push("/studio"), 900);
   }
 
   function next() {
-    if (step.id === "where") {
-      if (!state.destinationIata) {
-        setError("Pick a city or airport from the list, or choose Surprise me.");
-        return;
+    if (step.id === "where" && !(state.destinationIata && state.originIata)) {
+      if (!state.originIata && !state.destinationIata) {
+        setError("Pick a starting place and a destination from the list.");
+      } else if (!state.originIata) {
+        setError("Pick a starting place from the list.");
+      } else {
+        setError("Pick a destination from the list, or choose Surprise me.");
       }
+      return;
     }
-    if (step.id === "when" && !validRange(state.startDate, state.endDate)) {
-      setError("Choose an arrival and a later departure.");
+    if (step.id === "when" && !datesReady()) {
+      setError(roundTrip ? "Choose an arrival and a later departure." : "Choose a departure date.");
       return;
     }
     if (step.id === "budget" && !(state.budget != null && state.budget > 0)) {
@@ -128,10 +148,6 @@ export function OnboardingFlow() {
       return;
     }
     if (index === STEPS.length - 1) {
-      if (!canContinue("who")) {
-        setError("Add your name, or skip to keep Person 1.");
-        return;
-      }
       finish();
       return;
     }
@@ -140,10 +156,9 @@ export function OnboardingFlow() {
 
   function skip() {
     if (!step.optional) return;
-    if (step.id === "dietary") trip.setDietary([]);
-    if (step.id === "vibe") trip.setVibes([]);
-    if (step.id === "who") {
-      trip.resetParty();
+    if (step.id === "visit") trip.setPlacesToVisit("");
+    if (step.id === "stay") {
+      trip.setStayPreference("");
       finish();
       return;
     }
@@ -213,26 +228,55 @@ export function OnboardingFlow() {
                 <div className="mt-6">
                   {step.id === "where" ? (
                     <div className="flex flex-col gap-4">
-                      <DestinationSearch
-                        value={state.destinationQuery}
-                        onQueryChange={trip.setDestinationQuery}
-                        onSelect={(place) =>
-                          trip.confirmPlace({
-                            label: place.name,
-                            iataCode: place.iataCode,
-                            airportIatas: place.airports.map((airport) => airport.iataCode),
-                            lat: place.lat,
-                            lng: place.lng,
-                          })
-                        }
-                      />
+                      <div>
+                        <p className="mb-2 text-[14px] font-semibold">Starting from</p>
+                        <DestinationSearch
+                          label="Starting from"
+                          placeholder="City or place — try New York"
+                          listId="origin-suggestions"
+                          value={state.originQuery ?? ""}
+                          onQueryChange={trip.setOriginQuery}
+                          onSelect={(place) =>
+                            trip.confirmOrigin({
+                              label: place.name,
+                              iataCode: place.iataCode,
+                              airportIatas: place.airports.map((airport) => airport.iataCode),
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <p className="mb-2 text-[14px] font-semibold">Going to</p>
+                        <DestinationSearch
+                          label="Going to"
+                          listId="destination-suggestions"
+                          value={state.destinationQuery}
+                          onQueryChange={trip.setDestinationQuery}
+                          onSelect={(place) =>
+                            trip.confirmPlace({
+                              label: place.name,
+                              iataCode: place.iataCode,
+                              airportIatas: place.airports.map((airport) => airport.iataCode),
+                              lat: place.lat,
+                              lng: place.lng,
+                            })
+                          }
+                        />
+                      </div>
                       {state.pinDropped && (destination || state.destinationIata) ? (
                         <p className="text-[14px] text-ink">
                           {state.destinationLabel || destination?.label}
-                          {destination?.country ? `, ${destination.country}` : state.destinationIata ? ` · ${state.destinationIata}` : ""}
+                          {destination?.country ? `, ${destination.country}` : ""}
                           {" · pinned on the map"}
                         </p>
                       ) : null}
+                      <label className="flex w-fit items-center gap-3 text-[15px] font-semibold text-ink">
+                        <Checkbox
+                          checked={roundTrip}
+                          onCheckedChange={(checked) => trip.setRoundTrip(checked)}
+                        />
+                        Round trip
+                      </label>
                       <button
                         type="button"
                         onClick={surprise}
@@ -244,28 +288,30 @@ export function OnboardingFlow() {
                     </div>
                   ) : null}
 
-                  {step.id === "when" ? (
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block text-[14px] font-semibold">
-                        Arrive
-                        <input
-                          type="date"
-                          value={state.startDate}
-                          onChange={(event) => trip.setDates(event.target.value, state.endDate)}
-                          className="mt-2 h-14 w-full rounded-xl border border-[#b0b0b0] px-3 font-normal outline-none focus:border-ink"
-                        />
-                      </label>
-                      <label className="block text-[14px] font-semibold">
-                        Leave
-                        <input
-                          type="date"
-                          value={state.endDate}
-                          min={state.startDate || undefined}
-                          onChange={(event) => trip.setDates(state.startDate, event.target.value)}
-                          className="mt-2 h-14 w-full rounded-xl border border-[#b0b0b0] px-3 font-normal outline-none focus:border-ink"
-                        />
-                      </label>
-                    </div>
+                  {step.id === "when" && roundTrip ? (
+                    <Calendar
+                      mode="range"
+                      className={calendarClass}
+                      classNames={{ root: "w-full" }}
+                      defaultMonth={parseIso(state.startDate)}
+                      selected={{ from: parseIso(state.startDate), to: parseIso(state.endDate) }}
+                      onSelect={(range) => {
+                        trip.setDates(range?.from ? isoDate(range.from) : "", range?.to ? isoDate(range.to) : "");
+                      }}
+                    />
+                  ) : null}
+
+                  {step.id === "when" && !roundTrip ? (
+                    <Calendar
+                      mode="single"
+                      className={calendarClass}
+                      classNames={{ root: "w-full" }}
+                      defaultMonth={parseIso(state.startDate)}
+                      selected={parseIso(state.startDate)}
+                      onSelect={(day) => {
+                        trip.setDates(day ? isoDate(day) : "", "");
+                      }}
+                    />
                   ) : null}
 
                   {step.id === "budget" ? (
@@ -298,84 +344,28 @@ export function OnboardingFlow() {
                     </div>
                   ) : null}
 
-                  {step.id === "dietary" ? (
-                    <div className="flex flex-wrap gap-2">
-                      {DIETARY.map((item) => (
-                        <Chip
-                          key={item}
-                          pressed={state.dietary.includes(item)}
-                          onClick={() => trip.toggleDietary(item)}
-                        >
-                          {item}
-                        </Chip>
-                      ))}
-                    </div>
+                  {step.id === "visit" ? (
+                    <label className="block">
+                      <span className="sr-only">Places you want to visit</span>
+                      <Textarea
+                        value={state.placesToVisit ?? ""}
+                        onChange={(event) => trip.setPlacesToVisit(event.target.value)}
+                        placeholder="A neighborhood, landmark, or idea"
+                        className="min-h-28 rounded-xl border-[#b0b0b0] px-3 py-3 text-[16px]"
+                      />
+                    </label>
                   ) : null}
 
-                  {step.id === "vibe" ? (
-                    <div className="flex flex-wrap gap-2">
-                      {VIBES.map((item) => (
-                        <Chip key={item} pressed={state.vibes.includes(item)} onClick={() => trip.toggleVibe(item)}>
-                          {item}
-                        </Chip>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {step.id === "who" ? (
-                    <div className="flex flex-col gap-3">
-                      {state.members.map((member, memberIndex) => (
-                        <div key={member.id} className="flex items-center gap-3">
-                          <span
-                            className={cn(
-                              "flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                              member.joined && !member.placeholder
-                                ? "bg-ink text-white"
-                                : "border border-dashed border-[#b0b0b0] text-muted",
-                            )}
-                            aria-hidden
-                          >
-                            {member.placeholder ? "?" : memberIndex + 1}
-                          </span>
-                          <label className="min-w-0 flex-1">
-                            <span className="sr-only">{memberIndex === 0 ? "Your name" : `Person ${memberIndex + 1}`}</span>
-                            <input
-                              value={member.name}
-                              onChange={(event) => trip.setMemberName(member.id, event.target.value)}
-                              placeholder={member.placeholder ? "Hasn't joined yet" : "Name"}
-                              className="h-12 w-full rounded-xl border border-[#b0b0b0] px-3 outline-none focus:border-ink"
-                            />
-                          </label>
-                          {memberIndex > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => trip.removeMember(member.id)}
-                              className="h-11 px-2 text-[14px] font-semibold text-muted"
-                            >
-                              Remove
-                            </button>
-                          ) : (
-                            <span className="px-2 text-[13px] font-medium text-muted">You</span>
-                          )}
-                        </div>
-                      ))}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => trip.addMember(false)}
-                          className="h-11 rounded-full bg-bg-muted px-4 text-[14px] font-semibold"
-                        >
-                          Add someone
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => trip.addMember(true)}
-                          className="h-11 rounded-full bg-bg-muted px-4 text-[14px] font-semibold"
-                        >
-                          Add a placeholder
-                        </button>
-                      </div>
-                    </div>
+                  {step.id === "stay" ? (
+                    <label className="block">
+                      <span className="sr-only">Kind of place to stay</span>
+                      <Textarea
+                        value={state.stayPreference ?? ""}
+                        onChange={(event) => trip.setStayPreference(event.target.value)}
+                        placeholder="A quiet ryokan, a hotel in the center…"
+                        className="min-h-28 rounded-xl border-[#b0b0b0] px-3 py-3 text-[16px]"
+                      />
+                    </label>
                   ) : null}
                 </div>
                 <aside className="mt-6 rounded-2xl bg-tip px-4 py-3 text-[14px] text-ink ring-1 ring-[var(--tip-line)]">

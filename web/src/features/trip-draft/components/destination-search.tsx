@@ -5,16 +5,40 @@ import { SuggestField } from "@/features/trip-draft/components/suggest-field";
 import { useDebouncedValue } from "@/features/trip-draft/use-debounced-value";
 import type { PlaceSuggestion } from "@/lib/providers/place-suggestions/types";
 
+/** Cities only. If Duffel returned airports and no city, offer each airport's city name once. */
+export function locationSuggestions(items: PlaceSuggestion[]): PlaceSuggestion[] {
+  const cities = items.filter((item) => item.kind === "city");
+  if (cities.length > 0) return cities;
+  const seen = new Set<string>();
+  const fromAirports: PlaceSuggestion[] = [];
+  for (const item of items) {
+    if (item.kind !== "airport") continue;
+    const label = item.cityName?.trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fromAirports.push({ ...item, kind: "city", name: label });
+  }
+  return fromAirports;
+}
+
 export function DestinationSearch({
   value,
   onQueryChange,
   onSelect,
   debounceMs = 300,
+  label = "Destination",
+  placeholder = "City or place — try Lisbon",
+  listId = "suggest-field-list",
 }: {
   value: string;
   onQueryChange: (query: string) => void;
   onSelect: (place: PlaceSuggestion) => void;
   debounceMs?: number;
+  label?: string;
+  placeholder?: string;
+  listId?: string;
 }) {
   const [fetched, setFetched] = useState<PlaceSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,7 +52,7 @@ export function DestinationSearch({
     setFetched([]);
     setLoading(lookupActive);
   }
-  const suggestions = lookupActive ? fetched : [];
+  const suggestions = lookupActive ? locationSuggestions(fetched) : [];
 
   useEffect(() => {
     if (!lookupActive) return;
@@ -49,7 +73,8 @@ export function DestinationSearch({
 
   return (
     <SuggestField
-      label="Destination"
+      label={label}
+      listId={listId}
       value={value}
       onChange={(next) => {
         setPickedLabel(null);
@@ -62,16 +87,9 @@ export function DestinationSearch({
         setFetched([]);
         onSelect(item);
       }}
-      placeholder="City or airport — try Lisbon or LHR"
+      placeholder={placeholder}
       getKey={(item) => `${item.kind}:${item.iataCode}`}
-      getLabel={(item) => `${item.name} (${item.iataCode})`}
-      getHint={(item) =>
-        item.kind === "city" && item.airports.length > 1
-          ? item.airports.map((airport) => airport.iataCode).join(" · ")
-          : item.kind === "airport"
-            ? "Airport"
-            : undefined
-      }
+      getLabel={(item) => item.name}
     />
   );
 }
