@@ -47,7 +47,7 @@ function renderProvider(): TripApi {
   return api;
 }
 
-function legacyRecord(overrides: Partial<Omit<TripState, "id">> = {}): TripRecord {
+function legacyRecord(overrides: Partial<TripRecord> = {}): TripRecord {
   return {
     id: "trip-legacy",
     destinationId: "lisbon",
