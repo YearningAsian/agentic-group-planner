@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { inviteTokenFor, uuidFor } from "./ids";
+import { inviteTokenFor, slugFor, uuidFor } from "./ids";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -39,5 +39,21 @@ describe("seed ids", () => {
       trip: { slug?: string };
     };
     expect(fixture.trip.slug).toMatch(/^[A-Za-z0-9_-]{11}$/);
+  });
+
+  it("slugFor keeps the fixture slug for demo and derives a unique valid slug per other batch", () => {
+    const fixture = JSON.parse(readFileSync(path.join(__dirname, "../fixtures/saturday-trip.json"), "utf8")) as {
+      trip: { slug: string };
+    };
+    expect(slugFor("demo")).toBe(fixture.trip.slug);
+    expect(slugFor("demo")).toMatch(/^[A-Za-z0-9_-]{11}$/);
+    const a = slugFor("test:aaa");
+    const b = slugFor("dev-vo");
+    expect(a).toMatch(/^[A-Za-z0-9_-]{11}$/);
+    expect(b).toMatch(/^[A-Za-z0-9_-]{11}$/);
+    expect(a).not.toBe(fixture.trip.slug);
+    expect(b).not.toBe(fixture.trip.slug);
+    expect(a).not.toBe(b);
+    expect(slugFor("test:aaa")).toBe(a);
   });
 });

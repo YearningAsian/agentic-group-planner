@@ -11,7 +11,7 @@ import { SEEDED_USERS, type SeededUserKey, seededEmail } from "./fixtures/users"
 import { type ScriptAdmin, scriptAdmin } from "./lib/admin";
 import { parseSeedArgs, type Stage } from "./lib/args";
 import { runStages } from "./stages";
-import { inviteTokenFor, uuidFor } from "./lib/ids";
+import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
 import { seedStripeCustomers } from "./stripe-customers";
 
@@ -127,7 +127,7 @@ async function upsertPlaces(admin: ScriptAdmin, trip: TripFixture): Promise<void
 async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<SeededUserKey, string>, now: Date) {
   const f = SATURDAY_TRIP;
   const tripId = uuidFor(batch, `trip:${f.trip.key}`);
-  const slug = f.trip.slug;
+  const slug = slugFor(batch);
   const inviteToken = inviteTokenFor(batch);
   const date = nextSaturday(now, f.trip.timezone);
   const organizer = f.members.find((m) => m.role === "organizer")!;
