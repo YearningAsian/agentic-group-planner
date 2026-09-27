@@ -35,7 +35,7 @@ export function AuthShell({ title, subtitle, children, sideImage, footer }: Auth
         aria-hidden
       />
       <div className="mx-auto grid min-h-dvh w-full md:grid-cols-[minmax(0,26rem)_1fr] lg:grid-cols-[26rem_1fr]">
-        <div className="flex flex-col justify-center px-5 py-10 sm:px-8 md:max-w-[26rem]">
+        <main className="flex flex-col justify-center px-5 py-10 sm:px-8 md:max-w-[26rem]">
           <Link href="/" className="mb-10 inline-flex w-fit flex-col gap-1 text-ink">
             <span className="font-display text-[1.35rem] font-semibold tracking-tight">Group Trip Agent</span>
             <span className="text-[12px] font-medium text-muted">Plan it together. Pay your part.</span>
@@ -46,15 +46,15 @@ export function AuthShell({ title, subtitle, children, sideImage, footer }: Auth
           {subtitle ? <p className="mt-2 text-[15px] leading-relaxed text-muted text-pretty">{subtitle}</p> : null}
           <div className="mt-8 space-y-6">{children}</div>
           {footer ? <div className="mt-8">{footer}</div> : null}
-        </div>
-        <aside className="relative hidden min-h-dvh overflow-hidden md:block">
+        </main>
+        <aside className="relative hidden min-h-dvh overflow-hidden md:block" aria-label="Travel photo">
           <Image
             src={sideImage.src}
             alt={sideImage.alt}
             fill
             sizes="(min-width: 768px) 55vw, 0px"
             className="object-cover"
-            priority={false}
+            priority
           />
           <div
             className="absolute inset-0 bg-gradient-to-t from-[color-mix(in_oklab,var(--ink)_58%,transparent)] via-[color-mix(in_oklab,var(--ink)_12%,transparent)] to-transparent"
