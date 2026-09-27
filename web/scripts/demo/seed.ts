@@ -14,6 +14,7 @@ import { runStages } from "./stages";
 import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
 import { seedStripeCustomers } from "./stripe-customers";
+import { demoPasswordFor } from "../../src/features/demo/demo-credentials";
 
 interface TripFixture {
   trip: { key: string; slug: string; title: string; city: string; timezone: string; price_threshold_percent: number };
@@ -69,8 +70,14 @@ function check<T>(result: { data: T; error: unknown }, what: string): T {
   return result.data;
 }
 
-/** Step 1: the seeded users (auth admin API; the trigger makes each profile). Returns key → user ID. */
+/**
+ * Step 1: the seeded users (auth admin API; the trigger makes each profile). Returns key → user ID.
+ * Each gets the password derived from DEMO_SEED_SECRET, reset on every run, so the instant logins
+ * work after a re-seed and follow a rotated secret.
+ */
 async function upsertUsers(admin: ScriptAdmin, batch: string): Promise<Record<SeededUserKey, string>> {
+  const secret = process.env.DEMO_SEED_SECRET;
+  if (!secret) throw new Error("DEMO_SEED_SECRET is not set; see web/.env.example.");
   const wanted = new Map(SEEDED_USERS.map((u) => [seededEmail(u.key, batch), u]));
   const found = new Map<string, string>();
   for (let page = 1; found.size < wanted.size; page++) {
@@ -82,14 +89,19 @@ async function upsertUsers(admin: ScriptAdmin, batch: string): Promise<Record<Se
   const ids = {} as Record<SeededUserKey, string>;
   for (const [email, user] of wanted) {
     let id = found.get(email);
+    const password = demoPasswordFor(email, secret);
     if (!id) {
       const created = await admin.auth.admin.createUser({
         email,
+        password,
         email_confirm: true,
         user_metadata: { display_name: user.displayName, seed_batch: batch },
       });
       if (created.error || !created.data.user) throw new Error(`seed: creating ${email} failed: ${created.error?.message}`);
       id = created.data.user.id;
+    } else {
+      const updated = await admin.auth.admin.updateUserById(id, { password });
+      if (updated.error) throw new Error(`seed: setting ${email}'s password failed: ${updated.error.message}`);
     }
     ids[user.key] = id;
   }

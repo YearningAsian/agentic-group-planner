@@ -16,7 +16,7 @@ allowBuilds:
   unrs-resolver: false
   # Downloads the Sentry CLI for source-map upload, which isn't set up yet (needs SENTRY_AUTH_TOKEN).
   '@sentry/cli': false
-  # Optional native deps pulled in by Clerk / ws; not required with the default pure-JS path.
+  # Optional native deps pulled in by ws; not required with the default pure-JS path.
   bufferutil: false
   core-js: false
   utf-8-validate: false

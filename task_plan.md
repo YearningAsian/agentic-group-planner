@@ -86,3 +86,15 @@ Every change goes through a PR into `testing`, merged when CI is green. Never pu
 - [ ] Phase 4: review `at-frontend` (review only), PR into `testing`, and an open PR from `testing` into `at-frontend`.
 - [ ] Phase 5: ui-ux-pro-max design system (docs only) and the UI review.
 - [ ] Phase 6: plan, checklist, and one GitHub issue per open frontend Must task.
+
+## 5. Landing page, sign-up, and log-in (2026-09-26)
+
+Supabase Auth only: email and password for members, one-tap demo logins in dev mode. Three PRs into `testing`, in order, from a separate worktree (another session shares the main checkout).
+
+- [x] Audit: no Clerk code, packages, or providers; leftovers were stale `CLERK_*` lines in the gitignored `web/.env.local`, a `pnpm-workspace.yaml` comment, and the commented block in `supabase/config.toml`.
+- [x] Audit: `@supabase/ssr` already wired (proxy refresh, server and browser clients, `/auth/confirm`); `handle_new_user` already makes the profile, so no migration.
+- [x] Audit: seeded users had no passwords; `DEMO_SEED_SECRET` only salted Person 4's invite token.
+- [x] Audit: `design-system/MASTER.md` and the ui-ux-pro-max skill aren't in the repo; recap, gallery, and voting were dropped (design ?11.6).
+- [ ] PR 1 `feat/auth-supabase`: env flags, derived demo passwords, the production guard, config and templates, ADR 0023 (VO-221).
+- [ ] PR 2 `feat/web-auth-pages`: redirect rules, server actions, `/login`, `/signup`, reset, `/auth/callback`, e2e in CI (FE-223).
+- [ ] PR 3 `feat/web-landing`: media, tokens, landing page, dashboard to `/home`, Lighthouse and screenshots (FE-S09).

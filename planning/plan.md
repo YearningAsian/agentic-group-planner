@@ -219,6 +219,7 @@ Everything happens in dependency order, and the goal is the slice. Build profile
     - `the picker renders only in dev mode, listing Person 1, Person 2, and Person 3 as buttons at least 44 px tall`
     - `demoSignIn rejects when NEXT_PUBLIC_DEMO_MODE is not true`
   - [ ] Check: one browser signs in through a magic link (Mailpit locally, the inbox on a hosted project), another as Person 2 through the picker, and both stay signed in after a reload. This also closes VO-104's check.
+- **Superseded (2026-09-26)** by VO-221 and FE-223 ([ADR 0023](adr/0023-email-password-and-demo-instant-logins.md)): members use email and password, the picker's magic links became server-side instant logins, and `/auth/confirm` stays for invite magic links. The unticked boxes below are replaced by theirs.
 - **Status:** backend done; UI is FE scope (2026-09-26). Proof: `pnpm --filter web test src/app/auth src/features/demo` → 6 passed (RED first: no confirm route or `demo-sign-in` module); a mutant without the same-origin check failed the open-redirect test. `demoSignIn` lives in `features/demo/server/demo-sign-in.ts` (its test beside it, not under `components`) and accepts only `DEMO_EMAIL_DOMAIN` addresses, because `generateLink` creates a user for an unknown email. Until `/login` exists, a failed link lands on `/?error=link` (`FAILED_LINK` in the route), so `src/app/routes.test.ts` has no dead link; the login page switches it to `/login?error=link`. Open: the login page, magic-link form, picker, and the reload check (browser).
 - **Commit:** `feat(auth): magic-link sign-in and a dev-mode picker for seeded users`
 
@@ -909,6 +910,21 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
   - [ ] Check: `pnpm seed:demo --batch dev-fe --stage discussed` leaves one comment and one revision card on lunch.
 - **Commit:** `test(e2e): collaborate flow and discussed seed stage`
 
+#### FE-223 · Log-in and sign-up pages, and route protection · Must
+
+- **Files:** `web/src/app/(marketing)/{login,signup,forgot-password,reset-password}/page.tsx`, `web/src/app/auth/callback/route.ts`, `web/src/app/auth/confirm/route.ts`, `web/src/features/auth/{schemas.ts,auth-errors.ts}` and their tests, `web/src/features/auth/server/auth-actions.ts`, `web/src/features/auth/components/*`, `web/src/lib/supabase/auth-routes.ts`, `web/src/proxy.ts`, `web/e2e/auth.spec.ts`, `.github/workflows/ci.yml`
+- **Depends on:** VO-221
+- **Produces:** `/signup` (display name, email, a password of at least 10 characters with a strength hint and a show/hide toggle, then "Check your email" when confirmation is on), `/login` (email and password with inline errors for a wrong password, an unconfirmed email, and rate limiting; in dev mode the three instant-login cards come first), `/forgot-password` and `/reset-password`, and `/auth/callback` (token hash or PKCE code, then a same-origin `next`). The proxy sends signed-out visits to app routes to `/login?next=<path>` and signed-in visits to `/login` or `/signup` to `/trips`. Every form validates with the same Zod schema on the client and in its server action.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/lib/supabase src/features/auth src/app/auth` passes:
+    - `safeNextPath keeps same-origin paths and drops absolute, protocol-relative, and backslash targets`
+    - `a signed-out app route redirects to /login with next; a signed-in /login or /signup redirects to /trips; public paths pass`
+    - `the sign-up schema requires a name, an email, and 10 characters; the strength hint grades a password`
+    - `Supabase error codes map to the wrong-password, unconfirmed, and rate-limit messages`
+    - `/auth/callback verifies a token hash or exchanges a code, then redirects to a safe next; a failure goes to /login?error=link`
+  - [ ] `pnpm --filter web e2e -- e2e/auth.spec.ts` passes in CI on the local Supabase stack: sign-up lands in the trips home; a wrong password shows an error; each instant login lands as the right person; with dev mode off the cards are hidden; `?next=https://evil.example` is ignored; a signed-out app route redirects to `/login`; axe finds no violations on `/login` and `/signup`.
+- **Commit:** `feat(web): log-in and sign-up pages with instant demo logins`
+
 ### M2 · AI
 
 #### AI-201 · Optimizer test double and fixture plan · Must
@@ -1506,6 +1522,22 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Status:** done (2026-09-26). Proof: `pnpm --filter web test:db tests/db/update-profile.test.ts` → 4 passed and `pnpm --filter web test src/app/api/profile` → 3 passed (RED first: `updateProfile` was a stub, a session could write `stripe_customer_id`, and the route was missing). Migration `20260926080031_profile_update.sql` grants update on `display_name` and `avatar_url` only, with an own-row policy, and a definer trigger copies the name onto the user's joined `trip_members` rows.
 - **Commit:** `feat(profile): profile update route`
 
+#### VO-221 · Email and password auth, and server-side instant logins · Must
+
+- **Files:** `web/src/features/demo/{demo-credentials.ts,demo-login-policy.ts,demo-people.ts}` and their tests, `web/src/features/demo/server/demo-sign-in.ts`, `web/src/lib/env/server.ts`, `web/scripts/demo/seed.ts`, `web/tests/db/seed.test.ts`, `supabase/config.toml`, `supabase/templates/{confirmation,recovery}.html`, `web/.env.example`
+- **Depends on:** VO-105, VO-106
+- **Produces:** the auth plumbing of [ADR 0023](adr/0023-email-password-and-demo-instant-logins.md), which supersedes VO-106's magic-link-only sign-in. Seeded Persons 1–3 get a password derived from `DEMO_SEED_SECRET` (HMAC-SHA256 of the email), set by `seed:demo` on every run. `demoSignInSeeded(person)` signs one of them in on the server; it refuses when dev mode is off, on `VERCEL_ENV=production` unless `ALLOW_DEMO_LOGIN=true`, and without `DEMO_SEED_SECRET`, and says "Demo data isn't loaded. Run pnpm --filter web seed:demo" when Supabase rejects the credentials. Passwords are at least 10 characters. Sign-up confirmation and password reset emails link to `/auth/callback` with the token hash.
+- **Done when:**
+  - [x] `pnpm --filter web test -- src/features/demo src/lib/env` passes:
+    - `demoPasswordFor is stable per email and secret, differs per person and per secret, and refuses an empty secret`
+    - `demoLoginRefusal allows dev mode off production, refuses production unless ALLOW_DEMO_LOGIN, and refuses without the secret`
+    - `demoSignInSeeded signs Person 1 in with the derived password, accepts only Person 1–3, and reports missing demo data`
+    - `ALLOW_DEMO_LOGIN is off unless exactly true`
+  - [ ] `pnpm --filter web test:db -- tests/db/seed.test.ts` passes: `each seeded person signs in with the password derived from DEMO_SEED_SECRET, and a re-seed keeps it working` (CI).
+  - [x] Check: after `pnpm seed:demo` on the hosted sandbox, Persons 1–3 each sign in with their derived password.
+- **Status:** in progress (2026-09-26). Proof so far: the unit suites above pass (RED first: missing modules and env fields); on the hosted sandbox, `seed:demo` then `signInWithPassword` succeeded for Persons 1–3.
+- **Commit:** `feat(auth): derive demo passwords and sign seeded users in on the server`
+
 ---
 
 ## Milestone 3: integration on real providers
@@ -1982,6 +2014,17 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
     - `the button is at least 44 px and has an accessible name that changes with its state`
 - **Commit:** `feat(chat): voice-note button`
 
+#### FE-S09 · Marketing landing page · Should
+
+- **Files:** `web/src/app/(marketing)/{layout.tsx,page.tsx,opengraph-image.jpg}`, `web/src/app/robots.ts`, `web/src/features/landing/**`, `web/public/media/*`, `web/scripts/media/process-media.mjs`, `web/src/app/globals.css`, `web/src/app/(trip-draft)/home/page.tsx`, `web/e2e/landing.spec.ts`
+- **Depends on:** FE-223
+- **Produces:** the public landing page at `/`: a sticky nav, a hero over a looping video (the poster alone under reduced motion), a product preview built from the app's own primitives, How it works, four feature bands, a destination strip, an FAQ accordion, a final call to action, and a footer. Copy advertises only what the design's five flows do (design §11.10): no voting, recap, gallery, restaurant call, flights, or prices, and money copy says "Agent proposed · You approve". The dashboard moves from `/` to `/home`. Media are kebab-case WebP and a re-encoded H.264/WebM loop with a poster.
+- **Done when:**
+  - [ ] `pnpm --filter web test -- src/features/landing` passes: `no landing copy pairs the agent with paying, and none names a dropped feature`.
+  - [ ] `pnpm --filter web e2e -- e2e/landing.spec.ts` passes in CI: the page renders, every nav anchor scrolls to its section, a signed-in visitor sees "Open my trips", and axe finds no violations.
+  - [ ] Check: Lighthouse (mobile) on `/`, `/login`, and `/signup` scores Performance ≥ 85, Accessibility ≥ 95, Best Practices ≥ 95, SEO ≥ 95; no horizontal scroll at 360 px; `.next/static` holds no `DEMO_SEED_SECRET`, secret key, or demo password.
+- **Commit:** `feat(web): marketing landing page`
+
 ## Parallelization
 
 **What each engineer works on, per milestone.** Each cell lists that person's tasks, Must first. No two people edit the same file within a milestone. Files that change hands between milestones are listed in the next table.
@@ -2044,7 +2087,7 @@ This map shows that every Must task sits under a core user flow (design §5), or
 | Core flow | Must tasks |
 | --- | --- |
 | Foundation and enablers (every flow) | FE-101–108, FE-201, FE-214, AI-101–106, AI-212, CO-101–105, VO-101–107, VO-304 |
-| 5.1 Create profile | FE-221, VO-220 |
+| 5.1 Create profile | FE-221, FE-223, VO-220, VO-221 |
 | 5.2 AI-guided trip planner | FE-204, FE-206, FE-209–211, FE-218, FE-301, FE-303, AI-107, AI-201–207, AI-209, AI-211, AI-217, AI-301, AI-302 |
 | 5.3 Invite and collaborate | FE-220, AI-210, AI-216, AI-303, VO-209–211 |
 | 5.4 Group pay after confirmation | CO-107, CO-201–204, CO-207–210, CO-212–213, CO-301–305, CO-S05, VO-203, VO-213, VO-214, FE-219, FE-302 |

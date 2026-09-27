@@ -1,6 +1,6 @@
 import path from "node:path";
 import { ESLint } from "eslint";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const web = path.resolve(__dirname, "../..");
 const eslint = new ESLint({ cwd: web });
@@ -14,6 +14,9 @@ async function boundaryErrors(file: string, code: string): Promise<string[]> {
 }
 
 describe("import boundaries (design §1)", () => {
+  // The first lint builds the typed program, which can outlast the default 5 s test timeout.
+  beforeAll(() => boundaryErrors("src/lib/money/format.ts", "export const x = 1;\n"), 60_000);
+
   it("app/ deep-importing features/payments/server/approve-hold is an error", async () => {
     const code = 'import { approveHold } from "@/features/payments/server/approve-hold";\nexport const x = approveHold;\n';
     expect(await boundaryErrors("src/app/api/mandates/[id]/approve/route.ts", code)).toContain("boundaries/entry-points");
@@ -76,7 +79,7 @@ describe("import boundaries (design §1)", () => {
   });
 
   it('a client component may import a "use server" action module', async () => {
-    const action = '"use client";\nimport { demoSignIn } from "../server/demo-sign-in";\nexport const x = demoSignIn;\n';
+    const action = '"use client";\nimport { demoSignInSeeded } from "../server/demo-sign-in";\nexport const x = demoSignInSeeded;\n';
     expect(await boundaryErrors("src/features/demo/components/demo-login-picker.tsx", action)).toEqual([]);
   });
 });

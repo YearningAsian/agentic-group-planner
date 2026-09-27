@@ -23,8 +23,10 @@ export function DemoLoginPicker() {
             setPending(person);
             setError("");
             void demoSignInSeeded(person)
-              .then(() => {
-                window.location.reload();
+              .then((result) => {
+                if (result.ok) return window.location.reload();
+                setPending(null);
+                setError(result.message);
               })
               .catch(() => {
                 setPending(null);
