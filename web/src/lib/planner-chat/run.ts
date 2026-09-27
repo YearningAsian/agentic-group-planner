@@ -3,6 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { isStepCount, streamText, tool, type ModelMessage } from "ai";
 import { AppError } from "@/lib/reliability";
 import { isAbortError, plannerFailureMessage } from "./failure";
+import { decideClarification } from "./clarify";
 import { decideReply, offerRecommendation, RETRY_INSTRUCTION, SAFE_LINE } from "./ground";
 import { modelMessages, PLANNER_INSTRUCTIONS, tripContext } from "./prompt";
 import { flightSearchSchema, hotelSearchSchema, stayAreaSchema, type ChatRequest } from "./schema";
@@ -36,6 +37,7 @@ export interface PlannerRunOptions extends SearchDeps {
   baseURL?: string;
   model?: string;
   signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
 }
 
 export function runPlannerChat(input: ChatRequest, options: PlannerRunOptions): Response {
@@ -73,6 +75,7 @@ async function streamPlanner(
   options: PlannerRunOptions,
   send: (event: PlannerChatEvent) => void,
 ): Promise<void> {
+  if (await scriptedTurn(input, options, send)) return;
   const meta = createOpenAICompatible({
     name: "meta",
     apiKey: options.apiKey,
@@ -92,13 +95,13 @@ async function streamPlanner(
       toModelOutput: ({ output }) => ({ type: "text", value: stayAreaModelText(output) }),
     }),
     search_flights: tool({
-      description: "Duffel flights. City or IATA. Pass nonstop, cabin, and departure window when stated.",
+      description: "Sample catalog flights. City or IATA. Pass nonstop when stated.",
       inputSchema: flightSearchSchema,
       execute: (params) => executeFlightSearch(params, deps),
       toModelOutput: ({ output }) => ({ type: "text", value: flightModelText(output) }),
     }),
     search_hotels: tool({
-      description: "Duffel hotels in the chosen area.",
+      description: "Sample catalog hotels in the chosen city.",
       inputSchema: hotelSearchSchema,
       execute: (params) => executeHotelSearch(params, deps),
       toModelOutput: ({ output }) => ({ type: "text", value: hotelModelText(output) }),
@@ -226,6 +229,89 @@ function absorb(toolName: string, output: unknown, cards: { flights: FlightOffer
     return true;
   }
   return false;
+}
+
+/** Catalog tradeoff question, or one flight and one hotel. Skips the model. */
+async function scriptedTurn(
+  input: ChatRequest,
+  options: PlannerRunOptions,
+  send: (event: PlannerChatEvent) => void,
+): Promise<boolean> {
+  const fromQuestionnaire = input.fromQuestionnaire === true;
+  const clarifyCount = input.clarifyCount ?? 0;
+  const userTexts = input.messages.filter((message) => message.role === "user").map((message) => message.text);
+  const base = { fromQuestionnaire, clarifyCount, trip: input.trip, userTexts, flights: [] as FlightOffer[], hotels: [] as HotelOffer[] };
+  const preview = decideClarification({ ...base, searched: false });
+  if (preview.action === "ask") {
+    send({ type: "clarify" });
+    send({ type: "text", delta: preview.text });
+    return true;
+  }
+  if (preview.action !== "search") return false;
+
+  const loaded = await loadCatalogOffers(input.trip, options, send);
+  const turn = decideClarification({
+    ...base,
+    searched: true,
+    flights: loaded.flights,
+    hotels: loaded.hotels,
+  });
+  if (turn.action === "ask") {
+    send({ type: "clarify" });
+    send({ type: "text", delta: turn.text });
+    return true;
+  }
+  if (turn.action !== "commit") return false;
+  const flights = turn.flight ? [turn.flight] : [];
+  const hotels = turn.hotel ? [turn.hotel] : [];
+  if (flights.length > 0 || hotels.length > 0) send({ type: "cards", flights, hotels, commit: true });
+  const extra = [flights.length === 0 ? loaded.flightGap : null, hotels.length === 0 ? loaded.hotelGap : null].filter(
+    (note): note is string => Boolean(note),
+  );
+  send({ type: "text", delta: extra.length > 0 ? `${turn.text} ${extra.join(" ")}` : turn.text });
+  return true;
+}
+
+async function loadCatalogOffers(
+  trip: ChatRequest["trip"],
+  deps: SearchDeps,
+  send: (event: PlannerChatEvent) => void,
+): Promise<{ flights: FlightOffer[]; hotels: HotelOffer[]; flightGap: string | null; hotelGap: string | null }> {
+  const origin = trip?.origin?.trim() ?? "";
+  const destination = trip?.destination?.trim() ?? "";
+  const start = isoDate(trip?.startDate);
+  const end = isoDate(trip?.endDate);
+  const travelers = travelerCount(trip?.members);
+  const cards = { flights: [] as FlightOffer[], hotels: [] as HotelOffer[] };
+  let flightGap: string | null = null;
+  let hotelGap: string | null = null;
+
+  if (origin.length >= 2 && destination.length >= 2 && start) {
+    send({ type: "status", text: "Searching flights…" });
+    const result = await executeFlightSearch(
+      {
+        origin,
+        destination,
+        departureDate: start,
+        ...(end && end > start ? { returnDate: end } : {}),
+        travelers,
+        cabinClass: "economy",
+      },
+      deps,
+    );
+    flightGap = result.ok && result.flights.length > 0 ? null : result.ok ? result.note || "No flights matched that search." : result.error;
+    absorb("search_flights", result, cards);
+  }
+
+  if (destination.length >= 2 && start) {
+    const checkOut = end && end > start ? end : dayAfter(start);
+    send({ type: "status", text: "Searching hotels…" });
+    const result = await executeHotelSearch({ destination, checkIn: start, checkOut, guests: travelers, rooms: 1 }, deps);
+    hotelGap = hotelGapFrom(result);
+    absorb("search_hotels", result, cards);
+  }
+
+  return { flights: cards.flights, hotels: cards.hotels, flightGap, hotelGap };
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

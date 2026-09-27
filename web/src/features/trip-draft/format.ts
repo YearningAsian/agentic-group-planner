@@ -25,7 +25,7 @@ export type QuestionnaireBriefInput = {
   budget: number | null;
   dietary: string[];
   vibes: string[];
-  members: Array<{ name: string; placeholder: boolean }>;
+  members: Array<{ name: string; placeholder: boolean; joined?: boolean }>;
 };
 
 
@@ -91,6 +91,17 @@ export function validRange(start: string, end: string): boolean {
   return Date.parse(`${end}T12:00:00`) > Date.parse(`${start}T12:00:00`);
 }
 
+function goingSentence(members: QuestionnaireBriefInput["members"]): string {
+  const names = members
+    .filter((member) => member.joined !== false && !member.placeholder)
+    .map((member) => member.name.trim())
+    .filter(Boolean);
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} is going.`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are going.`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]} are going.`;
+}
+
 /** One paragraph the studio sends so the agent starts from every questionnaire answer. */
 export function questionnaireBrief(state: QuestionnaireBriefInput): string {
   const fixture = destinationById(state.destinationId);
@@ -103,7 +114,8 @@ export function questionnaireBrief(state: QuestionnaireBriefInput): string {
     : `${formatDay(state.startDate)}, one way`;
   const budget =
     state.budget != null && state.budget > 0 ? `Budget is ${money(state.budget)} per person.` : "Budget is open.";
-  const parts = [`Plan a trip ${where}, ${when}. Recommend the airports.`, budget];
+  const going = goingSentence(state.members);
+  const parts = [`Plan a trip ${where}, ${when}. Recommend the airports.`, going, budget].filter(Boolean);
   const visit = state.placesToVisit?.trim();
   if (visit) parts.push(`They want to visit: ${visit}. Recommend places that match.`);
   const stay = state.stayPreference?.trim();

@@ -159,7 +159,15 @@ describe("PlannerStudio", () => {
         body: expect.stringContaining(brief),
       }),
     );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/planner/chat",
+      expect.objectContaining({
+        body: expect.stringContaining('"fromQuestionnaire":true'),
+      }),
+    );
     expect(sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY)).toBeNull();
+    expect(screen.queryByText(/Alfama townhouse/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose room/i })).not.toBeInTheDocument();
   });
 
   it("does not message the agent when studio opens without the kickoff flag", () => {
@@ -442,6 +450,91 @@ describe("PlannerStudio", () => {
       guestScore: 8.6,
       image: null,
     });
+  });
+
+  it("locks the committed flight and hotel without a second choose click", async () => {
+    const flight = {
+      airline: "TAP",
+      origin: "JFK",
+      destination: "LIS",
+      departureTime: "2026-06-01T08:00:00",
+      arrivalTime: "2026-06-01T18:00:00",
+      stops: 0,
+      price: 400,
+      totalPrice: 400,
+      currency: "USD",
+    };
+    const hotel = {
+      id: "acc_harbor",
+      name: "Harbor Test Hotel",
+      location: "Alfama",
+      image: null,
+      pricePerNight: 210,
+      totalPrice: 630,
+      currency: "EUR",
+      rating: 8.6,
+      amenities: ["Wifi"],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const body = [
+          JSON.stringify({ type: "text", delta: "Based on that, I'd go with TAP and Harbor Test Hotel." }),
+          JSON.stringify({ type: "cards", flights: [flight], hotels: [hotel], commit: true }),
+          JSON.stringify({ type: "done" }),
+          "",
+        ].join("\n");
+        return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+    render(<PlannerStudio />);
+
+    await userEvent.type(screen.getByLabelText(/message the trip agent/i), "Find a flight and hotel");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(await screen.findByText(/based on that, i'd go with tap/i)).toBeInTheDocument();
+    expect(chooseFlight).toHaveBeenCalledWith(flight);
+    expect(chooseStay).toHaveBeenCalledWith({
+      id: "acc_harbor",
+      name: "Harbor Test Hotel",
+      area: "Alfama",
+      nightlyAmount: 210,
+      currency: "EUR",
+      guestScore: 8.6,
+      image: null,
+    });
+  });
+
+  it("counts a clarifying question before the next message", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(String(init?.body ?? ""));
+        const clarify = bodies.length === 1;
+        const body = clarify
+          ? [
+              JSON.stringify({ type: "clarify" }),
+              JSON.stringify({ type: "text", delta: "Which matters more, price or time?" }),
+              JSON.stringify({ type: "done" }),
+              "",
+            ].join("\n")
+          : [JSON.stringify({ type: "text", delta: "Noted." }), JSON.stringify({ type: "done" }), ""].join("\n");
+        return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+    render(<PlannerStudio />);
+
+    await userEvent.type(screen.getByLabelText(/message the trip agent/i), "Plan Miami");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+    expect(await screen.findByText(/price or time/i)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/message the trip agent/i), "price");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+    expect(await screen.findByText("Noted.")).toBeInTheDocument();
+
+    expect(JSON.parse(bodies[0] ?? "{}")).toMatchObject({ fromQuestionnaire: false, clarifyCount: 0 });
+    expect(JSON.parse(bodies[1] ?? "{}")).toMatchObject({ clarifyCount: 1 });
   });
 
   it("sends price-bubble markers to the map only while browsing", async () => {
