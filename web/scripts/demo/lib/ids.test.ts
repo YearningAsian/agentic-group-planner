@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { inviteTokenFor, slugFor, uuidFor } from "./ids";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { inviteTokenFor, uuidFor } from "./ids";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -32,9 +34,10 @@ describe("seed ids", () => {
     expect(() => inviteTokenFor("demo")).toThrow(/DEMO_SEED_SECRET/);
   });
 
-  it("slugFor returns a stable 11-character URL-safe slug", () => {
-    expect(slugFor("demo", "trip:saturday")).toMatch(/^[A-Za-z0-9_-]{11}$/);
-    expect(slugFor("demo", "trip:saturday")).toBe(slugFor("demo", "trip:saturday"));
-    expect(slugFor("demo", "trip:saturday")).not.toBe(slugFor("dev-vo", "trip:saturday"));
+  it("the seeded trip keeps a fixed, valid public slug", () => {
+    const fixture = JSON.parse(readFileSync(path.join(__dirname, "../fixtures/saturday-trip.json"), "utf8")) as {
+      trip: { slug?: string };
+    };
+    expect(fixture.trip.slug).toMatch(/^[A-Za-z0-9_-]{11}$/);
   });
 });

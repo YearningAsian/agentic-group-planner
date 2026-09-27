@@ -27,7 +27,7 @@ export const InviteStop = z.object({
 export type InviteStop = z.infer<typeof InviteStop>;
 
 /**
- * What `/invite/[token]` shows before anyone signs in (design §5.3). An open invite reveals only
+ * What `/join/[token]` shows before anyone signs in (design §5.3). An open invite reveals only
  * the trip's title and date and the invited member's own lane: no other members, prices, or IDs.
  */
 export const InvitePreview = z.discriminatedUnion("status", [

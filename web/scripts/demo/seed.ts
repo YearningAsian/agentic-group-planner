@@ -11,12 +11,12 @@ import { SEEDED_USERS, type SeededUserKey, seededEmail } from "./fixtures/users"
 import { type ScriptAdmin, scriptAdmin } from "./lib/admin";
 import { parseSeedArgs, type Stage } from "./lib/args";
 import { runStages } from "./stages";
-import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
+import { inviteTokenFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
 import { seedStripeCustomers } from "./stripe-customers";
 
 interface TripFixture {
-  trip: { key: string; title: string; city: string; timezone: string; price_threshold_percent: number };
+  trip: { key: string; slug: string; title: string; city: string; timezone: string; price_threshold_percent: number };
   members: {
     key: string;
     display_name: string;
@@ -127,7 +127,7 @@ async function upsertPlaces(admin: ScriptAdmin, trip: TripFixture): Promise<void
 async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<SeededUserKey, string>, now: Date) {
   const f = SATURDAY_TRIP;
   const tripId = uuidFor(batch, `trip:${f.trip.key}`);
-  const slug = slugFor(batch, `trip:${f.trip.key}`);
+  const slug = f.trip.slug;
   const inviteToken = inviteTokenFor(batch);
   const date = nextSaturday(now, f.trip.timezone);
   const organizer = f.members.find((m) => m.role === "organizer")!;
@@ -150,6 +150,8 @@ async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<Seede
     ),
     "trip",
   );
+  const stored = check(await admin.from("trips").select("slug").eq("id", tripId).single(), "trip slug");
+  if (!stored || stored.slug !== slug) throw new Error("seed: the fixed trip slug belongs to another trip");
   check(
     await admin.from("trip_members").upsert(
       f.members.map((m, i) => ({
@@ -250,7 +252,7 @@ async function main(): Promise<void> {
   for (const [table, n] of Object.entries(result.counts)) console.log(`  ${table.padEnd(20)} ${n}`);
   if (process.env.PAYMENTS_PROVIDER === "real") console.log(`Stripe customers created: ${result.stripeCustomersCreated}`);
   console.log(`Trip:              ${app}/trip/${result.slug}`);
-  console.log(`Person 4's invite: ${app}/invite/${result.inviteToken}`);
+  console.log(`Person 4's invite: ${app}/join/${result.inviteToken}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

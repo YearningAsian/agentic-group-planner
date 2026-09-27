@@ -31,11 +31,6 @@ export function uuidFor(batch: string, name: string): string {
 }
 uuidFor.fromNamespace = uuidV5;
 
-/** A stable 11-character trip slug for a seeded trip. */
-export function slugFor(batch: string, name: string): string {
-  return createHash("sha256").update(`slug:${batch}:${name}`).digest("base64url").slice(0, 11);
-}
-
 /**
  * Person 4's invite token: stable across resets, so a saved invite link keeps working, but keyed
  * by DEMO_SEED_SECRET, so it can't be derived from the repo.
