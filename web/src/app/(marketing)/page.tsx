@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { HERO, LandingPage, PRODUCT_NAME } from "@/features/landing";
+import { EnvError } from "@/lib/env/error";
 import { getServerClient } from "@/lib/supabase/server";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -31,10 +32,20 @@ export const metadata: Metadata = {
   },
 };
 
+/** Session check for CTA copy. Missing public env (preview builds) → signed out. */
+async function readSignedIn(): Promise<boolean> {
+  try {
+    const client = await getServerClient();
+    const { data } = await client.auth.getUser();
+    return Boolean(data.user);
+  } catch (error) {
+    if (error instanceof EnvError) return false;
+    throw error;
+  }
+}
+
 export default async function MarketingHomePage() {
-  const client = await getServerClient();
-  const { data } = await client.auth.getUser();
-  const signedIn = Boolean(data.user);
+  const signedIn = await readSignedIn();
   const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
   return <LandingPage signedIn={signedIn} demoMode={demoMode} />;

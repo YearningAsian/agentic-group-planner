@@ -1,33 +1,26 @@
 "use client";
 
-import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
-import { EnvError } from "@/lib/env/error";
-import { type BrowserClient, getBrowserClient } from "./browser";
+import { createContext, type ReactNode, useContext, useSyncExternalStore } from "react";
+import { type BrowserClient, tryGetBrowserClient } from "./browser";
 
 const SupabaseContext = createContext<BrowserClient | null>(null);
+
+const emptySubscribe = () => () => {};
+
+/** Snapshot for both server and client so hydration matches when env is present or absent. */
+function readBrowserClient(): BrowserClient | null {
+  return tryGetBrowserClient();
+}
 
 /**
  * Makes the one browser client available to client components through `useSupabase()`.
  *
- * Creation is deferred when public env is missing during SSG/prerender (common on Vercel
- * previews before project env is wired). The shell still renders; runtime fails clearly once
- * a component actually needs the client.
+ * Uses `tryGetBrowserClient` so SSG/prerender succeeds when public env is missing (common on
+ * Vercel previews before project env is wired). The shell still renders; runtime fails clearly
+ * once a component actually needs the client (`useSupabase` or `getBrowserClient`).
  */
 export function SupabaseProvider({ children }: { children: ReactNode }) {
-  const [client, setClient] = useState<BrowserClient | null>(() => {
-    try {
-      return getBrowserClient();
-    } catch (error) {
-      if (typeof window === "undefined" && error instanceof EnvError) return null;
-      throw error;
-    }
-  });
-
-  useEffect(() => {
-    if (client) return;
-    setClient(getBrowserClient());
-  }, [client]);
-
+  const client = useSyncExternalStore(emptySubscribe, readBrowserClient, readBrowserClient);
   return <SupabaseContext value={client}>{children}</SupabaseContext>;
 }
 
