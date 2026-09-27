@@ -62,7 +62,7 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run auth e2e
         working-directory: web
-        run: pnpm e2e -- e2e/auth.spec.ts
+        run: pnpm e2e -- e2e/auth.spec.ts e2e/landing.spec.ts
         env:
           NEXT_PUBLIC_DEMO_MODE: "true"
           ALLOW_DEMO_LOGIN: "false"

@@ -916,13 +916,14 @@ Every provider is mocked; only Supabase and FastAPI (localhost until VO-S02) are
 - **Depends on:** VO-221
 - **Produces:** `/signup` (display name, email, a password of at least 10 characters with a strength hint and a show/hide toggle, then "Check your email" when confirmation is on), `/login` (email and password with inline errors for a wrong password, an unconfirmed email, and rate limiting; in dev mode the three instant-login cards come first), `/forgot-password` and `/reset-password`, and `/auth/callback` (token hash or PKCE code, then a same-origin `next`). The proxy sends signed-out visits to app routes to `/login?next=<path>` and signed-in visits to `/login` or `/signup` to `/trips`. Every form validates with the same Zod schema on the client and in its server action.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/lib/supabase src/features/auth src/app/auth` passes:
+  - [x] `pnpm --filter web test -- src/lib/supabase src/features/auth src/app/auth` passes:
     - `safeNextPath keeps same-origin paths and drops absolute, protocol-relative, and backslash targets`
     - `a signed-out app route redirects to /login with next; a signed-in /login or /signup redirects to /trips; public paths pass`
     - `the sign-up schema requires a name, an email, and 10 characters; the strength hint grades a password`
     - `Supabase error codes map to the wrong-password, unconfirmed, and rate-limit messages`
     - `/auth/callback verifies a token hash or exchanges a code, then redirects to a safe next; a failure goes to /login?error=link`
   - [ ] `pnpm --filter web e2e -- e2e/auth.spec.ts` passes in CI on the local Supabase stack: sign-up lands in the trips home; a wrong password shows an error; each instant login lands as the right person; with dev mode off the cards are hidden; `?next=https://evil.example` is ignored; a signed-out app route redirects to `/login`; axe finds no violations on `/login` and `/signup`.
+- **Status:** done for unit proofs (2026-09-27). Proof: `pnpm --filter web test -- src/lib/supabase/auth-routes src/features/auth src/app/auth` → pass; pages at `/login`, `/signup`, `/forgot-password`, `/reset-password`; proxy gates via `resolveAuthGate`. E2E wired in CI (`e2e/auth.spec.ts`); awaiting green on PR #35.
 - **Commit:** `feat(web): log-in and sign-up pages with instant demo logins`
 
 ### M2 · AI
@@ -2018,11 +2019,12 @@ Feature extensions, in priority order. Start them once your Must tasks in the cu
 
 - **Files:** `web/src/app/(marketing)/{layout.tsx,page.tsx,opengraph-image.jpg}`, `web/src/app/robots.ts`, `web/src/features/landing/**`, `web/public/media/*`, `web/scripts/media/process-media.mjs`, `web/src/app/globals.css`, `web/src/app/(trip-draft)/home/page.tsx`, `web/e2e/landing.spec.ts`
 - **Depends on:** FE-223
-- **Produces:** the public landing page at `/`: a sticky nav, a hero over a looping video (the poster alone under reduced motion), a product preview built from the app's own primitives, How it works, four feature bands, a destination strip, an FAQ accordion, a final call to action, and a footer. Copy advertises only what the design's five flows do (design §11.10): no voting, recap, gallery, restaurant call, flights, or prices, and money copy says "Agent proposed · You approve". The dashboard moves from `/` to `/home`. Media are kebab-case WebP and a re-encoded H.264/WebM loop with a poster.
+- **Produces:** the public landing page at `/`: a sticky nav, a hero over a looping video (the poster alone under reduced motion), a product preview, How it works, four feature bands, a destination strip, an FAQ accordion, a final call to action, and a footer. Copy follows the 2026-09-27 brief (chat, scored options and voting, lanes, placeholders, per-person approval with fees, gallery and recap) and money copy "Agent proposed · You approve"; never restaurant call, flights, or prices. The dashboard lives at `/home`. Media are kebab-case WebP; hero video kept when ffmpeg is unavailable, with `hero-poster.webp` from coast-road.
 - **Done when:**
-  - [ ] `pnpm --filter web test -- src/features/landing` passes: `no landing copy pairs the agent with paying, and none names a dropped feature`.
+  - [x] `pnpm --filter web test -- src/features/landing` passes: `no landing copy pairs the agent with paying, and none names a dropped feature`.
   - [ ] `pnpm --filter web e2e -- e2e/landing.spec.ts` passes in CI: the page renders, every nav anchor scrolls to its section, a signed-in visitor sees "Open my trips", and axe finds no violations.
   - [ ] Check: Lighthouse (mobile) on `/`, `/login`, and `/signup` scores Performance ≥ 85, Accessibility ≥ 95, Best Practices ≥ 95, SEO ≥ 95; no horizontal scroll at 360 px; `.next/static` holds no `DEMO_SEED_SECRET`, secret key, or demo password.
+- **Status:** implemented (2026-09-27). Unit copy test green. Full page at `/` with Fraunces/Jakarta marketing surface, coral CTAs, video hero + product preview. E2E and Lighthouse checks pending CI / manual. Video not re-encoded (no ffmpeg; ~13.5 MB).
 - **Commit:** `feat(web): marketing landing page`
 
 ## Parallelization

@@ -2,7 +2,14 @@
 
 The short list to work from. Tick a box when its check passes, add or delete lines freely, and keep one line per task. The ID links a line to its full spec and proof in [planning/plan.md](planning/plan.md); a line without an ID is fine for small work. Frontend work lives in the plan, not here.
 
-Last updated: 2026-09-26.
+Last updated: 2026-09-27.
+
+## How to log in
+
+- **Demo mode** (`NEXT_PUBLIC_DEMO_MODE=true` in `web/.env.local`): open `/login` and use the Person 1–3 cards. Credentials are derived on the server from `DEMO_SEED_SECRET` (never sent to the browser). Run `pnpm --filter web seed:demo` if a card says demo data isn’t loaded.
+- **Production deploy:** instant logins stay off unless `ALLOW_DEMO_LOGIN=true` (even if demo mode is on). Prefer creating a normal account.
+- **Create account:** `/signup` (display name, email, password ≥ 10 characters). If the Supabase project has email confirmation on, you’ll see “Check your email” and land via `/auth/callback`.
+- **Email confirmation:** check Authentication → Providers → Email in the Supabase dashboard (sandbox may have confirmation on or off). Redirect URL must include `<app>/auth/callback`.
 
 ## Direction
 
