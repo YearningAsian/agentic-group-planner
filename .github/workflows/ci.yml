@@ -60,12 +60,20 @@ jobs:
       - name: Install Playwright Chromium
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run auth e2e
+      - name: Run auth and landing e2e
         working-directory: web
-        run: pnpm e2e -- e2e/auth.spec.ts e2e/landing.spec.ts
+        # Landing spec is optional so the same job works on auth-only branches.
+        run: |
+          specs=(e2e/auth.spec.ts)
+          if [ -f e2e/landing.spec.ts ]; then
+            specs+=(e2e/landing.spec.ts)
+          fi
+          pnpm e2e -- "${specs[@]}"
         env:
           NEXT_PUBLIC_DEMO_MODE: "true"
           ALLOW_DEMO_LOGIN: "false"
+
+  optimizer:
     runs-on: ubuntu-latest
     defaults:
       run:
