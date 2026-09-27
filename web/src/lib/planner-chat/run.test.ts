@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { PlaceSuggestion } from "@/lib/providers/place-suggestions/types";
-import { offerRecommendation, SAFE_LINE } from "./ground";
-import { HOTEL_UNAVAILABLE } from "./types";
+import { bundledSampleCatalog } from "@/lib/demo/sample-catalog";
+import { SAFE_LINE } from "./ground";
 import { runPlannerChat } from "./run";
 
-const miami: PlaceSuggestion = {
-  kind: "city",
-  name: "Miami",
-  iataCode: "MIA",
-  airports: [],
-  lat: 25.76,
-  lng: -80.19,
+const noMiamiStays = {
+  ...bundledSampleCatalog,
+  stays: { ...bundledSampleCatalog.stays, miami: [] },
 };
 
 function sse(content: string): Response {
@@ -61,9 +56,12 @@ function scriptedFetch(steps: Array<string | (() => Response)>) {
   return { fetch, calls: () => index, bodies: () => bodies };
 }
 
-const request = { messages: [{ role: "user" as const, text: "Find a flight to Miami" }] };
+const request = {
+  messages: [{ role: "user" as const, text: "Find a flight to Miami" }],
+  fromQuestionnaire: true,
+};
 
-describe("runPlannerChat Duffel gate", () => {
+describe("runPlannerChat sample catalog", () => {
   it("drops an invented fare and keeps the follow-up question", async () => {
     const { fetch, calls } = scriptedFetch(["Delta is $400.", "What dates are you traveling?"]);
     const response = await runPlannerChat(request, { apiKey: "test-key", fetchImpl: fetch });
@@ -80,7 +78,7 @@ describe("runPlannerChat Duffel gate", () => {
     }));
     const { fetch, bodies } = scriptedFetch(["What dates are you traveling?"]);
     const response = await runPlannerChat(
-      { messages: history, trip: { destination: "Miami" } },
+      { messages: history, trip: { destination: "Miami" }, fromQuestionnaire: true },
       { apiKey: "test-key", fetchImpl: fetch },
     );
     await response.text();
@@ -106,7 +104,7 @@ describe("runPlannerChat Duffel gate", () => {
     expect(calls()).toBe(1);
   });
 
-  it("replaces an ungrounded price after Duffel was not the source of that number", async () => {
+  it("replaces an ungrounded price when the catalog was not the source of that number", async () => {
     const { fetch } = scriptedFetch(["The fare is $400."]);
     const response = await runPlannerChat(request, { apiKey: "test-key", fetchImpl: fetch });
     const first = await response.text();
@@ -114,7 +112,7 @@ describe("runPlannerChat Duffel gate", () => {
     expect(first).toContain(SAFE_LINE);
   });
 
-  it("replaces an invented price after a Duffel search and keeps the Duffel card", async () => {
+  it("replaces an invented price after a catalog search and keeps the sample fare", async () => {
     const { fetch } = scriptedFetch([
       () =>
         toolSse(
@@ -126,34 +124,15 @@ describe("runPlannerChat Duffel gate", () => {
     const response = await runPlannerChat(request, {
       apiKey: "test-key",
       fetchImpl: fetch,
-      places: { suggest: async () => [{ ...miami, iataCode: "ATL", name: "Atlanta" }, miami] },
-      flights: {
-        search: async () => ({
-          flights: [
-            {
-              airline: "Delta Air Lines",
-              flightNumber: "DL123",
-              origin: "ATL",
-              destination: "MIA",
-              departureTime: "2026-10-15T08:20:00",
-              arrivalTime: "2026-10-15T10:05:00",
-              stops: 0,
-              price: 179,
-              totalPrice: 179,
-              currency: "USD",
-            },
-          ],
-        }),
-      },
+      catalog: bundledSampleCatalog,
     });
     const body = await response.text();
     expect(body).not.toMatch(/\$400/);
-    expect(body).toContain("The pick is Delta Air Lines DL123");
-    expect(body).toContain("$179");
+    expect(body).toContain("The pick is Mariner from JFK to MIA at 08:05 for $196.");
   });
 
-  it("recommends from the trip draft when the model does not search", async () => {
-    const { fetch } = scriptedFetch([""]);
+  it("asks for the missing budget before it searches when the questionnaire was skipped", async () => {
+    const { fetch, calls } = scriptedFetch([""]);
     const response = await runPlannerChat(
       {
         messages: [{ role: "user", text: "Plan the trip" }],
@@ -165,144 +144,73 @@ describe("runPlannerChat Duffel gate", () => {
           members: ["Ava"],
         },
       },
-      {
-        apiKey: "test-key",
-        fetchImpl: fetch,
-        places: { suggest: async () => [miami] },
-        flights: {
-          search: async () => ({
-            flights: [
-              {
-                airline: "Delta Air Lines",
-                flightNumber: "DL123",
-                origin: "ATL",
-                destination: "MIA",
-                departureTime: "2026-10-15T08:20:00",
-                arrivalTime: "2026-10-15T10:05:00",
-                stops: 0,
-                price: 179,
-                totalPrice: 179,
-                currency: "USD",
-              },
-            ],
-          }),
-        },
-        stays: {
-          search: async () => [
-            {
-              id: "stay-1",
-              name: "The Example Hotel",
-              image: null,
-              area: "South Beach",
-              guestScore: 8.8,
-              reviewCount: 10,
-              starRating: 4,
-              nightlyAmount: 210,
-              totalAmount: 630,
-              currency: "USD",
-              amenities: ["Pool"],
-            },
-          ],
-          getAccommodation: async () => null,
-          getRates: async () => null,
-          getReviews: async () => [],
-        },
-      },
+      { apiKey: "test-key", fetchImpl: fetch, catalog: bundledSampleCatalog },
     );
     const body = await response.text();
-    expect(body).not.toContain("Tell me a bit more");
-    expect(body).toContain("Stay at The Example Hotel");
-    expect(body).toContain(offerRecommendation(
-      [
-        {
-          airline: "Delta Air Lines",
-          flightNumber: "DL123",
-          origin: "ATL",
-          destination: "MIA",
-          departureTime: "2026-10-15T08:20:00",
-          arrivalTime: "2026-10-15T10:05:00",
-          stops: 0,
-          price: 179,
-          totalPrice: 179,
-          currency: "USD",
-        },
-      ],
-      [
-        {
-          name: "The Example Hotel",
-          location: "South Beach",
-          pricePerNight: 210,
-          totalPrice: 630,
-          currency: "USD",
-          rating: 8.8,
-          amenities: ["Pool"],
-        },
-      ],
-    ));
+    expect(body).toContain("What's the budget per person?");
+    expect(body).toContain('"type":"clarify"');
+    expect(body).not.toContain("The pick is");
+    expect(body).not.toContain('"type":"cards"');
+    expect(calls()).toBe(0);
   });
 
-  it("recommends a hotel when the model only searched flights", async () => {
-    const { fetch } = scriptedFetch([
-      () =>
-        toolSse(
-          "search_flights",
-          JSON.stringify({ origin: "ATL", destination: "MIA", departureDate: "2026-10-15", travelers: 1 }),
-        ),
-      "",
-    ]);
+  it("asks a fare tradeoff from the sample catalog after the questionnaire", async () => {
+    const { fetch, calls } = scriptedFetch([""]);
     const response = await runPlannerChat(
       {
         messages: [{ role: "user", text: "Plan the trip" }],
-        trip: { destination: "Miami", startDate: "2026-10-15", endDate: "2026-10-18" },
-      },
-      {
-        apiKey: "test-key",
-        fetchImpl: fetch,
-        places: { suggest: async () => [miami] },
-        flights: {
-          search: async () => ({
-            flights: [
-              {
-                airline: "Delta Air Lines",
-                flightNumber: "DL123",
-                origin: "ATL",
-                destination: "MIA",
-                departureTime: "2026-10-15T08:20:00",
-                arrivalTime: "2026-10-15T10:05:00",
-                stops: 0,
-                price: 179,
-                totalPrice: 179,
-                currency: "USD",
-              },
-            ],
-          }),
-        },
-        stays: {
-          search: async () => [
-            {
-              id: "stay-1",
-              name: "The Example Hotel",
-              image: null,
-              area: "South Beach",
-              guestScore: 8.8,
-              reviewCount: 10,
-              starRating: 4,
-              nightlyAmount: 210,
-              totalAmount: 630,
-              currency: "USD",
-              amenities: ["Pool"],
-            },
-          ],
-          getAccommodation: async () => null,
-          getRates: async () => null,
-          getReviews: async () => [],
+        fromQuestionnaire: true,
+        trip: {
+          origin: "New York",
+          destination: "Miami",
+          startDate: "2026-10-15",
+          endDate: "2026-10-18",
+          budget: 800,
+          members: ["Ava"],
         },
       },
+      { apiKey: "test-key", fetchImpl: fetch, catalog: bundledSampleCatalog },
     );
     const body = await response.text();
-    expect(body).toContain("The pick is Delta Air Lines DL123");
-    expect(body).toContain("Stay at The Example Hotel in South Beach");
-    expect(body).toContain('"name":"The Example Hotel"');
+    expect(body).toContain("Mariner");
+    expect(body).toContain("$196");
+    expect(body).toContain("Cedar Air");
+    expect(body).toContain("$148");
+    expect(body).toMatch(/price or time/i);
+    expect(body).toContain('"type":"clarify"');
+    expect(body).not.toContain('"type":"cards"');
+    expect(calls()).toBe(0);
+  });
+
+  it("commits one sample flight and one hotel after the question cap", async () => {
+    const { fetch, calls } = scriptedFetch([""]);
+    const response = await runPlannerChat(
+      {
+        messages: [
+          { role: "user", text: "Plan the trip" },
+          { role: "user", text: "cheaper" },
+          { role: "user", text: "the guest score" },
+        ],
+        fromQuestionnaire: true,
+        clarifyCount: 2,
+        trip: {
+          origin: "New York",
+          destination: "Miami",
+          startDate: "2026-10-15",
+          endDate: "2026-10-18",
+          budget: 800,
+        },
+      },
+      { apiKey: "test-key", fetchImpl: fetch, catalog: bundledSampleCatalog },
+    );
+    const body = await response.text();
+    expect(body).toMatch(/based on that, i'd go with/i);
+    expect(body).toContain("Cedar Air");
+    expect(body).toContain("Coconut Grove rooms");
+    expect(body).toContain('"commit":true');
+    expect(body).not.toContain("Lumen");
+    expect(body).not.toContain("Wynwood");
+    expect(calls()).toBe(0);
   });
 
   it("keeps the flight pick and says when hotel search fails", async () => {
@@ -316,46 +224,31 @@ describe("runPlannerChat Duffel gate", () => {
     ]);
     const response = await runPlannerChat(
       {
-        messages: [{ role: "user", text: "Plan the trip" }],
-        trip: { destination: "Miami", startDate: "2026-10-15", endDate: "2026-10-18" },
-      },
-      {
-        apiKey: "test-key",
-        fetchImpl: fetch,
-        places: { suggest: async () => [miami] },
-        flights: {
-          search: async () => ({
-            flights: [
-              {
-                airline: "Delta Air Lines",
-                flightNumber: "DL123",
-                origin: "ATL",
-                destination: "MIA",
-                departureTime: "2026-10-15T08:20:00",
-                arrivalTime: "2026-10-15T10:05:00",
-                stops: 0,
-                price: 179,
-                totalPrice: 179,
-                currency: "USD",
-              },
-            ],
-          }),
-        },
-        stays: {
-          search: async () => Promise.reject(new Error("stays down")),
-          getAccommodation: async () => null,
-          getRates: async () => null,
-          getReviews: async () => [],
+        messages: [
+          { role: "user", text: "Plan the trip" },
+          { role: "user", text: "time" },
+        ],
+        fromQuestionnaire: true,
+        clarifyCount: 2,
+        trip: {
+          origin: "New York",
+          destination: "Miami",
+          startDate: "2026-10-15",
+          endDate: "2026-10-18",
+          budget: 800,
         },
       },
+      { apiKey: "test-key", fetchImpl: fetch, catalog: noMiamiStays },
     );
     const body = await response.text();
-    expect(body).toContain("The pick is Delta Air Lines DL123");
-    expect(body).toContain(HOTEL_UNAVAILABLE);
+    expect(body).toMatch(/based on that, i'd go with/i);
+    expect(body).toContain("Mariner");
+    expect(body).toContain("No hotels matched that search.");
     expect(body).not.toContain("Stay at");
+    expect(body).toContain('"commit":true');
   });
 
-  it("retries hotels after a failed stay lookup", async () => {
+  it("fills hotels from the catalog after a miss on an unknown city", async () => {
     const { fetch } = scriptedFetch([
       () =>
         toolSse(
@@ -367,36 +260,13 @@ describe("runPlannerChat Duffel gate", () => {
     const response = await runPlannerChat(
       {
         messages: [{ role: "user", text: "Where should we stay?" }],
+        fromQuestionnaire: true,
         trip: { destination: "Miami", startDate: "2026-10-15", endDate: "2026-10-18" },
       },
-      {
-        apiKey: "test-key",
-        fetchImpl: fetch,
-        places: { suggest: async (query) => (query.toLowerCase() === "miami" ? [miami] : []) },
-        stays: {
-          search: async () => [
-            {
-              id: "stay-1",
-              name: "The Example Hotel",
-              image: null,
-              area: "South Beach",
-              guestScore: 8.8,
-              reviewCount: 10,
-              starRating: 4,
-              nightlyAmount: 210,
-              totalAmount: 630,
-              currency: "USD",
-              amenities: ["Pool"],
-            },
-          ],
-          getAccommodation: async () => null,
-          getRates: async () => null,
-          getReviews: async () => [],
-        },
-      },
+      { apiKey: "test-key", fetchImpl: fetch, catalog: bundledSampleCatalog },
     );
     const body = await response.text();
-    expect(body).toContain("Stay at The Example Hotel in South Beach");
+    expect(body).toContain("Stay at Coconut Grove rooms in Coconut Grove for $210 a night.");
     expect(body).not.toContain("Nowhere");
   });
 });

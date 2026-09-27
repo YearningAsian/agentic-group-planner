@@ -44,25 +44,25 @@ describe("questionnaireBrief", () => {
         }),
       ),
     ).toBe(
-      "Plan a trip to Lisbon, Jun 1–4, round trip. Recommend the airports. Budget is $1,200 per person. They want to visit: Fushimi Inari. Recommend places that match. Stay: a quiet ryokan near the station.",
+      "Plan a trip to Lisbon, Jun 1–4, round trip. Recommend the airports. Alex and Sam are going. Budget is $1,200 per person. They want to visit: Fushimi Inari. Recommend places that match. Stay: a quiet ryokan near the station.",
     );
   });
 
   it("uses the fixture city and omits a blank visit or stay", () => {
     expect(questionnaireBrief(answers({ destinationLabel: "", destinationIata: null }))).toBe(
-      "Plan a trip to Lisbon, Jun 1–4, round trip. Recommend the airports. Budget is $1,200 per person.",
+      "Plan a trip to Lisbon, Jun 1–4, round trip. Recommend the airports. Alex and Sam are going. Budget is $1,200 per person.",
     );
   });
 
   it("names the starting place when one was picked", () => {
     expect(questionnaireBrief(answers({ originLabel: "New York" }))).toBe(
-      "Plan a trip from New York to Lisbon, Jun 1–4, round trip. Recommend the airports. Budget is $1,200 per person.",
+      "Plan a trip from New York to Lisbon, Jun 1–4, round trip. Recommend the airports. Alex and Sam are going. Budget is $1,200 per person.",
     );
   });
 
   it("describes a one-way departure without a return date", () => {
     expect(questionnaireBrief(answers({ roundTrip: false, endDate: "" }))).toBe(
-      "Plan a trip to Lisbon, Jun 1, one way. Recommend the airports. Budget is $1,200 per person.",
+      "Plan a trip to Lisbon, Jun 1, one way. Recommend the airports. Alex and Sam are going. Budget is $1,200 per person.",
     );
   });
 });

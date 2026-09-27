@@ -37,7 +37,7 @@ describe("travel fact gate", () => {
     });
   });
 
-  it("replaces a price that is not in the Duffel payload with the real offer", () => {
+  it("replaces a price that is not in the catalog payload with the real offer", () => {
     const text = offerRecommendation([flight], []);
     expect(decideReply("Delta is $400 and leaves at 8:20.", true, [flight], [])).toEqual({
       action: "send",

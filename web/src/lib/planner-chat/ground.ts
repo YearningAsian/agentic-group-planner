@@ -25,7 +25,7 @@ export function mentionsTravelFact(text: string): boolean {
   );
 }
 
-/** A reply with no Duffel call may pass through. A fact with no Duffel call is a retry. After a search, the reply recommends from the payload. */
+/** A reply with no catalog search may pass through. A fact with no search is a retry. After a search, the reply recommends from the payload. */
 export function decideReply(
   text: string,
   searched: boolean,
@@ -43,7 +43,7 @@ export function decideReply(
   return { action: "send", text: trimmed };
 }
 
-/** Cheapest nonstop (else cheapest flight) and the best-rated hotel, cited only from Duffel fields. */
+/** Cheapest nonstop (else cheapest flight) and the best-rated hotel, cited only from catalog fields. */
 export function offerRecommendation(flights: FlightOffer[], hotels: HotelOffer[]): string {
   const flight = pickFlight(flights);
   const hotel = pickHotel(hotels);

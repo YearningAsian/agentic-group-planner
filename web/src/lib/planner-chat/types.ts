@@ -1,7 +1,7 @@
 import type { FlightOffer } from "@/lib/providers/flights/types";
 
 export interface HotelOffer {
-  /** Duffel accommodation id, so a chat pick matches the same stay in browse. */
+  /** Sample stay id, so a chat pick matches the same stay in browse. */
   id?: string;
   name: string;
   location?: string;
@@ -9,7 +9,7 @@ export interface HotelOffer {
   pricePerNight: number | null;
   totalPrice: number | null;
   currency: string | null;
-  /** Duffel review_score, when the stay has one. */
+  /** Sample guest score, when the stay has one. */
   rating: number | null;
   amenities: string[];
 }
@@ -35,7 +35,8 @@ export interface StayArea {
 export type PlannerChatEvent =
   | { type: "status"; text: string }
   | { type: "text"; delta: string }
-  | { type: "cards"; flights: FlightOffer[]; hotels: HotelOffer[] }
+  | { type: "clarify" }
+  | { type: "cards"; flights: FlightOffer[]; hotels: HotelOffer[]; commit?: boolean }
   | { type: "stayArea"; label: string; lat: number; lng: number }
   | { type: "error"; message: string }
   | { type: "done" };
