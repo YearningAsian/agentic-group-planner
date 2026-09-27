@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { demoSignInSeeded } from "@/features/demo/server/demo-sign-in";
+import { demoSignInSeeded } from "../server/demo-sign-in";
 
 const PEOPLE = ["person1", "person2", "person3"] as const;
 
@@ -23,8 +23,10 @@ export function DemoLoginPicker() {
             setPending(person);
             setError("");
             void demoSignInSeeded(person)
-              .then(() => {
-                window.location.reload();
+              .then((result) => {
+                if (result.ok) return window.location.reload();
+                setPending(null);
+                setError(result.message);
               })
               .catch(() => {
                 setPending(null);

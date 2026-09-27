@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChosenFlight, ChosenStay } from "@/features/trip-draft/chosen-travel";
 import type { TripState } from "@/features/trip-draft/trip-context";
@@ -75,6 +76,11 @@ function state(overrides: Partial<TripState> = {}): TripState {
 
 let currentState = state();
 
+const { assignFlight, assignStay } = vi.hoisted(() => ({
+  assignFlight: vi.fn(),
+  assignStay: vi.fn(),
+}));
+
 vi.mock("@/features/trip-draft/trip-context", async () => {
   const actual = await vi.importActual<typeof import("@/features/trip-draft/trip-context")>(
     "@/features/trip-draft/trip-context",
@@ -85,8 +91,8 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
       state: currentState,
       lockFlight: vi.fn(),
       lockStay: vi.fn(),
-      assignFlight: vi.fn(),
-      assignStay: vi.fn(),
+      assignFlight,
+      assignStay,
       markInviteShared: vi.fn(),
       markFirstPendingJoined: vi.fn(),
     }),
@@ -96,6 +102,8 @@ vi.mock("@/features/trip-draft/trip-context", async () => {
 describe("TripSummary live choices", () => {
   beforeEach(() => {
     currentState = state();
+    assignFlight.mockClear();
+    assignStay.mockClear();
   });
 
   it("shows the chosen flight and hotel when their ids are not fixtures", () => {
@@ -103,8 +111,8 @@ describe("TripSummary live choices", () => {
 
     expect(screen.getByText("TAP · Locked")).toBeInTheDocument();
     expect(screen.getAllByText("JFK → LIS").length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Harbor Test Hotel" })).toBeInTheDocument();
-    expect(screen.getByText(/8\.6 guest score/)).toBeInTheDocument();
+    expect(screen.getAllByText("Harbor Test Hotel").length).toBeGreaterThan(0);
+    expect(screen.getByText("Harbor Test Hotel · Locked")).toBeInTheDocument();
     expect(screen.getByText(/TAP \+ Harbor Test Hotel/)).toBeInTheDocument();
   });
 
@@ -125,7 +133,169 @@ describe("TripSummary live choices", () => {
     });
     render(<TripSummary />);
 
-    expect(screen.queryByRole("heading", { name: "Harbor Test Hotel" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Alfama townhouse" })).toBeInTheDocument();
+    expect(screen.queryByText("Harbor Test Hotel")).not.toBeInTheDocument();
+    expect(screen.getByText("Alfama townhouse")).toBeInTheDocument();
+  });
+
+  it("unlocks organizer checkout after every joined traveler confirms", async () => {
+    const user = userEvent.setup();
+    currentState = state({
+      chosenStay: { ...chosenStay, currency: "USD" },
+      members: [1, 2].map((n) => ({
+        id: `p${n}`,
+        name: `Person ${n}`,
+        joined: true,
+        placeholder: false,
+        flightId: chosenFlight.id,
+        stayId: chosenStay.id,
+      })),
+    });
+    render(<TripSummary />);
+
+    const flights = screen.getByRole("heading", { name: "Flights" });
+    const hotels = screen.getByRole("heading", { name: "Hotels" });
+    const groupBuy = screen.getByRole("heading", { name: "Group buy" });
+    expect(flights.compareDocumentPosition(groupBuy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hotels.compareDocumentPosition(groupBuy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    expect(checkout).toBeDisabled();
+    await user.click(screen.getAllByRole("button", { name: "Confirm I'll pay" })[0]!);
+    expect(checkout).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Confirm I'll pay" }));
+    expect(checkout).toBeEnabled();
+  });
+
+  it("lets another joined person pick the same locked flight", async () => {
+    currentState = state({
+      members: [
+        {
+          id: "p1",
+          name: "Person 1",
+          joined: true,
+          placeholder: false,
+          flightId: chosenFlight.id,
+          stayId: chosenStay.id,
+        },
+        {
+          id: "p2",
+          name: "Person 2",
+          joined: true,
+          placeholder: false,
+          flightId: null,
+          stayId: null,
+        },
+      ],
+    });
+    render(<TripSummary />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Pick this flight for Person 2" }));
+
+    expect(assignFlight).toHaveBeenCalledWith("p2", chosenFlight.id);
+    expect(assignStay).not.toHaveBeenCalled();
+  });
+
+  it("folds a fourth person into the tray until it is opened", async () => {
+    currentState = state({
+      members: [1, 2, 3, 4].map((n) => ({
+        id: `p${n}`,
+        name: `Person ${n}`,
+        joined: true,
+        placeholder: false,
+        flightId: n === 1 ? chosenFlight.id : null,
+        stayId: n === 1 ? chosenStay.id : null,
+      })),
+    });
+    render(<TripSummary />);
+
+    expect(screen.queryByRole("button", { name: "Pick this flight for Person 4" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Show 2 more people" })[0]);
+    await userEvent.click(screen.getByRole("button", { name: "Pick this flight for Person 4" }));
+
+    expect(assignFlight).toHaveBeenCalledWith("p4", chosenFlight.id);
+  });
+
+  it("lets another joined person pick the same locked hotel", async () => {
+    currentState = state({
+      members: [
+        {
+          id: "p1",
+          name: "Person 1",
+          joined: true,
+          placeholder: false,
+          flightId: chosenFlight.id,
+          stayId: chosenStay.id,
+        },
+        {
+          id: "p2",
+          name: "Person 2",
+          joined: true,
+          placeholder: false,
+          flightId: chosenFlight.id,
+          stayId: null,
+        },
+      ],
+    });
+    render(<TripSummary />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Pick this stay for Person 2" }));
+
+    expect(assignStay).toHaveBeenCalledWith("p2", chosenStay.id);
+    expect(assignFlight).not.toHaveBeenCalled();
+  });
+
+  it("folds a fourth person into the hotel tray until it is opened", async () => {
+    currentState = state({
+      members: [1, 2, 3, 4].map((n) => ({
+        id: `p${n}`,
+        name: `Person ${n}`,
+        joined: true,
+        placeholder: false,
+        flightId: n === 1 ? chosenFlight.id : null,
+        stayId: n === 1 ? chosenStay.id : null,
+      })),
+    });
+    render(<TripSummary />);
+
+    const stayStrip = screen.getByLabelText("Choose stay by person");
+    expect(within(stayStrip).queryByRole("button", { name: "Pick this stay for Person 4" })).not.toBeInTheDocument();
+    await userEvent.click(within(stayStrip).getByRole("button", { name: "Show 2 more people" }));
+    await userEvent.click(within(stayStrip).getByRole("button", { name: "Pick this stay for Person 4" }));
+
+    expect(assignStay).toHaveBeenCalledWith("p4", chosenStay.id);
+  });
+
+  it("lets another joined person pick a shortlisted stay", async () => {
+    currentState = state({
+      members: [
+        {
+          id: "p1",
+          name: "Person 1",
+          joined: true,
+          placeholder: false,
+          flightId: chosenFlight.id,
+          stayId: chosenStay.id,
+        },
+        {
+          id: "p2",
+          name: "Person 2",
+          joined: true,
+          placeholder: false,
+          flightId: chosenFlight.id,
+          stayId: null,
+        },
+      ],
+    });
+    render(<TripSummary />);
+
+    const hotels = screen.getByRole("heading", { name: "Hotels" }).closest("section");
+    expect(hotels).not.toBeNull();
+    await userEvent.click(within(hotels!).getByRole("button", { name: /Show all/ }));
+    const row = within(hotels!).getByText("Alfama townhouse").closest("li");
+    expect(row).not.toBeNull();
+    await userEvent.click(within(row!).getByRole("button", { name: "Pick this stay for Person 2" }));
+
+    expect(assignStay).toHaveBeenCalledWith("p2", "lisbon-stay-0");
+    expect(assignFlight).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@
   "$comment": "The seeded trip (design §10.2). seed.ts and pytest both read it. Prices are per person in cents; price_cents and duration_min go into places.raw, since places has no price column. Times are local to the trip's time zone.",
   "trip": {
     "key": "saturday",
+    "slug": "lAoEGbm_fsk",
     "title": "Saturday in Atlanta",
     "city": "Atlanta",
     "timezone": "America/New_York",

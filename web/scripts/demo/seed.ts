@@ -14,9 +14,10 @@ import { runStages } from "./stages";
 import { inviteTokenFor, slugFor, uuidFor } from "./lib/ids";
 import { localToUtc, nextSaturday } from "./lib/time";
 import { seedStripeCustomers } from "./stripe-customers";
+import { demoPasswordFor } from "../../src/features/demo/demo-credentials";
 
 interface TripFixture {
-  trip: { key: string; title: string; city: string; timezone: string; price_threshold_percent: number };
+  trip: { key: string; slug: string; title: string; city: string; timezone: string; price_threshold_percent: number };
   members: {
     key: string;
     display_name: string;
@@ -69,8 +70,14 @@ function check<T>(result: { data: T; error: unknown }, what: string): T {
   return result.data;
 }
 
-/** Step 1: the seeded users (auth admin API; the trigger makes each profile). Returns key → user ID. */
+/**
+ * Step 1: the seeded users (auth admin API; the trigger makes each profile). Returns key → user ID.
+ * Each gets the password derived from DEMO_SEED_SECRET, reset on every run, so the instant logins
+ * work after a re-seed and follow a rotated secret.
+ */
 async function upsertUsers(admin: ScriptAdmin, batch: string): Promise<Record<SeededUserKey, string>> {
+  const secret = process.env.DEMO_SEED_SECRET;
+  if (!secret) throw new Error("DEMO_SEED_SECRET is not set; see web/.env.example.");
   const wanted = new Map(SEEDED_USERS.map((u) => [seededEmail(u.key, batch), u]));
   const found = new Map<string, string>();
   for (let page = 1; found.size < wanted.size; page++) {
@@ -82,14 +89,19 @@ async function upsertUsers(admin: ScriptAdmin, batch: string): Promise<Record<Se
   const ids = {} as Record<SeededUserKey, string>;
   for (const [email, user] of wanted) {
     let id = found.get(email);
+    const password = demoPasswordFor(email, secret);
     if (!id) {
       const created = await admin.auth.admin.createUser({
         email,
+        password,
         email_confirm: true,
         user_metadata: { display_name: user.displayName, seed_batch: batch },
       });
       if (created.error || !created.data.user) throw new Error(`seed: creating ${email} failed: ${created.error?.message}`);
       id = created.data.user.id;
+    } else {
+      const updated = await admin.auth.admin.updateUserById(id, { password });
+      if (updated.error) throw new Error(`seed: setting ${email}'s password failed: ${updated.error.message}`);
     }
     ids[user.key] = id;
   }
@@ -127,7 +139,7 @@ async function upsertPlaces(admin: ScriptAdmin, trip: TripFixture): Promise<void
 async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<SeededUserKey, string>, now: Date) {
   const f = SATURDAY_TRIP;
   const tripId = uuidFor(batch, `trip:${f.trip.key}`);
-  const slug = slugFor(batch, `trip:${f.trip.key}`);
+  const slug = slugFor(batch);
   const inviteToken = inviteTokenFor(batch);
   const date = nextSaturday(now, f.trip.timezone);
   const organizer = f.members.find((m) => m.role === "organizer")!;
@@ -150,6 +162,8 @@ async function upsertTrip(admin: ScriptAdmin, batch: string, users: Record<Seede
     ),
     "trip",
   );
+  const stored = check(await admin.from("trips").select("slug").eq("id", tripId).single(), "trip slug");
+  if (!stored || stored.slug !== slug) throw new Error("seed: the fixed trip slug belongs to another trip");
   check(
     await admin.from("trip_members").upsert(
       f.members.map((m, i) => ({
@@ -250,7 +264,7 @@ async function main(): Promise<void> {
   for (const [table, n] of Object.entries(result.counts)) console.log(`  ${table.padEnd(20)} ${n}`);
   if (process.env.PAYMENTS_PROVIDER === "real") console.log(`Stripe customers created: ${result.stripeCustomersCreated}`);
   console.log(`Trip:              ${app}/trip/${result.slug}`);
-  console.log(`Person 4's invite: ${app}/invite/${result.inviteToken}`);
+  console.log(`Person 4's invite: ${app}/join/${result.inviteToken}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

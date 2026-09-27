@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { modelMessages, PLANNER_INSTRUCTIONS, tripContext } from "./prompt";
 
 describe("planner instructions", () => {
-  it("searches the trip draft and recommends instead of waiting", () => {
-    expect(PLANNER_INSTRUCTIONS).toMatch(/every reply recommends/i);
-    expect(PLANNER_INSTRUCTIONS).toMatch(/do not ask for more details first/i);
+  it("asks one question when a place or date is missing, then searches", () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/ask one short question/i);
+    expect(PLANNER_INSTRUCTIONS).not.toMatch(/do not ask/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/search this turn/i);
-    expect(PLANNER_INSTRUCTIONS).toMatch(/cheapest nonstop/i);
-    expect(PLANNER_INSTRUCTIONS).toMatch(/best-rated hotel/i);
+    expect(PLANNER_INSTRUCTIONS).not.toMatch(/every reply recommends/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/note_stay_area/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/economy/i);
     expect(PLANNER_INSTRUCTIONS.length).toBeLessThan(1100);

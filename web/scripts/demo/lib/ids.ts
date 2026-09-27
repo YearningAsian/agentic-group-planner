@@ -7,6 +7,9 @@ import { createHash, createHmac } from "node:crypto";
 // A fixed namespace for this app's seed data (a random v4 UUID, chosen once).
 const SEED_NAMESPACE = "8f1c5a52-3f7e-4b8a-9d0c-6e2a41b7c3d9";
 
+/** Public address for the `demo` batch; must match saturday-trip.json. */
+const DEMO_TRIP_SLUG = "lAoEGbm_fsk";
+
 function uuidToBytes(uuid: string): Buffer {
   return Buffer.from(uuid.replace(/-/g, ""), "hex");
 }
@@ -31,9 +34,13 @@ export function uuidFor(batch: string, name: string): string {
 }
 uuidFor.fromNamespace = uuidV5;
 
-/** A stable 11-character trip slug for a seeded trip. */
-export function slugFor(batch: string, name: string): string {
-  return createHash("sha256").update(`slug:${batch}:${name}`).digest("base64url").slice(0, 11);
+/**
+ * Public trip slug for a seed batch. The `demo` batch keeps the fixed fixture address; every other
+ * batch gets its own deterministic slug so parallel test batches do not fight over one claim.
+ */
+export function slugFor(batch: string): string {
+  if (batch === "demo") return DEMO_TRIP_SLUG;
+  return createHash("sha256").update(`trip-slug:${batch}`).digest("base64url").slice(0, 11);
 }
 
 /**

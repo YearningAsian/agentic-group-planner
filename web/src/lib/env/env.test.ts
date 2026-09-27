@@ -121,6 +121,17 @@ describe("server env", () => {
     expect(problems(production)).toEqual([]);
   });
 
+  it("demo logins: DEMO_SEED_SECRET is optional, ALLOW_DEMO_LOGIN is off unless exactly true, VERCEL_ENV passes through", () => {
+    const base = parseServerEnv(buildProfile);
+    expect(base.DEMO_SEED_SECRET).toBeUndefined();
+    expect(base.ALLOW_DEMO_LOGIN).toBe(false);
+    expect(base.VERCEL_ENV).toBeUndefined();
+
+    const set = parseServerEnv({ ...buildProfile, DEMO_SEED_SECRET: "seed", ALLOW_DEMO_LOGIN: "true", VERCEL_ENV: "production", CRON_SECRET: "a-long-enough-cron-secret" });
+    expect(set).toMatchObject({ DEMO_SEED_SECRET: "seed", ALLOW_DEMO_LOGIN: true, VERCEL_ENV: "production" });
+    expect(problems({ ...buildProfile, ALLOW_DEMO_LOGIN: "yes" })).toEqual(["ALLOW_DEMO_LOGIN"]);
+  });
+
   it("has no variables for the flows the journey pivot dropped (design §11.6)", () => {
     // Set, so a schema that still declared one would pass it through; undeclared keys are stripped.
     const dropped = {

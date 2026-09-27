@@ -3,7 +3,7 @@ import { DashboardHome } from "@/features/trip-draft";
 
 export const metadata: Metadata = { title: "Home" };
 
-/** Dashboard home. The questionnaire still starts at `/onboarding`. */
+/** Dashboard home (moved from `/` so the marketing landing can own `/`). */
 export default function HomePage() {
   return <DashboardHome />;
 }

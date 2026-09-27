@@ -56,6 +56,8 @@ export const chatRequestSchema = z
       })
       .strict()
       .optional(),
+    fromQuestionnaire: z.boolean().optional(),
+    clarifyCount: z.number().int().min(0).max(20).optional(),
   })
   .strict();
 

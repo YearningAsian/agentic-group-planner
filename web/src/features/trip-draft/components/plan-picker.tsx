@@ -336,7 +336,7 @@ export function PlanPicker() {
                   image={item.image?.startsWith("https://images.unsplash.com/") ? item.image : cardImage}
                   title={item.name}
                   subtitle={item.area || heading}
-                  meta={item.guestScore != null ? `Guest score ${item.guestScore}` : "Duffel stay"}
+                  meta={item.guestScore != null ? `Guest score ${item.guestScore}` : "Sample stay"}
                   priceLabel={item.nightlyAmount != null && item.currency ? formatMoney(item.nightlyAmount, item.currency) : "Price unavailable"}
                   priceHint="Per night"
                   selected={state.lockedStayId === item.id}

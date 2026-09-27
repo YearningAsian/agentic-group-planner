@@ -1,9 +1,11 @@
 import type { Database } from "@agp/shared/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, describe, expect, it } from "vitest";
+import { seededEmail } from "../../scripts/demo/fixtures/users";
 import { inviteTokenFor } from "../../scripts/demo/lib/ids";
 import { seed } from "../../scripts/demo/seed";
-import { adminClient, cleanup, createUser, testBatch } from "./helpers";
+import { demoPasswordFor } from "../../src/features/demo/demo-credentials";
+import { adminClient, cleanup, createUser, publicClient, testBatch } from "./helpers";
 
 const batch = testBatch();
 const admin = adminClient() as SupabaseClient<Database>;
@@ -84,5 +86,19 @@ describe("seed:demo", () => {
     expect(person4).toEqual({ status: "joined", profile_id: claimer.userId });
     const { data: constraints } = await admin.from("member_constraints").select("budget_cents, dietary").eq("member_id", person2!.id).single();
     expect(constraints).toEqual({ budget_cents: 5000, dietary: ["vegan"] });
+  });
+
+  it("each seeded person signs in with the password derived from DEMO_SEED_SECRET, and a re-seed keeps it working", async () => {
+    await seed({ batch, now });
+    await seed({ batch, now });
+    for (const key of ["person1", "person2", "person3"] as const) {
+      const email = seededEmail(key, batch);
+      const { data, error } = await publicClient().auth.signInWithPassword({
+        email,
+        password: demoPasswordFor(email, process.env.DEMO_SEED_SECRET!),
+      });
+      expect(error, email).toBeNull();
+      expect(data.user?.email).toBe(email);
+    }
   });
 });
