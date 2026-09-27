@@ -30,6 +30,12 @@ const STEPS = [
     tip: "Tip: a short range gives the agent room to dodge the priciest days.",
   },
   {
+    id: "who",
+    optional: false,
+    title: "Who is going?",
+    tip: "Tip: add everyone traveling. The agent searches for that many people.",
+  },
+  {
     id: "budget",
     optional: false,
     title: "What's the budget per person?",
@@ -92,6 +98,7 @@ export function OnboardingFlow() {
   const [rolling, setRolling] = useState(false);
   const [handingOff, setHandingOff] = useState(false);
   const [error, setError] = useState("");
+  const [party, setParty] = useState<string[] | null>(null);
 
   const step = STEPS[index];
   const destination = destinationById(state.destinationId);
@@ -113,9 +120,17 @@ export function OnboardingFlow() {
     return roundTrip ? validRange(state.startDate, state.endDate) : Boolean(state.startDate);
   }
 
+  function partyNames(): string[] {
+    if (party) return party;
+    const going = state.members.filter((member) => member.joined && !member.placeholder);
+    const names = (going.length > 0 ? going : state.members.slice(0, 1)).map((member) => member.name);
+    return names.length > 0 ? names : [""];
+  }
+
   function canContinue(id: StepId = step.id): boolean {
     if (id === "where") return Boolean(state.destinationIata && state.originIata);
     if (id === "when") return datesReady();
+    if (id === "who") return partyNames().some((name) => name.trim());
     if (id === "budget") return state.budget != null && state.budget > 0;
     return true;
   }
@@ -142,6 +157,15 @@ export function OnboardingFlow() {
     if (step.id === "when" && !datesReady()) {
       setError(roundTrip ? "Choose an arrival and a later departure." : "Choose a departure date.");
       return;
+    }
+    if (step.id === "who") {
+      const names = partyNames().map((name) => name.trim()).filter(Boolean);
+      if (names.length === 0) {
+        setError("Add at least one person who's going.");
+        return;
+      }
+      trip.setGoing(names);
+      setParty(names);
     }
     if (step.id === "budget" && !(state.budget != null && state.budget > 0)) {
       setError("Set a budget so the agent can skip pricey outliers.");
@@ -312,6 +336,46 @@ export function OnboardingFlow() {
                         trip.setDates(day ? isoDate(day) : "", "");
                       }}
                     />
+                  ) : null}
+
+                  {step.id === "who" ? (
+                    <div className="flex flex-col gap-3">
+                      {partyNames().map((name, personIndex) => (
+                        <div key={personIndex} className="flex items-center gap-2">
+                          <label className="block min-w-0 flex-1">
+                            <span className="sr-only">{personIndex === 0 ? "Your name" : `Person ${personIndex + 1}`}</span>
+                            <input
+                              value={name}
+                              onChange={(event) => {
+                                const names = partyNames();
+                                setParty(names.map((item, index) => (index === personIndex ? event.target.value : item)));
+                              }}
+                              placeholder={personIndex === 0 ? "Your name" : "Name"}
+                              className="h-14 w-full rounded-xl border border-[#b0b0b0] px-4 outline-none focus:border-ink"
+                            />
+                          </label>
+                          {personIndex > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setParty(partyNames().filter((_, index) => index !== personIndex))}
+                              className="h-14 shrink-0 px-2 text-[14px] font-semibold text-ink-faint"
+                              aria-label={`Remove ${name.trim() || `person ${personIndex + 1}`}`}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                      {partyNames().length < 6 ? (
+                        <button
+                          type="button"
+                          onClick={() => setParty([...partyNames(), ""])}
+                          className="h-12 w-fit rounded-full bg-bg-muted px-6 text-[15px] font-semibold text-ink"
+                        >
+                          Add a person
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
 
                   {step.id === "budget" ? (

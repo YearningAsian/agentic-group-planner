@@ -4,12 +4,11 @@
  * `/studio` split view inside `AppShell`: chat and stay cards on the left, `TripMap` on the right.
  * Opened from `EntryChoice` Chat and from `OnboardingFlow.finish()`.
  * A null `destinationId` stays empty; exact city chat messages call `confirmDestination` before fixture stay cards appear.
- * Browse stays and Browse flights search Duffel from the trip destination, dates, and budget.
- * A destination without coordinates, such as Tokyo, is resolved through Duffel places before the stay search.
+ * Browse stays and Browse flights read the sample catalog for the trip destination, dates, and budget.
  * A chat `stayArea` opens the stay listing. Chat flight cards remember the origin for later browse.
  * City detect is `chatCityDestination` in `fixtures.ts`. Nightly-vs-budget ranking is `splitStays` here; `/plan` uses nights in `plan-picker.tsx`.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Calendar, Check, ChevronLeft, Heart, Mic, Send, Sparkles, Users } from "lucide-react";
@@ -280,6 +279,7 @@ export function PlannerStudio() {
     const value = new URLSearchParams(window.location.search).get("browse");
     return value === "stays" || value === "flights" ? value : "chat";
   });
+  const [fromQuestionnaire, setFromQuestionnaire] = useState(false);
   const [stayArea, setStayArea] = useState<{ label: string; lat: number; lng: number } | null>(null);
   const [chatOrigin, setChatOrigin] = useState("");
   const [stayCards, setStayCards] = useState<StayCard[]>([]);
@@ -295,6 +295,8 @@ export function PlannerStudio() {
   const [loadedFlightKey, setLoadedFlightKey] = useState("");
   const feedRef = useRef<HTMLDivElement>(null);
   const nextLine = useRef(0);
+  const clarifyCount = useRef(0);
+  const fromQuestionnaireRef = useRef(false);
   const chatAbort = useRef<AbortController | null>(null);
   const chatGeneration = useRef(0);
 
@@ -523,6 +525,8 @@ export function PlannerStudio() {
             budget: state.budget,
             members: state.members.filter((member) => member.joined).map((member) => member.name),
           },
+          fromQuestionnaire: fromQuestionnaireRef.current,
+          clarifyCount: clarifyCount.current,
         }),
       });
       if (!response.ok) {
@@ -541,6 +545,8 @@ export function PlannerStudio() {
       let flights: FlightOffer[] = [];
       let hotels: HotelOffer[] = [];
       let settled = false;
+      let asked = false;
+      let committed = false;
       const show = (pending: boolean) => {
         update({ text: answer.trim() || "Looking that up…", flights, hotels, pending });
       };
@@ -555,6 +561,8 @@ export function PlannerStudio() {
           if (!event) continue;
           if (event.type === "status") {
             if (!answer.trim()) update({ text: event.text, pending: true, flights, hotels });
+          } else if (event.type === "clarify") {
+            asked = true;
           } else if (event.type === "stayArea") {
             setStayArea({ label: event.label, lat: event.lat, lng: event.lng });
             setMode("stays");
@@ -564,6 +572,13 @@ export function PlannerStudio() {
           } else if (event.type === "cards") {
             flights = event.flights;
             hotels = event.hotels;
+            if (event.commit) {
+              committed = true;
+              const flight = flights[0];
+              const hotel = hotels[0];
+              if (flight) pickLiveFlight(flight);
+              if (hotel) pickChatHotel(hotel);
+            }
             const origin = flights[0]?.origin;
             if (origin) {
               setChatOrigin(origin);
@@ -597,6 +612,8 @@ export function PlannerStudio() {
           pending: false,
         });
       }
+      if (committed) clarifyCount.current = 0;
+      else if (asked) clarifyCount.current += 1;
     } catch (error) {
       if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         setLines((current) =>
@@ -611,6 +628,13 @@ export function PlannerStudio() {
       update({ text: "I couldn't look that up right now. Try again in a moment.", pending: false });
     }
   }
+
+  useLayoutEffect(() => {
+    if (sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) === "1") {
+      fromQuestionnaireRef.current = true;
+      setFromQuestionnaire(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) !== "1") return;
@@ -766,7 +790,7 @@ export function PlannerStudio() {
           <>
           <ScrollArea ref={feedRef} className="min-h-0 flex-1">
             <div className="space-y-4 px-5 py-4">
-              {featured && destination ? (
+              {featured && destination && !fromQuestionnaire ? (
                 <>
                   <div className="flex gap-2.5">
                     <span className="flex size-[26px] shrink-0 items-center justify-center rounded-lg bg-accent text-white">

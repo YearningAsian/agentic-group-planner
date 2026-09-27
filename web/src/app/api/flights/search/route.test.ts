@@ -2,10 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const search = vi.fn();
 
-vi.mock("@/lib/env/server", () => ({
-  getServerEnv: () => ({ DUFFEL_ACCESS_TOKEN: "duffel_test_token" }),
-}));
-
 vi.mock("@/lib/planner-chat/search", () => ({
   executeFlightSearch: (...args: unknown[]) => search(...args),
 }));
@@ -22,10 +18,10 @@ describe("GET /api/flights/search", () => {
     expect(search).not.toHaveBeenCalled();
   });
 
-  it("searches Duffel with the trip origin, destination, dates, and travelers", async () => {
+  it("searches the sample catalog with the trip origin, destination, dates, and travelers", async () => {
     search.mockResolvedValue({
       ok: true,
-      flights: [{ airline: "TAP", origin: "JFK", destination: "LIS", price: 480, currency: "USD" }],
+      flights: [{ airline: "Mariner", origin: "JFK", destination: "LIS", price: 548, currency: "USD" }],
     });
     const { GET } = await import("./route");
     const response = await GET(
@@ -34,22 +30,19 @@ describe("GET /api/flights/search", () => {
       ),
     );
     expect(response.status).toBe(200);
-    expect(search).toHaveBeenCalledWith(
-      {
-        origin: "New York",
-        destination: "LIS",
-        departureDate: "2026-06-01",
-        returnDate: "2026-06-04",
-        travelers: 2,
-      },
-      { duffelToken: "duffel_test_token" },
-    );
+    expect(search).toHaveBeenCalledWith({
+      origin: "New York",
+      destination: "LIS",
+      departureDate: "2026-06-01",
+      returnDate: "2026-06-04",
+      travelers: 2,
+    });
     await expect(response.json()).resolves.toEqual({
-      flights: [{ airline: "TAP", origin: "JFK", destination: "LIS", price: 480, currency: "USD" }],
+      flights: [{ airline: "Mariner", origin: "JFK", destination: "LIS", price: 548, currency: "USD" }],
     });
   });
 
-  it("says flights are unavailable when Duffel rejects the search", async () => {
+  it("says flights are unavailable when the catalog search fails", async () => {
     search.mockResolvedValue({ ok: false, error: "I couldn't retrieve flight options right now. Try again in a moment." });
     const { GET } = await import("./route");
     const response = await GET(

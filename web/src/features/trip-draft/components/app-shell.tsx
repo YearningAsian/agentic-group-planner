@@ -8,7 +8,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Briefcase, CirclePlus, Home } from "lucide-react";
+import { Activity, Briefcase, Home } from "lucide-react";
 import { AuthControls } from "@/features/auth";
 import { organizerProfile } from "@/features/trip-draft/dashboard-data";
 import { initials } from "@/features/trip-draft/format";
@@ -34,7 +34,6 @@ import {
 const NAV = [
   { href: "/", id: "home", label: "Home", icon: Home },
   { href: "/current", id: "current", label: "Current trip", icon: Activity },
-  { href: "/onboarding", id: "new", label: "New trip", icon: CirclePlus },
   { href: "/trips", id: "trips", label: "Trips", icon: Briefcase },
 ] as const;
 
@@ -42,7 +41,6 @@ function activeNav(pathname: string) {
   if (pathname === "/") return "home";
   if (pathname.startsWith("/current")) return "current";
   if (pathname.startsWith("/trips") || pathname.startsWith("/studio")) return "trips";
-  if (pathname.startsWith("/onboarding")) return "new";
   return null;
 }
 
@@ -78,12 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       isActive={active === item.id}
                       aria-current={active === item.id ? "page" : undefined}
                       className="h-11 rounded-[11px] px-3 text-[14.5px] font-semibold text-muted hover:bg-bg-muted hover:text-ink data-active:bg-sidebar-accent data-active:text-accent"
-                      render={
-                        <Link
-                          href={item.href}
-                          onClick={item.id === "new" ? () => trip.startNewTrip() : undefined}
-                        />
-                      }
+                      render={<Link href={item.href} />}
                     >
                       <item.icon />
                       <span>{item.label}</span>

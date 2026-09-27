@@ -22,6 +22,7 @@ import {
 import { formatMoney, formatRange, initials, money } from "@/features/trip-draft/format";
 import { useTrip, type Member } from "@/features/trip-draft/trip-context";
 import { AppShell } from "@/features/trip-draft/components/app-shell";
+import { GroupBuy } from "@/features/trip-draft/components/group-buy";
 import { TripMap } from "@/features/trip-draft/components/trip-map";
 import type { MapMarker } from "@/features/trip-draft/components/fallback-map";
 import { cn } from "@/lib/utils";
@@ -158,8 +159,8 @@ function SummaryBody() {
   const [now, setNow] = useState(openedAt);
   const [activity, setActivity] = useState<{ detail: string; at: number } | null>(null);
   const [flightsOpen, setFlightsOpen] = useState(false);
+  const [staysOpen, setStaysOpen] = useState(false);
   const [flightTalkOpen, setFlightTalkOpen] = useState(false);
-  const [stayTalkOpen, setStayTalkOpen] = useState(false);
   const [posted, setPosted] = useState<Array<Comment & { thread: Thread }>>([]);
   const [drafts, setDrafts] = useState<Record<Thread, string>>({ flight: "", stay: "" });
   const [dismissed, setDismissed] = useState<string[]>([]);
@@ -204,7 +205,6 @@ function SummaryBody() {
   }, [state.justJoinedName]);
 
   const flightComments = posted.filter((item) => item.thread === "flight");
-  const stayComments = posted.filter((item) => item.thread === "stay");
 
   if (!destination) return null;
 
@@ -271,6 +271,26 @@ function SummaryBody() {
     note(`${memberLabel(member, memberIndex)} picked ${picked.name}`);
   }
 
+  function assignLiveFlight(member: Member, memberIndex: number) {
+    if (!liveFlight || member.flightId === liveFlight.id) return;
+    if (member.id === state.members[0]?.id) {
+      trip.lockFlight(liveFlight.id);
+    } else {
+      trip.assignFlight(member.id, liveFlight.id);
+    }
+    note(`${memberLabel(member, memberIndex)} picked ${liveFlight.airline}`);
+  }
+
+  function assignLiveStay(member: Member, memberIndex: number) {
+    if (!liveStay || member.stayId === liveStay.id) return;
+    if (member.id === state.members[0]?.id) {
+      trip.lockStay(liveStay.id);
+    } else {
+      trip.assignStay(member.id, liveStay.id);
+    }
+    note(`${memberLabel(member, memberIndex)} picked ${liveStay.name}`);
+  }
+
   function assignSuggestion(member: Member, memberIndex: number, suggestion: Suggestion) {
     if (suggestion.kind === "flight") {
       const picked = findFlight(state.destinationId, suggestion.optionId);
@@ -297,7 +317,6 @@ function SummaryBody() {
       },
     ]);
     if (thread === "flight") setFlightTalkOpen(true);
-    if (thread === "stay") setStayTalkOpen(true);
     setSuggesting(null);
     note(`${memberLabel(state.members[0], 0)} suggested ${thread === "flight" ? suggestion.title : "a stay"}`);
   }
@@ -326,9 +345,7 @@ function SummaryBody() {
   }
 
   const others = flights.filter((item) => item.id !== flight?.id);
-  const alternates = stays.filter((item) => item.id !== stay?.id);
-  const stayBookingCount = new Set(joined.map((member) => member.stayId).filter(Boolean)).size;
-  const leadingGuestCount = joinedChoices.filter(({ member }) => member.stayId === stay?.id).length;
+  const otherStays = stays.filter((item) => item.id !== stay?.id);
   const markers: MapMarker[] = [
     {
       id: `airport-${destination.id}`,
@@ -404,6 +421,14 @@ function SummaryBody() {
               const pickedFlight = pricedFlight(member);
               const pickedStay = pricedStay(member);
               const ready = Boolean(member.joined && pickedFlight && pickedStay && pickedStay.price != null);
+              const hasFlight = Boolean(pickedFlight);
+              const hasStay = Boolean(pickedStay);
+              const detailTone =
+                member.joined && hasFlight && hasStay
+                  ? "text-[#1e7b4a]"
+                  : !member.joined || hasFlight || hasStay
+                    ? "text-[#a89f00]"
+                    : "text-[#c62828]";
               const detail =
                 [pickedFlight?.airline, pickedStay?.name].filter(Boolean).join(" + ") ||
                 (member.joined ? "No flight or stay yet" : "Waiting to join");
@@ -419,6 +444,7 @@ function SummaryBody() {
                   index={index}
                   title={name}
                   detail={detail}
+                  detailClassName={detailTone}
                   amount={
                     ready && pickedFlight && pickedStay?.price != null
                       ? sameCurrency
@@ -498,6 +524,14 @@ function SummaryBody() {
                       {formatMoney(liveFlight.price, liveFlight.currency)}
                       <span className="text-[12px] font-medium text-muted"> / person</span>
                     </p>
+                    <div className="mt-3 flex justify-end">
+                      <MemberChoiceStrip
+                        choices={joinedChoices}
+                        optionId={liveFlight.id}
+                        kind="flight"
+                        onChoose={(choice) => assignLiveFlight(choice.member, choice.index)}
+                      />
+                    </div>
                   </div>
                 ) : null}
                 <ul className="flex flex-col gap-2.5">
@@ -604,123 +638,129 @@ function SummaryBody() {
           <section className="rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: CARD_SHADOW }}>
             <div className="mb-3.5 flex items-baseline justify-between gap-3">
               <h2 className="text-[15px] font-bold">Hotels</h2>
-              <span className="text-[12px] text-ink-faint">
-                {stayBookingCount} {stayBookingCount === 1 ? "booking" : "bookings"}
-              </span>
+              {liveStay ? (
+                <span className="shrink-0 rounded-full bg-good-tint px-2.5 py-1 text-[11px] font-bold text-success">
+                  {liveStay.name} · Locked
+                </span>
+              ) : lockedStay ? (
+                <span className="shrink-0 rounded-full bg-good-tint px-2.5 py-1 text-[11px] font-bold text-success">
+                  {lockedStay.name} · Locked
+                </span>
+              ) : (
+                <span className="text-right text-[12px] text-ink-faint">
+                  {allJoinedHaveStay
+                    ? `${stayPickCount} ${stayPickCount === 1 ? "stay" : "stays"}`
+                    : stays.length > 0
+                      ? `${stays.length} options · group deciding`
+                      : "No stays yet"}
+                </span>
+              )}
             </div>
-            <ul className="flex flex-col gap-2.5">
-              {joinedChoices.map(({ member, index }) => {
-                const name = memberLabel(member, index);
-                const pickedStay = pricedStay(member);
-                return (
-                  <PersonRow
-                    key={member.id}
-                    name={name}
-                    index={index}
-                    title={name}
-                    detail={pickedStay ? pickedStay.name : "No stay yet"}
-                    amount={pickedStay?.price != null ? formatMoney(pickedStay.price, pickedStay.currency) : undefined}
-                  />
-                );
-              })}
-            </ul>
+            {stay || liveStay ? (
+              <>
+                {liveStay ? (
+                  <div className="mb-3">
+                    <p className="text-[13px] font-bold">{liveStay.name}</p>
+                    <p className="text-[13.5px] font-semibold">{liveStay.area}</p>
+                    <p className="mt-1 text-[14px] font-semibold tabular-nums">
+                      {formatMoney(liveStay.nightlyAmount, liveStay.currency ?? "USD")}
+                      <span className="text-[12px] font-medium text-muted"> / night</span>
+                    </p>
+                    <div className="mt-3 flex justify-end">
+                      <MemberChoiceStrip
+                        choices={joinedChoices}
+                        optionId={liveStay.id}
+                        kind="stay"
+                        onChoose={(choice) => assignLiveStay(choice.member, choice.index)}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                <ul className="flex flex-col gap-2.5">
+                  {joinedChoices.map(({ member, index }) => {
+                    const name = memberLabel(member, index);
+                    const pickedStay = pricedStay(member);
+                    return (
+                      <PersonRow
+                        key={member.id}
+                        name={name}
+                        index={index}
+                        title={name}
+                        detail={pickedStay ? pickedStay.name : "No stay yet"}
+                        amount={pickedStay?.price != null ? formatMoney(pickedStay.price, pickedStay.currency) : undefined}
+                      />
+                    );
+                  })}
+                </ul>
+                <button
+                  type="button"
+                  aria-expanded={staysOpen}
+                  onClick={() => setStaysOpen((open) => !open)}
+                  className="mt-3 flex min-h-11 w-full items-center justify-between text-left text-[12px] text-ink-faint"
+                >
+                  <span>
+                    {stays.length} shortlisted, {joined.filter((member) => member.stayId).length} of {joined.length} joined picked
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1">
+                    {staysOpen ? "Hide" : "Show all"}
+                    <ChevronIcon className={cn("h-3.5 w-3.5 transition-transform", staysOpen && "rotate-180")} />
+                  </span>
+                </button>
+                {stay && staysOpen ? (
+                  <ul className="mt-2">
+                    {[stay, ...[...otherStays].sort((a, b) => a.price - b.price)].map((item) => {
+                      const leading = item.id === stay.id;
+                      return (
+                        <li
+                          key={item.id}
+                          className={cn(
+                            "mb-2.5 flex items-center gap-3 rounded-xl border px-3 py-3",
+                            leading ? "border-[#cfe7da] bg-good-tint" : "border-line bg-surface",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border text-accent",
+                              leading ? "border-[#cfe7da] bg-surface" : "border-line bg-surface",
+                            )}
+                          >
+                            <HouseIcon className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-bold">{item.name}</span>
+                            <span className="mt-px block truncate text-[11.5px] text-muted">
+                              {item.neighborhood} · {item.rating.toFixed(2)} · {item.reviews} reviews
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[14px] font-semibold tabular-nums">{money(item.price)}/nt</span>
+                          <MemberChoiceStrip
+                            choices={joinedChoices}
+                            optionId={item.id}
+                            kind="stay"
+                            onChoose={(choice) => assignPickedStay(choice.member, choice.index, item)}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-[14px] text-muted">Stays show up after a destination is confirmed.</p>
+            )}
           </section>
         </div>
 
-        {liveStay || stay ? (
-          <section className="overflow-hidden rounded-[20px] border border-line bg-surface" style={{ boxShadow: CARD_SHADOW }}>
-            <div className="px-5 pt-[18px]">
-              <div className="mb-3.5 flex items-start justify-between gap-2.5">
-                <h2 className="text-[15px] font-bold">{liveStay ? liveStay.name : stay?.name}</h2>
-                <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold whitespace-nowrap text-success">
-                  {liveStay || lockedStay ? "Locked in" : stayPickCount > 1 ? "Most picked" : "Leading pick"}
-                </span>
-              </div>
-              {liveStay?.image ? (
-                <div className="relative mb-3.5 h-[140px] overflow-hidden rounded-xl">
-                  <Image src={liveStay.image} alt="" fill sizes="480px" className="object-cover" />
-                </div>
-              ) : liveStay ? null : (
-                <div className="mb-3.5 flex h-[140px] gap-0.5 overflow-hidden rounded-xl">
-                  {[stay?.image, destination.photos.find((photo) => photo !== stay?.image) ?? destination.photos[1]]
-                    .filter((src): src is string => Boolean(src))
-                    .map((src) => (
-                      <div key={src} className="relative min-w-0 flex-1">
-                        <Image src={src} alt="" fill sizes="480px" className="object-cover" />
-                      </div>
-                    ))}
-                </div>
-              )}
-              <p className="mb-3.5 text-[12.5px] text-muted">
-                {liveStay
-                  ? [
-                      liveStay.area,
-                      liveStay.guestScore != null ? `${guestScoreLabel(liveStay.guestScore)} guest score` : null,
-                      formatRange(state.startDate, state.endDate),
-                      liveStay.nightlyAmount != null
-                        ? `${formatMoney(liveStay.nightlyAmount, liveStay.currency ?? "USD")}/night`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : `${stay?.neighborhood} · ${leadingGuestCount} ${leadingGuestCount === 1 ? "guest" : "guests"} · ${formatRange(state.startDate, state.endDate)} · ${money(stay?.price ?? 0)}/night`}
-              </p>
-              {liveStay || !stay ? null : (
-                <div className="flex items-center justify-end pb-4">
-                  <MemberChoiceStrip
-                    choices={joinedChoices}
-                    optionId={stay.id}
-                    kind="stay"
-                    onChoose={(choice) => assignPickedStay(choice.member, choice.index, stay)}
-                  />
-                </div>
-              )}
-            </div>
-            {(liveStay ? stays : alternates).length > 0 ? (
-              <div className="px-5 pb-4">
-                <p className="mb-2 text-[11.5px] text-ink-faint">Also considering</p>
-                <div className="flex flex-col gap-2">
-                  {(liveStay ? stays : alternates).map((item) => (
-                    <div key={item.id} className="flex items-center gap-2 rounded-xl border border-line bg-bg-muted px-3 py-2">
-                      <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-muted">
-                        {item.name} ({money(item.price)}/night)
-                      </span>
-                      <MemberChoiceStrip
-                        choices={joinedChoices}
-                        optionId={item.id}
-                        kind="stay"
-                        onChoose={(choice) => assignPickedStay(choice.member, choice.index, item)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <Discuss
-              count={stayComments.length}
-              open={stayTalkOpen}
-              onToggle={() => setStayTalkOpen((open) => !open)}
-            >
-              <CommentList
-                comments={stayComments}
-                now={now}
-                dismissed={dismissed}
-                choices={joinedChoices}
-                onAssign={assignSuggestion}
-                onDismiss={(id) => setDismissed((current) => [...current, id])}
-              />
-              <Composer
-                value={drafts.stay}
-                placeholder="Comment, or paste a listing link to suggest it…"
-                onChange={(value) => setDrafts((current) => ({ ...current, stay: value }))}
-                onSubmit={() => post("stay")}
-                onSuggest={() => setSuggesting("stay")}
-              />
-            </Discuss>
-          </section>
-        ) : (
-          <p className="text-[14px] text-muted">Stays show up after a destination is confirmed.</p>
-        )}
+        {allJoinedHaveFlight && allJoinedHaveStay ? (
+          <GroupBuy
+            destinationId={state.destinationId}
+            startDate={state.startDate}
+            endDate={state.endDate}
+            members={joinedChoices}
+            chosenFlight={liveFlight}
+            chosenStay={liveStay}
+          />
+        ) : null}
 
       </div>
       </div>
@@ -741,6 +781,7 @@ function PersonRow({
   index,
   title,
   detail,
+  detailClassName = "text-muted",
   amount,
   split,
   pending = "Not picked yet",
@@ -750,6 +791,7 @@ function PersonRow({
   index: number;
   title: string;
   detail: string;
+  detailClassName?: string;
   amount?: string;
   split?: string;
   pending?: string | null;
@@ -763,7 +805,7 @@ function PersonRow({
           <span className="truncate text-[14px] font-semibold">{title}</span>
           {trailing}
         </span>
-        <span className="mt-px block truncate text-[12px] text-muted">{detail}</span>
+        <span className={cn("mt-px block truncate text-[12px]", detailClassName)}>{detail}</span>
       </span>
       {amount ? (
         <span className="shrink-0 text-right text-[15px] font-bold tabular-nums">
@@ -942,9 +984,22 @@ function MemberChoiceStrip({
   kind: Thread;
   onChoose: (choice: MemberChoice) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const pickedFirst = [...choices].sort((a, b) => {
+    const aOn = choiceId(a.member, kind) === optionId ? 0 : 1;
+    const bOn = choiceId(b.member, kind) === optionId ? 0 : 1;
+    return aOn - bOn || a.index - b.index;
+  });
+  const overflow = choices.length > 3 && !expanded;
+  const visible = overflow ? pickedFirst.slice(0, 2) : choices;
+  const hidden = choices.length - 2;
+
   return (
-    <div className="flex shrink-0 items-center gap-1" aria-label={`Choose ${kind === "flight" ? "flight" : "stay"} by person`}>
-      {choices.map((choice) => {
+    <div
+      className="inline-flex shrink-0 items-center rounded-full border border-line-soft bg-surface py-0.5 pr-1 pl-0.5"
+      aria-label={`Choose ${kind === "flight" ? "flight" : "stay"} by person`}
+    >
+      {visible.map((choice, position) => {
         const name = memberLabel(choice.member, choice.index);
         const selected = choiceId(choice.member, kind) === optionId;
         return (
@@ -954,18 +1009,25 @@ function MemberChoiceStrip({
             aria-pressed={selected}
             title={`${name}: ${selected ? "picked" : "pick this"}`}
             onClick={() => onChoose(choice)}
-            className={cn(
-              "rounded-full p-0.5 transition",
-              selected ? "bg-success ring-2 ring-success/20" : "border border-dashed border-line-soft bg-surface opacity-70 hover:opacity-100",
-            )}
+            className={cn("relative rounded-full", position > 0 && "-ml-2", selected && "z-10 ring-2 ring-success")}
           >
-            <Avatar name={name} index={choice.index} size="sm" />
+            <Avatar name={name} index={choice.index} dashed={!selected} />
             <span className="sr-only">
               {selected ? `${name} picked this ${kind}` : `Pick this ${kind} for ${name}`}
             </span>
           </button>
         );
       })}
+      {overflow ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="relative -ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#efe3d9] text-[11px] font-bold text-[#8a6a31]"
+          aria-label={`Show ${hidden} more people`}
+        >
+          +{hidden}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1059,21 +1121,24 @@ function Avatar({
   index,
   size = "md",
   overlap = false,
+  dashed = false,
 }: {
   name: string;
   index: number;
   size?: "sm" | "md";
   overlap?: boolean;
+  dashed?: boolean;
 }) {
   const tone = TONES[index % TONES.length];
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full border-2 border-white font-bold",
+        "inline-flex shrink-0 items-center justify-center rounded-full font-bold",
         size === "sm" ? "h-5 w-5 text-[9px]" : "h-7 w-7 text-[11.5px]",
         overlap && "-ml-1.5",
+        dashed ? "border border-dashed opacity-70" : "border-2 border-white",
       )}
-      style={{ background: tone.bg, color: tone.color }}
+      style={{ background: tone.bg, color: tone.color, ...(dashed ? { borderColor: tone.color } : {}) }}
       aria-hidden
     >
       {initials(name)}
@@ -1102,10 +1167,6 @@ function stopLabel(stops: number): string {
   if (stops <= 0) return "Nonstop";
   if (stops === 1) return "1 stop";
   return `${stops} stops`;
-}
-
-function guestScoreLabel(score: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(score);
 }
 
 function cheapest(flights: FlightOption[]): FlightOption | null {
