@@ -8,7 +8,7 @@
  * A chat `stayArea` opens the stay listing. Chat flight cards remember the origin for later browse.
  * City detect is `chatCityDestination` in `fixtures.ts`. Nightly-vs-budget ranking is `splitStays` here; `/plan` uses nights in `plan-picker.tsx`.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Calendar, Check, ChevronLeft, Heart, Mic, Send, Sparkles, Users } from "lucide-react";
@@ -279,7 +279,10 @@ export function PlannerStudio() {
     const value = new URLSearchParams(window.location.search).get("browse");
     return value === "stays" || value === "flights" ? value : "chat";
   });
-  const [fromQuestionnaire, setFromQuestionnaire] = useState(false);
+  const [fromQuestionnaire] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) === "1";
+  });
   const [stayArea, setStayArea] = useState<{ label: string; lat: number; lng: number } | null>(null);
   const [chatOrigin, setChatOrigin] = useState("");
   const [stayCards, setStayCards] = useState<StayCard[]>([]);
@@ -296,7 +299,9 @@ export function PlannerStudio() {
   const feedRef = useRef<HTMLDivElement>(null);
   const nextLine = useRef(0);
   const clarifyCount = useRef(0);
-  const fromQuestionnaireRef = useRef(false);
+  const fromQuestionnaireRef = useRef(
+    typeof window !== "undefined" && sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) === "1",
+  );
   const chatAbort = useRef<AbortController | null>(null);
   const chatGeneration = useRef(0);
 
@@ -486,6 +491,18 @@ export function PlannerStudio() {
     setLines((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, text }]);
   }
 
+  function pickLiveFlight(flight: FlightOffer) {
+    trip.chooseFlight(flight);
+    trip.commitDraft?.();
+  }
+
+  function pickChatHotel(hotel: HotelOffer) {
+    const chosen = chosenStayFromHotel(hotel);
+    if (!chosen) return;
+    trip.chooseStay(chosen);
+    trip.commitDraft?.();
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -629,13 +646,6 @@ export function PlannerStudio() {
     }
   }
 
-  useLayoutEffect(() => {
-    if (sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) === "1") {
-      fromQuestionnaireRef.current = true;
-      setFromQuestionnaire(true);
-    }
-  }, []);
-
   useEffect(() => {
     if (sessionStorage.getItem(QUESTIONNAIRE_KICKOFF_KEY) !== "1") return;
     const brief = questionnaireBrief(state);
@@ -659,18 +669,6 @@ export function PlannerStudio() {
     trip.commitDraft?.();
     setSelectedId(featured.id);
     push("agent", `${featured.name} is saved for the group. The highlighted pin is the one to share.`);
-  }
-
-  function pickLiveFlight(flight: FlightOffer) {
-    trip.chooseFlight(flight);
-    trip.commitDraft?.();
-  }
-
-  function pickChatHotel(hotel: HotelOffer) {
-    const chosen = chosenStayFromHotel(hotel);
-    if (!chosen) return;
-    trip.chooseStay(chosen);
-    trip.commitDraft?.();
   }
 
   function noteVoice() {

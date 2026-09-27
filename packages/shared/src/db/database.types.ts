@@ -1290,6 +1290,24 @@ export type Database = {
           },
         ]
       }
+      trip_slug_claims: {
+        Row: {
+          created_at: string
+          slug: string
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          slug: string
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          slug?: string
+          trip_id?: string
+        }
+        Relationships: []
+      }
       trips: {
         Row: {
           city: string
@@ -1316,7 +1334,7 @@ export type Database = {
           organizer_profile_id: string
           price_threshold_percent?: number
           seed_batch?: string | null
-          slug: string
+          slug?: string
           status?: string
           timezone?: string
           title: string
@@ -1414,6 +1432,7 @@ export type Database = {
       cover_shortfall: { Args: { payload: Json }; Returns: Json }
       create_mandate: { Args: { payload: Json }; Returns: Json }
       finish_agent_run: { Args: { payload: Json }; Returns: Json }
+      generate_trip_slug: { Args: never; Returns: string }
       is_trip_member: { Args: { p_trip_id: string }; Returns: boolean }
       is_trip_organizer: { Args: { p_trip_id: string }; Returns: boolean }
     }

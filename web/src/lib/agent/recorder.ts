@@ -29,7 +29,10 @@ export function withRecording(llm: LlmProvider, options: { enabled: boolean; dir
           finalText: result.text,
         };
         await mkdir(dir, { recursive: true });
-        await writeFile(path.join(dir, recordingFileName(input.recordingKey)), `${JSON.stringify(recording, null, 2)}\n`);
+        await writeFile(
+          path.join(/* turbopackIgnore: true */ dir, recordingFileName(input.recordingKey)),
+          `${JSON.stringify(recording, null, 2)}\n`,
+        );
       }
       return result;
     },

@@ -50,7 +50,11 @@ export function createMockLlmProvider(options: MockLlmOptions = {}): LlmProvider
     if (key === undefined) throw new RecordingNotFoundError(undefined);
     let raw: string;
     try {
-      raw = await readFile(path.join(dir, recordingFileName(key)), "utf8");
+      // Keep the recordings folder statically scoped so Next does not trace the whole repo.
+      raw = await readFile(
+        path.join(/* turbopackIgnore: true */ dir, recordingFileName(key)),
+        "utf8",
+      );
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" || code === "ENAMETOOLONG") throw new RecordingNotFoundError(key);

@@ -48,4 +48,14 @@ describe("internal links", () => {
     const dead = internalPaths().filter(({ target }) => !isPublicFile(target) && !patterns.some((p) => p.test(target)));
     expect(dead).toEqual([]);
   });
+
+  it("never places an internal trip UUID in a trip route or link", () => {
+    const tripRouteWithId = walk(appDir).filter((file) => /[\\/]trips?[\\/]\[id\][\\/]/.test(file));
+    expect(tripRouteWithId).toEqual([]);
+
+    const tripIdLinks = walk(src)
+      .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
+      .filter((file) => /\/trips?\/\$\{(?:[^}]*\.)?(?:tripId|trip_id|id)\}/.test(readFileSync(file, "utf8")));
+    expect(tripIdLinks).toEqual([]);
+  });
 });
