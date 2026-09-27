@@ -6,10 +6,16 @@ import { formatMoney } from "@/features/trip-draft/format";
 import { quoteShares, type QuotedShare } from "@/features/trip-draft/group-share";
 import type { Member } from "@/features/trip-draft/trip-context";
 
-const LINKS_KEY = "group-buy-links";
-const PAID_KEY = "group-buy-paid";
+const LINKS_KEY = "group-buy-holds";
 
-type StoredLink = { memberId: string; url: string; totalCents: number };
+type StoredLink = {
+  memberId: string;
+  name?: string;
+  url: string | null;
+  totalCents: number;
+  currency?: string;
+  status?: string;
+};
 
 type Choice = { member: Member; index: number };
 
@@ -33,6 +39,9 @@ export function GroupBuy({
   members,
   chosenFlight,
   chosenStay,
+  tripId = null,
+  itemId = null,
+  optionId = null,
 }: {
   destinationId: string | null;
   startDate: string;
@@ -40,6 +49,9 @@ export function GroupBuy({
   members: Choice[];
   chosenFlight: ChosenFlight | null;
   chosenStay: ChosenStay | null;
+  tripId?: string | null;
+  itemId?: string | null;
+  optionId?: string | null;
 }) {
   const quote = quoteShares({
     destinationId,
@@ -57,27 +69,28 @@ export function GroupBuy({
   const shares = quote.shares;
   const [confirmed, setConfirmed] = useState<Record<string, number>>({});
   const [links, setLinks] = useState<StoredLink[]>([]);
-  const [paid, setPaid] = useState<string[]>([]);
+  const [restored, setRestored] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLinks(readJson<StoredLink[]>(LINKS_KEY, []).filter((link) => typeof link?.url === "string"));
-    setPaid(readJson<string[]>(PAID_KEY, []).filter((id) => typeof id === "string"));
-  }, []);
+  if (!restored && typeof window !== "undefined") {
+    setRestored(true);
+    setLinks(readJson<StoredLink[]>(LINKS_KEY, []).filter((link) => typeof link?.memberId === "string"));
+  }
 
   useEffect(() => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
     if (!sessionId) return;
     let cancelled = false;
     void fetch(`/api/group-checkout?session_id=${encodeURIComponent(sessionId)}`)
-      .then(async (response) => (response.ok ? ((await response.json()) as { paid?: boolean; memberId?: string | null }) : null))
+      .then(async (response) =>
+        response.ok ? ((await response.json()) as { state?: "paid" | "authorized" | "open"; memberId?: string | null }) : null,
+      )
       .then((body) => {
-        if (cancelled || !body?.paid || !body.memberId) return;
-        setPaid((current) => {
-          if (current.includes(body.memberId!)) return current;
-          const next = [...current, body.memberId!];
-          sessionStorage.setItem(PAID_KEY, JSON.stringify(next));
+        if (cancelled || !body?.memberId || (body.state !== "paid" && body.state !== "authorized")) return;
+        const status = body.state === "paid" ? "captured" : "authorized";
+        setLinks((current) => {
+          const next = current.map((link) => (link.memberId === body.memberId ? { ...link, status } : link));
+          sessionStorage.setItem(LINKS_KEY, JSON.stringify(next));
           return next;
         });
       })
@@ -110,6 +123,7 @@ export function GroupBuy({
           })),
           chosenFlight,
           chosenStay,
+          ...(tripId && itemId && optionId ? { tripId, itemId, optionId } : {}),
         }),
       });
       const body = (await response.json()) as { links?: StoredLink[]; error?: { message?: string } };
@@ -130,21 +144,31 @@ export function GroupBuy({
     <section className="mb-4 rounded-[20px] border border-line bg-surface px-5 py-[18px]" style={{ boxShadow: "var(--shadow)" }}>
       <div className="mb-3.5 flex items-baseline justify-between gap-3">
         <h2 className="text-[15px] font-bold">Group buy</h2>
-        <span className="text-[12px] text-ink-faint">Each person pays their share</span>
+        <span className="text-[12px] text-ink-faint">Authorized now. Charged only when everyone pays</span>
       </div>
-      {shares.length > 0 ? (
+      {links.length > 0 ? (
+        <ul className="flex flex-col gap-2.5">
+          {links.map((link) => (
+            <HoldRow key={link.memberId} link={link} fallbackName={shares.find((share) => share.memberId === link.memberId)?.name} />
+          ))}
+        </ul>
+      ) : shares.length > 0 ? (
         <ul className="flex flex-col gap-2.5">
           {shares.map((share) => (
             <ShareRow
               key={share.memberId}
               share={share}
               confirmed={confirmed[share.memberId] === share.totalCents}
-              paid={paid.includes(share.memberId)}
-              link={activeLinks.find((item) => item.memberId === share.memberId)?.url}
+              link={activeLinks.find((item) => item.memberId === share.memberId)?.url ?? undefined}
               onConfirm={() => setConfirmed((current) => ({ ...current, [share.memberId]: share.totalCents }))}
             />
           ))}
         </ul>
+      ) : null}
+      {links.some((link) => link.status === "declined" || link.status === "failed") ? (
+        <p className="mt-3 text-[13px] text-ink-faint">
+          Waiting on {links.filter((link) => link.status === "declined" || link.status === "failed").map((link) => link.name || "a traveler").join(", ")}
+        </p>
       ) : null}
       {!quote.ok ? <p className="mt-3 text-[13px] text-[#c62828]">{quote.message}</p> : null}
       {quote.ok ? (
@@ -171,13 +195,11 @@ export function GroupBuy({
 function ShareRow({
   share,
   confirmed,
-  paid,
   link,
   onConfirm,
 }: {
   share: QuotedShare;
   confirmed: boolean;
-  paid: boolean;
   link: string | undefined;
   onConfirm: () => void;
 }) {
@@ -191,14 +213,12 @@ function ShareRow({
         </span>
       </span>
       <span className="shrink-0 text-[15px] font-bold tabular-nums">{amount}</span>
-      {paid ? (
-        <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold text-success">Paid</span>
-      ) : link ? (
+      {link ? (
         <a
           href={link}
           className="inline-flex h-11 shrink-0 items-center rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22]"
         >
-          Pay {amount}
+          Authorize {amount}
         </a>
       ) : (
         <button
@@ -210,6 +230,32 @@ function ShareRow({
           {confirmed ? "Confirmed" : "Confirm I'll pay"}
         </button>
       )}
+    </li>
+  );
+}
+
+function HoldRow({ link, fallbackName }: { link: StoredLink; fallbackName?: string }) {
+  const currency = link.currency ?? "USD";
+  const amount = centsLabel(link.totalCents, currency);
+  const name = link.name || fallbackName || "Traveler";
+  return (
+    <li className="flex items-center gap-3 rounded-xl bg-bg-muted px-3.5 py-3">
+      <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{name}</span>
+      <span className="shrink-0 text-[15px] font-bold tabular-nums">{amount}</span>
+      {link.status === "captured" ? (
+        <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold text-success">Paid</span>
+      ) : link.status === "authorized" ? (
+        <span className="shrink-0 rounded-full bg-good-tint px-2 py-0.5 text-[11px] font-bold text-success">Held</span>
+      ) : link.status === "declined" || link.status === "failed" ? (
+        <span className="shrink-0 rounded-full bg-bg px-2 py-0.5 text-[11px] font-bold text-ink-faint">Waiting</span>
+      ) : link.url ? (
+        <a
+          href={link.url}
+          className="inline-flex h-11 shrink-0 items-center rounded-lg bg-ink px-3 text-[12px] font-bold text-white hover:bg-[#302a22]"
+        >
+          Authorize {amount}
+        </a>
+      ) : null}
     </li>
   );
 }

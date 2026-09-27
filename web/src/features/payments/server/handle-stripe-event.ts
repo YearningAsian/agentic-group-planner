@@ -1,9 +1,13 @@
 import "server-only";
 import type { Database } from "@agp/shared/db";
+import { bookingForMockMerchant } from "@/lib/providers/booking";
 import type { PaymentsEvent } from "@/lib/providers/payments";
 import { finishWebhook, recordWebhook } from "@/lib/reliability";
 import { type AdminClient, getAdminClient } from "@/lib/supabase/admin";
 import { holdFilter, holdForMetadata } from "../lib/hold";
+import { finalizeIfWon, isSatisfied } from "./approve-hold";
+import { captureCheckoutGroup } from "./capture-checkout-group";
+import { finalizeMandate } from "./finalize-mandate";
 import { readError } from "./rpc-error";
 
 export type StripeEventOutcome = "processed" | "ignored" | "skipped";
@@ -103,17 +107,51 @@ async function apply(admin: AdminClient, event: PaymentsEvent): Promise<boolean>
 }
 
 /**
+ * After a hold is authorized, finish the purchase once every share can be captured. Decline leaves
+ * the other holds in place and marks the mandate so the group is waiting on that member.
+ * `finalizeMandate` is the only place that books and captures; its lease ignores a second delivery.
+ */
+async function resumeIfReady(admin: AdminClient, event: PaymentsEvent): Promise<void> {
+  const mandateId = event.metadata.mandate_id;
+  if (event.type === "payment_intent.amount_capturable_updated" && event.metadata.group_id && !mandateId && event.paymentIntentId) {
+    await captureCheckoutGroup(event.paymentIntentId);
+    return;
+  }
+  if (!mandateId) return;
+  if (event.type === "payment_intent.payment_failed") {
+    const declined = await admin.from("mandates").update({ status: "partially_declined" }).eq("id", mandateId).eq("status", "open");
+    if (declined.error) throw readError(declined.error, "the purchase");
+    return;
+  }
+  if (event.type !== "payment_intent.amount_capturable_updated") return;
+  if (!(await isSatisfied(admin, mandateId))) return;
+
+  const { data: mandate, error } = await admin.from("mandates").select("id, status, merchant").eq("id", mandateId).maybeSingle();
+  if (error) throw readError(error, "the purchase");
+  if (!mandate) return;
+  const booking = bookingForMockMerchant(mandate.merchant);
+  const deps = booking ? { booking } : {};
+  if (mandate.status === "open" || mandate.status === "partially_declined") {
+    await finalizeIfWon(admin, mandateId, deps);
+    return;
+  }
+  if (mandate.status === "authorized") await finalizeMandate(mandateId, deps);
+}
+
+/**
  * Handles one verified provider event (design §7.2): it's recorded first, so a duplicate or a
- * retry of a finished event changes nothing, then applied as conditional share-row updates only.
- * Events never book, capture, or refund, so this and the synchronous path end in the same state in
- * either order. A failure marks the event `failed` and rethrows, so the route answers 500 and the
+ * retry of a finished event changes nothing, then applied as conditional share-row updates.
+ * When every share is authorized, this resumes `finalizeMandate` (the same transition `approveHold`
+ * uses). A failure marks the event `failed` and rethrows, so the route answers 500 and the
  * provider retries.
  */
 export async function handleStripeEvent(event: PaymentsEvent): Promise<StripeEventOutcome> {
   const decision = await recordWebhook({ provider: "stripe", eventId: event.id, type: event.type, payload: trimmed(event) });
   if (decision === "skip") return "skipped";
   try {
-    const handled = await apply(getAdminClient(), event);
+    const admin = getAdminClient();
+    const handled = await apply(admin, event);
+    if (handled) await resumeIfReady(admin, event);
     await finishWebhook("stripe", event.id, handled ? "processed" : "ignored");
     return handled ? "processed" : "ignored";
   } catch (error) {

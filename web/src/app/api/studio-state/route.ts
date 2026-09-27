@@ -29,7 +29,49 @@ function profileFrom(value: unknown) {
 
 async function session() {
   const client = await getServerClient();
-  const { data } = await client.auth.getUser();
+  const { data, error } = await client.auth.getUser();
+  // #region agent log
+  const { cookies } = await import("next/headers");
+  const store = await cookies();
+  const names = store.getAll().map((cookie) => cookie.name);
+  const authNames = names.filter((name) => name.startsWith("sb-") || name.includes("auth"));
+  const authLog = {
+    sessionId: "811c21",
+    hypothesisId: "B-C",
+    location: "studio-state/route.ts:session",
+    message: "server auth on save",
+    data: {
+      hasUser: Boolean(data.user),
+      authError: error?.message ?? null,
+      authStatus: error?.status ?? null,
+      authCode: error && "code" in error ? String(error.code) : null,
+      cookieCount: names.length,
+      authCookieNames: authNames,
+    },
+    timestamp: Date.now(),
+  };
+  console.info("DEBUG811c21", JSON.stringify(authLog));
+  fetch("http://127.0.0.1:7544/ingest/ae10d957-dcfc-49ae-b19f-e3a8284963a1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "811c21" },
+    body: JSON.stringify({
+      sessionId: "811c21",
+      hypothesisId: "B-C",
+      location: "studio-state/route.ts:session",
+      message: "server auth on save",
+      data: {
+        hasUser: Boolean(data.user),
+        authError: error?.message ?? null,
+        authStatus: error?.status ?? null,
+        authCode: error && "code" in error ? String(error.code) : null,
+        cookieCount: names.length,
+        cookieNames: names,
+        authCookieNames: authNames,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   if (!data.user) throw new AppError("unauthenticated", "Sign in to save your trips.");
   return { client, id: data.user.id };
 }

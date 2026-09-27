@@ -6,7 +6,7 @@ import { resetStudioMemory } from "./studio-store";
 import type { TripRecord } from "./trips-db";
 import type { FlightOffer } from "@/lib/providers/flights/types";
 import type { StayCard } from "@/lib/providers/stays/types";
-import { resetTripContextForTests, TripProvider, useTrip, type TripState } from "./trip-context";
+import { resetTripContextForTests, TripProvider, useTrip } from "./trip-context";
 
 type TripApi = ReturnType<typeof useTrip>;
 
@@ -47,7 +47,7 @@ function renderProvider(): TripApi {
   return api;
 }
 
-function legacyRecord(overrides: Partial<Omit<TripState, "id">> = {}): TripRecord {
+function legacyRecord(overrides: Partial<TripRecord> = {}): TripRecord {
   return {
     id: "trip-legacy",
     destinationId: "lisbon",

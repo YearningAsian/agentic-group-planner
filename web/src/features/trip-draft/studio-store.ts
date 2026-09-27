@@ -61,12 +61,56 @@ export async function pullStudio(): Promise<void> {
 
 async function pushStudio(): Promise<void> {
   if (typeof window === "undefined" || process.env.VITEST) return;
+  // #region agent log
+  const browserSession = await getBrowserClient().auth.getSession();
+  console.info(
+    "DEBUG811c21",
+    JSON.stringify({
+      hasSession: Boolean(browserSession.data.session),
+      expiresAt: browserSession.data.session?.expires_at ?? null,
+      sessionError: browserSession.error?.message ?? null,
+    }),
+  );
+  fetch("http://127.0.0.1:7544/ingest/ae10d957-dcfc-49ae-b19f-e3a8284963a1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "811c21" },
+    body: JSON.stringify({
+      sessionId: "811c21",
+      hypothesisId: "A",
+      location: "studio-store.ts:pushStudio",
+      message: "browser session before save",
+      data: {
+        hasSession: Boolean(browserSession.data.session),
+        expiresAt: browserSession.data.session?.expires_at ?? null,
+        sessionError: browserSession.error?.message ?? null,
+        tripCount: current.trips.length,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+  if (!browserSession.data.session) return;
   const response = await fetch("/api/studio-state", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(current),
   });
   if (!response.ok) {
+    // #region agent log
+    const errorBody = await response.clone().json().catch(() => null);
+    fetch("http://127.0.0.1:7544/ingest/ae10d957-dcfc-49ae-b19f-e3a8284963a1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "811c21" },
+      body: JSON.stringify({
+        sessionId: "811c21",
+        hypothesisId: "A",
+        location: "studio-store.ts:pushStudio",
+        message: "save rejected",
+        data: { status: response.status, errorCode: errorBody?.error?.code ?? null },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     console.error("Couldn't save trips", response.status);
   }
 }

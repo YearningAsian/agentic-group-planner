@@ -1,24 +1,34 @@
 import "server-only";
 import Stripe from "stripe";
 import { z } from "zod";
+import { type CheckoutHold, openCheckoutMandate } from "@/features/payments/server";
 import { quoteShares, type QuotedShare } from "@/features/trip-draft/group-share";
 import { getServerEnv } from "@/lib/env/server";
 import { AppError } from "@/lib/reliability";
-import { STRIPE_OPTIONS, STRIPE_POLICY } from "@/lib/providers/payments/stripe-config";
+import { STRIPE_OPTIONS, STRIPE_POLICY } from "@/lib/providers/payments";
 import { withPolicy } from "@/lib/reliability/with-policy";
 
-const memberSchema = z.object({
-  id: z.string().min(1).max(80),
-  name: z.string().max(80),
-  flightId: z.string().min(1).max(200),
-  stayId: z.string().min(1).max(200),
+const mandateSchema = z.object({
+  tripId: z.uuid(),
+  itemId: z.uuid(),
+  optionId: z.uuid(),
 });
 
-const bodySchema = z.object({
+const draftSchema = z.object({
   destinationId: z.string().min(1).nullable(),
   startDate: z.string(),
   endDate: z.string(),
-  members: z.array(memberSchema).min(1).max(12),
+  members: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(80),
+        name: z.string().max(80),
+        flightId: z.string().min(1).max(200),
+        stayId: z.string().min(1).max(200),
+      }),
+    )
+    .min(1)
+    .max(12),
   chosenFlight: z
     .object({
       id: z.string().min(1).max(200),
@@ -45,15 +55,27 @@ const bodySchema = z.object({
     .nullable(),
 });
 
-export type GroupCheckoutBody = z.infer<typeof bodySchema>;
+export type GroupCheckoutBody = z.infer<typeof mandateSchema> | z.infer<typeof draftSchema>;
 
 export type GroupCheckoutLink = {
   memberId: string;
   name: string;
-  url: string;
+  url: string | null;
   totalCents: number;
   currency: string;
+  status: string;
 };
+
+export type PaidSession = {
+  state: "paid" | "authorized" | "open";
+  memberId: string | null;
+};
+
+export interface GroupCheckoutDeps {
+  profileId: string;
+  stripe?: Stripe;
+  appUrl?: string;
+}
 
 function stripeClient(): Stripe {
   const secret = getServerEnv().STRIPE_SECRET_KEY;
@@ -81,53 +103,115 @@ async function stripeCall<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function createGroupCheckout(raw: unknown): Promise<{
-  links: GroupCheckoutLink[];
-  totalCents: number;
-  currency: string;
-}> {
-  const parsed = bodySchema.safeParse(raw);
-  if (!parsed.success) throw new AppError("invalid_input", "That checkout request is missing a traveler or a pick.");
-  const body = parsed.data;
-  const quote = quoteShares(body);
-  if (!quote.ok) throw new AppError("invalid_input", quote.message);
-
-  const stripe = stripeClient();
-  const appUrl = getServerEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  const integration = integrationIdentifier();
-  const links = await Promise.all(
-    quote.shares.map((share) => {
-      const member = body.members.find((item) => item.id === share.memberId);
-      if (!member) throw new AppError("invalid_input", "That checkout request is missing a traveler or a pick.");
-      return openSession(stripe, share, member, appUrl, integration, body.destinationId);
-    }),
-  );
-  return { links, totalCents: quote.totalCents, currency: quote.currency };
+export async function createGroupCheckout(
+  raw: unknown,
+  deps: GroupCheckoutDeps,
+): Promise<{ mandateId: string | null; links: GroupCheckoutLink[]; totalCents: number; currency: string }> {
+  const mandate = mandateSchema.safeParse(raw);
+  if (mandate.success) {
+    return createMandateCheckout(mandate.data, deps);
+  }
+  const draft = draftSchema.safeParse(raw);
+  if (!draft.success) throw new AppError("invalid_input", "That checkout request is missing a traveler or a pick.");
+  return createDraftCheckout(draft.data, deps);
 }
 
-async function openSession(
+async function createMandateCheckout(
+  input: z.infer<typeof mandateSchema>,
+  deps: GroupCheckoutDeps,
+): Promise<{ mandateId: string | null; links: GroupCheckoutLink[]; totalCents: number; currency: string }> {
+  const { tripId, itemId, optionId } = input;
+  const purchase = await openCheckoutMandate({ tripId, itemId, optionId, profileId: deps.profileId });
+  const stripe = deps.stripe ?? stripeClient();
+  const appUrl = (deps.appUrl ?? getServerEnv().NEXT_PUBLIC_APP_URL).replace(/\/$/, "");
+  const integration = integrationIdentifier();
+  const links = await Promise.all(
+    purchase.holds.map((hold) => openSession(stripe, purchase.mandateId, purchase.tripId, hold, purchase.currency, appUrl, integration)),
+  );
+  return {
+    mandateId: purchase.mandateId,
+    links,
+    totalCents: links.reduce((sum, link) => sum + link.totalCents, 0),
+    currency: purchase.currency,
+  };
+}
+
+async function createDraftCheckout(
+  input: z.infer<typeof draftSchema>,
+  deps: GroupCheckoutDeps,
+): Promise<{ mandateId: null; links: GroupCheckoutLink[]; totalCents: number; currency: string }> {
+  const quote = quoteShares(input);
+  if (!quote.ok) throw new AppError("invalid_input", quote.message);
+  const stripe = deps.stripe ?? stripeClient();
+  const appUrl = (deps.appUrl ?? getServerEnv().NEXT_PUBLIC_APP_URL).replace(/\/$/, "");
+  const integration = integrationIdentifier();
+  const groupId = crypto.randomUUID();
+  const created = await Promise.all(
+    quote.shares.map((share) =>
+      openDraftSession(stripe, groupId, quote.shares.length, share, appUrl, integration),
+    ),
+  );
+  const peerSessionIds = created.map((session) => session.id).join(",");
+  await Promise.all(
+    created.map((session) =>
+      stripeCall(() =>
+        stripe.checkout.sessions.update(session.id, {
+          metadata: {
+            member_id: session.metadata?.member_id ?? "",
+            group_id: groupId,
+            peer_session_ids: peerSessionIds,
+          },
+        }),
+      ),
+    ),
+  );
+  return {
+    mandateId: null,
+    currency: quote.currency,
+    totalCents: quote.totalCents,
+    links: created.map((session, index) => {
+      const share = quote.shares[index]!;
+      if (!session.url) throw new AppError("provider_unavailable", "Stripe did not return a checkout link.");
+      return {
+        memberId: share.memberId,
+        name: share.name,
+        url: session.url,
+        totalCents: share.totalCents,
+        currency: quote.currency,
+        status: "pending",
+      };
+    }),
+  };
+}
+
+async function openDraftSession(
   stripe: Stripe,
+  groupId: string,
+  groupSize: number,
   share: QuotedShare,
-  member: { flightId: string; stayId: string },
   appUrl: string,
   integrationIdentifier: string,
-  destinationId: string | null,
-): Promise<GroupCheckoutLink> {
-  const idempotencyKey = `group-checkout:${share.memberId}:${member.flightId}:${member.stayId}:${share.totalCents}`.slice(0, 255);
-  const session = await stripeCall(() =>
+): Promise<Stripe.Checkout.Session> {
+  // v2 so a retry does not reuse a Checkout Session created before holds existed.
+  const idempotencyKey = `group-hold:v2:${share.memberId}:${share.totalCents}:${share.flightLabel}:${share.stayLabel}`.slice(0, 255);
+  return stripeCall(() =>
     stripe.checkout.sessions.create(
       {
         mode: "payment",
-        // This account turns on Managed Payments by default, which rejects a session without a product tax code.
         managed_payments: { enabled: false },
         client_reference_id: share.memberId,
         integration_identifier: integrationIdentifier,
         branding_settings: { display_name: "CoTravel" },
         success_url: `${appUrl}/current?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${appUrl}/current`,
-        metadata: {
-          member_id: share.memberId,
-          destination_id: destinationId ?? "",
+        metadata: { member_id: share.memberId, group_id: groupId },
+        payment_intent_data: {
+          capture_method: "manual",
+          metadata: {
+            group_id: groupId,
+            member_id: share.memberId,
+            group_size: String(groupSize),
+          },
         },
         line_items: [
           {
@@ -151,20 +235,85 @@ async function openSession(
       { idempotencyKey },
     ),
   );
+}
+
+async function openSession(
+  stripe: Stripe,
+  mandateId: string,
+  tripId: string,
+  hold: CheckoutHold,
+  currency: string,
+  appUrl: string,
+  integrationIdentifier: string,
+): Promise<GroupCheckoutLink> {
+  if (hold.status !== "pending") {
+    return { memberId: hold.memberId, name: hold.name, url: null, totalCents: hold.capCents, currency, status: hold.status };
+  }
+  const idempotencyKey = `group-checkout:${mandateId}:${hold.memberId}`.slice(0, 255);
+  const session = await stripeCall(() =>
+    stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        // This account turns on Managed Payments by default, which rejects a session without a product tax code.
+        managed_payments: { enabled: false },
+        client_reference_id: hold.memberId,
+        integration_identifier: integrationIdentifier,
+        branding_settings: { display_name: "CoTravel" },
+        success_url: `${appUrl}/current?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/current`,
+        metadata: {
+          member_id: hold.memberId,
+          mandate_id: mandateId,
+          trip_id: tripId,
+        },
+        payment_intent_data: {
+          capture_method: "manual",
+          metadata: {
+            trip_id: tripId,
+            mandate_id: mandateId,
+            payer_member_id: hold.memberId,
+            share_member_id: hold.memberId,
+          },
+        },
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: currency.toLowerCase(),
+              unit_amount: hold.capCents,
+              product_data: { name: `${hold.name}'s share` },
+            },
+          },
+        ],
+      },
+      { idempotencyKey },
+    ),
+  );
   if (!session.url) throw new AppError("provider_unavailable", "Stripe did not return a checkout link.");
   return {
-    memberId: share.memberId,
-    name: share.name,
+    memberId: hold.memberId,
+    name: hold.name,
     url: session.url,
-    totalCents: share.totalCents,
-    currency: share.currency,
+    totalCents: hold.capCents,
+    currency,
+    status: "pending",
   };
 }
 
-export async function readPaidSession(sessionId: string): Promise<{ paid: boolean; memberId: string | null }> {
+export async function readPaidSession(sessionId: string, deps: { stripe?: Stripe } = {}): Promise<PaidSession> {
   if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) throw new AppError("invalid_input", "That checkout session is invalid.");
-  const stripe = stripeClient();
+  const stripe = deps.stripe ?? stripeClient();
   const session = await stripeCall(() => stripe.checkout.sessions.retrieve(sessionId));
   const memberId = session.metadata?.member_id ?? session.client_reference_id ?? null;
-  return { paid: session.payment_status === "paid", memberId };
+  if (session.payment_status === "paid") return { state: "paid", memberId };
+  const paymentIntent = session.payment_intent;
+  const paymentIntentId = typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
+  if (session.status === "complete" && paymentIntentId) {
+    const intent =
+      paymentIntent && typeof paymentIntent === "object"
+        ? paymentIntent
+        : await stripeCall(() => stripe.paymentIntents.retrieve(paymentIntentId));
+    if (intent.status === "requires_capture") return { state: "authorized", memberId };
+  }
+  return { state: "open", memberId };
 }

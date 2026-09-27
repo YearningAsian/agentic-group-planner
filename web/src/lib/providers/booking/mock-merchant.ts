@@ -7,7 +7,14 @@ import type { BookingKind, BookingProvider, BookResult, Quote } from "./types";
 
 /** What the approval card names as the merchant. */
 export const MOCK_MERCHANT_NAME = "Demo Tickets (mock merchant)";
-const MOCK_HOTELS_NAME = "Demo Hotels (mock merchant)";
+export const MOCK_HOTELS_NAME = "Demo Hotels (mock merchant)";
+
+/** The sample merchant for a mandate quoted by the mock, or null when this purchase uses another merchant. */
+export function bookingForMockMerchant(merchant: string): MockMerchant | null {
+  if (merchant === MOCK_MERCHANT_NAME) return createMockMerchant();
+  if (merchant === MOCK_HOTELS_NAME) return createMockMerchant({ kind: "stays" });
+  return null;
+}
 
 const QUOTE_TTL_MS = 15 * 60_000;
 const QUOTE_PREFIX = "q_mock_";
