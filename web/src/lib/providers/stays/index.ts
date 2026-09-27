@@ -8,6 +8,7 @@ import type { StaysProvider } from "./types";
 
 export type * from "./types";
 export { createDuffelStays } from "./real";
+export { stayAreaForPlace, type StaySearchArea } from "./place-point";
 
 export function getStaysProvider(
   env: Pick<ServerEnv, "STAYS_PROVIDER" | "DUFFEL_ACCESS_TOKEN"> = getServerEnv(),

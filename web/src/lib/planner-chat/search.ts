@@ -2,8 +2,7 @@ import type { PlaceSuggestion, PlaceSuggestionsProvider } from "@/lib/providers/
 import { createDuffelPlaceSuggestions } from "@/lib/providers/place-suggestions";
 import { createDuffelFlights } from "@/lib/providers/flights";
 import type { FlightOffer, FlightsProvider } from "@/lib/providers/flights/types";
-import { createDuffelStays } from "@/lib/providers/stays";
-import { stayAreaForPlace } from "@/lib/providers/stays/place-point";
+import { createDuffelStays, stayAreaForPlace } from "@/lib/providers/stays";
 import type { StayCard, StaysProvider } from "@/lib/providers/stays/types";
 import type { FlightSearchParams, HotelSearchParams } from "./schema";
 import { flightDateError, hotelDateError } from "./schema";

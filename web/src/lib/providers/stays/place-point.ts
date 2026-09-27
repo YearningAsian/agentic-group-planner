@@ -1,5 +1,5 @@
 import type { PlaceSuggestion } from "@/lib/providers/place-suggestions/types";
-import { straightLineMeters } from "@/lib/providers/routing/distance";
+import { straightLineMeters } from "@/lib/providers/routing";
 
 const CITY_RADIUS_KM = 5;
 const MIN_DERIVED_KM = 20;

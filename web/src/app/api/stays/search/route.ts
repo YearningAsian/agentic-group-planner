@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { destinationById } from "@/lib/demo/trip-draft-fixtures";
 import { getServerEnv } from "@/lib/env/server";
 import { createDuffelPlaceSuggestions } from "@/lib/providers/place-suggestions";
-import { createDuffelStays } from "@/lib/providers/stays";
-import { stayAreaForPlace, type StaySearchArea } from "@/lib/providers/stays/place-point";
+import { createDuffelStays, stayAreaForPlace, type StaySearchArea } from "@/lib/providers/stays";
 import { AppError, toHttpError } from "@/lib/reliability/app-error";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;

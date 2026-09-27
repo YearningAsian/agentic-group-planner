@@ -29,9 +29,10 @@ export function PlanPicker() {
   const [leaving, setLeaving] = useState(false);
   const [flights, setFlights] = useState<FlightOffer[]>([]);
   const [stays, setStays] = useState<StayCard[]>([]);
-  const [flightMessage, setFlightMessage] = useState("Looking up flights…");
-  const [stayMessage, setStayMessage] = useState("Looking up stays…");
-  const [flightOrigin, setFlightOrigin] = useState("");
+  const [flightMessage, setFlightMessage] = useState("");
+  const [stayMessage, setStayMessage] = useState("");
+  const [flightQuery, setFlightQuery] = useState("");
+  const [stayQuery, setStayQuery] = useState("");
 
   const destination = destinationById(state.destinationId);
   const nights = nightsBetween(state.startDate, state.endDate);
@@ -47,17 +48,25 @@ export function PlanPicker() {
         : null;
   const stayPlace = destinationName || destinationIata;
   const flightDestination = (state.destinationIata || destination?.code || state.destinationLabel || destination?.label || "").trim();
+  const flightOrigin = state.originLabel?.trim() || rememberedFlightOrigin();
+  const stayBlocked = (!place && !stayPlace) || !datesReady;
+  const stayBlockedMessage = !place && !stayPlace ? "Pick a destination first." : "Add trip dates to browse stays.";
+  const stayKey = stayBlocked
+    ? ""
+    : [destinationName, destinationIata, place?.lat, place?.lng, state.startDate, state.endDate, adults, state.budget, nights].join("|");
+  const flightBlocked =
+    !flightDestination || !flightOrigin || !state.startDate || (state.roundTrip !== false && !datesReady);
+  const flightBlockedMessage = !flightDestination
+    ? "Pick a destination first."
+    : !flightOrigin
+      ? "Tell the agent where you're flying from."
+      : "Add trip dates to browse flights.";
+  const flightKey = flightBlocked
+    ? ""
+    : [flightOrigin, flightDestination, state.startDate, state.endDate, state.roundTrip, adults, state.budget].join("|");
 
   useEffect(() => {
-    setFlightOrigin(state.originLabel?.trim() || rememberedFlightOrigin());
-  }, []);
-
-  useEffect(() => {
-    if ((!place && !stayPlace) || !datesReady) {
-      setStays([]);
-      setStayMessage(!place && !stayPlace ? "Pick a destination first." : "Add trip dates to browse stays.");
-      return;
-    }
+    if (!stayKey) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
       label: destinationName || stayPlace,
@@ -72,7 +81,7 @@ export function PlanPicker() {
       params.set("place", destinationName || destinationIata);
       if (destinationIata) params.set("iata", destinationIata);
     }
-    setStayMessage("Looking up stays…");
+    const key = stayKey;
     fetch(`/api/stays/search?${params}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("search failed");
@@ -90,27 +99,19 @@ export function PlanPicker() {
               ? "Nothing fit the budget. Showing the closest prices."
               : "",
         );
+        setStayQuery(key);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
         setStays([]);
         setStayMessage("Stays are unavailable right now.");
+        setStayQuery(key);
       });
     return () => controller.abort();
-  }, [adults, datesReady, destinationIata, destinationName, nights, place?.lat, place?.lng, stayPlace, state.budget, state.endDate, state.startDate]);
+  }, [adults, destinationIata, destinationName, nights, stayKey, stayPlace, state.budget, state.endDate, state.startDate]);
 
   useEffect(() => {
-    if (!flightDestination || !flightOrigin || !state.startDate || (state.roundTrip !== false && !datesReady)) {
-      setFlights([]);
-      setFlightMessage(
-        !flightDestination
-          ? "Pick a destination first."
-          : !flightOrigin
-            ? "Tell the agent where you're flying from."
-            : "Add trip dates to browse flights.",
-      );
-      return;
-    }
+    if (!flightKey) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
       origin: flightOrigin,
@@ -119,7 +120,7 @@ export function PlanPicker() {
       travelers: String(adults),
     });
     if (state.roundTrip !== false && state.endDate) params.set("returnDate", state.endDate);
-    setFlightMessage("Looking up flights…");
+    const key = flightKey;
     fetch(`/api/flights/search?${params}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as { flights?: FlightOffer[]; note?: string; error?: { message?: string } };
@@ -137,17 +138,28 @@ export function PlanPicker() {
               ? "Nothing fit the budget. Showing the closest fares."
               : body.note || "",
         );
+        setFlightQuery(key);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
         setFlights([]);
         setFlightMessage(error instanceof Error && error.message !== "search failed" ? error.message : "Flights are unavailable right now.");
+        setFlightQuery(key);
       });
     return () => controller.abort();
-  }, [adults, datesReady, flightDestination, flightOrigin, state.budget, state.endDate, state.roundTrip, state.startDate]);
+  }, [adults, flightDestination, flightKey, flightOrigin, state.budget, state.endDate, state.roundTrip, state.startDate]);
 
-  const flight = flights.find((item) => flightOfferId(item) === state.lockedFlightId) ?? null;
-  const stay = stays.find((item) => item.id === state.lockedStayId) ?? null;
+  const visibleStays = stayKey && stayQuery === stayKey ? stays : [];
+  const visibleStayMessage = stayBlocked ? stayBlockedMessage : stayQuery === stayKey ? stayMessage : "Looking up stays…";
+  const visibleFlights = flightKey && flightQuery === flightKey ? flights : [];
+  const visibleFlightMessage = flightBlocked
+    ? flightBlockedMessage
+    : flightQuery === flightKey
+      ? flightMessage
+      : "Looking up flights…";
+
+  const flight = visibleFlights.find((item) => flightOfferId(item) === state.lockedFlightId) ?? null;
+  const stay = visibleStays.find((item) => item.id === state.lockedStayId) ?? null;
   const perPerson = (flight?.price ?? 0) + (stay?.nightlyAmount != null ? stay.nightlyAmount * nights : 0);
   const people = Math.max(state.members.length, 1);
   const ready = Boolean(flight && stay);
@@ -217,10 +229,10 @@ export function PlanPicker() {
   }
 
   const comparedFlights = state.compareFlightIds
-    .map((id) => flights.find((item) => flightOfferId(item) === id))
+    .map((id) => visibleFlights.find((item) => flightOfferId(item) === id))
     .filter((item): item is FlightOffer => Boolean(item));
   const comparedStays = state.compareStayIds
-    .map((id) => stays.find((item) => item.id === id))
+    .map((id) => visibleStays.find((item) => item.id === id))
     .filter((item): item is StayCard => Boolean(item));
 
   return (
@@ -242,7 +254,7 @@ export function PlanPicker() {
                 <h2 className="text-[22px] font-semibold tracking-tight">Flights</h2>
                 <p className="text-[14px] text-muted">
                   {flightOrigin ? `From ${flightOrigin}` : "Departure city not set"}
-                  {flightMessage ? ` · ${flightMessage}` : ""}
+                  {visibleFlightMessage ? ` · ${visibleFlightMessage}` : ""}
                 </p>
               </div>
               <button
@@ -257,9 +269,9 @@ export function PlanPicker() {
                 {state.comparingFlights ? "Comparing" : "Compare"}
               </button>
             </div>
-            {flights.length === 0 ? <p className="text-[15px] text-muted">{flightMessage}</p> : null}
+            {visibleFlights.length === 0 ? <p className="text-[15px] text-muted">{visibleFlightMessage}</p> : null}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {flights.map((item) => {
+              {visibleFlights.map((item) => {
                 const id = flightOfferId(item);
                 const stops = item.stops === 0 ? "Nonstop" : `${item.stops} stop${item.stops === 1 ? "" : "s"}`;
                 return (
@@ -301,7 +313,7 @@ export function PlanPicker() {
                 <h2 className="text-[22px] font-semibold tracking-tight">Stays</h2>
                 <p className="text-[14px] text-muted">
                   {heading} · {nights} {nights === 1 ? "night" : "nights"}
-                  {stayMessage ? ` · ${stayMessage}` : ""}
+                  {visibleStayMessage ? ` · ${visibleStayMessage}` : ""}
                 </p>
               </div>
               <button
@@ -316,9 +328,9 @@ export function PlanPicker() {
                 {state.comparingStays ? "Comparing" : "Compare"}
               </button>
             </div>
-            {stays.length === 0 ? <p className="text-[15px] text-muted">{stayMessage}</p> : null}
+            {visibleStays.length === 0 ? <p className="text-[15px] text-muted">{visibleStayMessage}</p> : null}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {stays.map((item) => (
+              {visibleStays.map((item) => (
                 <OptionCard
                   key={item.id}
                   image={item.image?.startsWith("https://images.unsplash.com/") ? item.image : cardImage}

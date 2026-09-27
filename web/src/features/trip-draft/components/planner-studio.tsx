@@ -275,7 +275,11 @@ export function PlannerStudio() {
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [voiceNoted, setVoiceNoted] = useState(false);
-  const [mode, setMode] = useState<"chat" | "stays" | "flights">("chat");
+  const [mode, setMode] = useState<"chat" | "stays" | "flights">(() => {
+    if (typeof window === "undefined") return "chat";
+    const value = new URLSearchParams(window.location.search).get("browse");
+    return value === "stays" || value === "flights" ? value : "chat";
+  });
   const [stayArea, setStayArea] = useState<{ label: string; lat: number; lng: number } | null>(null);
   const [chatOrigin, setChatOrigin] = useState("");
   const [stayCards, setStayCards] = useState<StayCard[]>([]);
@@ -450,11 +454,6 @@ export function PlannerStudio() {
       });
     return () => controller.abort();
   }, [flightKey]);
-
-  useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get("browse");
-    if (value === "stays" || value === "flights") setMode(value);
-  }, []);
 
   const browseReady = browseKey !== "" && loadedBrowseKey === browseKey;
   const rankedStays = relevantOffers(
