@@ -129,6 +129,8 @@ const emptyTrips: TripRecord[] = [];
 let dbSnapshot: TripsDatabase = { activeTripId: null, trips: [] };
 let snapshot: TripState = emptySnapshot;
 let didHydrate = false;
+/** Start-a-new-trip stays blank until the draft is saved or an existing trip is opened. */
+let blankDraft = false;
 let stopLive: (() => void) | undefined;
 const listeners = new Set<() => void>();
 
@@ -196,16 +198,18 @@ function clearMemberPicks(members: Member[]): Member[] {
 
 function applyLoaded() {
   dbSnapshot = loadDatabase();
-  if (dbSnapshot.trips.length > 0) {
-    const active = dbSnapshot.trips.find((t) => t.id === dbSnapshot.activeTripId) ?? dbSnapshot.trips[0];
-    const normalizedTrips = dbSnapshot.trips.map(normalizeState);
-    dbSnapshot = { ...dbSnapshot, trips: normalizedTrips };
+  const normalizedTrips = dbSnapshot.trips.map(normalizeState);
+  const storedActiveTripId = dbSnapshot.activeTripId;
+  const matched = normalizedTrips.find((trip) => trip.id === storedActiveTripId);
+  const keepBlank = blankDraft || storedActiveTripId == null;
+  if (normalizedTrips.length > 0 && !keepBlank) {
+    const active = matched ?? normalizedTrips[0];
+    dbSnapshot = { ...dbSnapshot, trips: normalizedTrips, activeTripId: active.id };
     snapshot = normalizeState(active);
-    dbSnapshot.activeTripId = active.id;
-  } else {
-    snapshot = initialState();
-    dbSnapshot.activeTripId = null;
+    return;
   }
+  dbSnapshot = { ...dbSnapshot, trips: normalizedTrips, activeTripId: null };
+  snapshot = initialState();
 }
 
 function refreshFromServer() {
@@ -226,6 +230,7 @@ export function resetTripContextForTests(): void {
   stopLive?.();
   stopLive = undefined;
   didHydrate = false;
+  blankDraft = false;
   snapshot = initialState();
   dbSnapshot = { activeTripId: null, trips: [] };
   resetStudioMemory();
@@ -272,6 +277,7 @@ function commitDraft(): string | null {
   };
   snapshot = record;
   dbSnapshot = upsertTripRecord(dbSnapshot, record);
+  blankDraft = false;
   notify();
   return id;
 }
@@ -298,6 +304,7 @@ type TripActions = {
   toggleVibe: (value: string) => void;
   setMemberName: (id: string, name: string) => void;
   addMember: (placeholder: boolean) => void;
+  setGoing: (names: string[]) => void;
   removeMember: (id: string) => void;
   resetParty: () => void;
   assignFlight: (memberId: string, id: string) => void;
@@ -478,6 +485,26 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
+      setGoing(names) {
+        commit((current) => {
+          const cleaned = names.map((name) => name.trim()).filter(Boolean).slice(0, 6);
+          if (cleaned.length === 0) return current;
+          return {
+            ...current,
+            members: cleaned.map((name, index) => {
+              const existing = current.members[index];
+              return {
+                id: existing?.id ?? `p${index + 1}-${Date.now()}`,
+                name,
+                joined: true,
+                placeholder: false,
+                flightId: existing?.flightId ?? null,
+                stayId: existing?.stayId ?? null,
+              };
+            }),
+          };
+        });
+      },
       removeMember(id) {
         commit((current) => {
           if (id === current.members[0]?.id) return current;
@@ -600,6 +627,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         });
       },
       startNewTrip() {
+        blankDraft = true;
         snapshot = initialState();
         dbSnapshot = { ...dbSnapshot, activeTripId: null };
         saveDatabase(dbSnapshot);
@@ -611,6 +639,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       selectTrip(id) {
         const found = dbSnapshot.trips.find((t) => t.id === id);
         if (found) {
+          blankDraft = false;
           snapshot = found;
           dbSnapshot = { ...dbSnapshot, activeTripId: id };
           saveDatabase(dbSnapshot);

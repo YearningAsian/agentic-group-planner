@@ -67,6 +67,7 @@ describe("POST /api/planner/chat", () => {
         model: "muse-spark-1.3",
       }),
     );
+    expect(runPlannerChat.mock.calls[0]?.[1]).not.toHaveProperty("duffelToken");
   });
 
   it("hides a provider failure", async () => {

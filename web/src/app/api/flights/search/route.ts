@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerEnv } from "@/lib/env/server";
 import { executeFlightSearch } from "@/lib/planner-chat/search";
 import { FLIGHT_UNAVAILABLE } from "@/lib/planner-chat/types";
 import { AppError, toHttpError } from "@/lib/reliability/app-error";
@@ -23,18 +22,13 @@ export async function GET(request: Request) {
     if (!Number.isInteger(travelers) || travelers < 1 || travelers > 9) {
       throw new AppError("invalid_input", "Traveler count must be between 1 and 9.");
     }
-    const token = getServerEnv().DUFFEL_ACCESS_TOKEN;
-    if (!token) throw new AppError("provider_unavailable", "Flights are unavailable right now.");
-    const result = await executeFlightSearch(
-      {
-        origin,
-        destination,
-        departureDate,
-        ...(returnDate ? { returnDate } : {}),
-        travelers,
-      },
-      { duffelToken: token },
-    );
+    const result = await executeFlightSearch({
+      origin,
+      destination,
+      departureDate,
+      ...(returnDate ? { returnDate } : {}),
+      travelers,
+    });
     if (!result.ok) {
       const unavailable = result.error === FLIGHT_UNAVAILABLE;
       throw new AppError(unavailable ? "provider_unavailable" : "invalid_input", result.error);

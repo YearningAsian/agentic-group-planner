@@ -6,7 +6,7 @@ import { createStripePaymentsProvider } from "./real";
 import type { PaymentsProvider } from "./types";
 
 export type * from "./types";
-export { isMockPaymentId } from "./stripe-config";
+export { isMockPaymentId, STRIPE_OPTIONS, STRIPE_POLICY } from "./stripe-config";
 
 /** Picks the implementation from `PAYMENTS_PROVIDER`. Pure, so tests can pass any env. */
 export function selectPaymentsProvider(

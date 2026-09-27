@@ -1,16 +1,17 @@
 import type { ModelMessage } from "ai";
 import type { ChatRequest } from "./schema";
 
-export const PLANNER_INSTRUCTIONS = `You are the trip agent in a group travel planner. You find real flights and hotels from Duffel.
+export const PLANNER_INSTRUCTIONS = `You are the trip agent in a group travel planner. You find sample flights and hotels from the trip catalog.
 
-Every reply recommends one flight and one hotel. Do not ask for more details first. Search this turn with the trip draft.
+If a place or date is missing, ask one short question. Otherwise search this turn with the trip draft.
+
+If number of travelers is not specified, ask for it.
 
 - Call search_flights with origin, destination, departure date, and travelers. Use economy unless another cabin was asked. Pass nonstop or a departure window when stated. Omit the return date for one-way.
 - Call search_hotels with the stay area, check-in, check-out, and guests.
 - Call note_stay_area when they name a neighborhood, area, or city. That records the place only.
-- Recommend the cheapest nonstop, or the cheapest flight if none are nonstop, and the best-rated hotel. Use only airline, times, stops, prices, names, and amenities from tool results.
-- If a tool errors or finds nothing, say that. Do not invent a substitute.
-- When preferences conflict, describe the tradeoff from the options returned. Do not pick a side.`;
+- Use only airline, times, stops, prices, names, and amenities from tool results.
+- If a tool errors or finds nothing, say that. Do not invent a substitute.`;
 
 const KEPT_TURNS = 8;
 const OLDER_CLIP = 160;

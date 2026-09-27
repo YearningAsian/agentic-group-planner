@@ -47,7 +47,7 @@ function renderProvider(): TripApi {
   return api;
 }
 
-function legacyRecord(overrides: Partial<Omit<TripState, "id">> = {}): TripRecord {
+function legacyRecord(overrides: Partial<TripRecord> = {}): TripRecord {
   return {
     id: "trip-legacy",
     destinationId: "lisbon",
@@ -84,6 +84,19 @@ describe("TripProvider member picks", () => {
       act(() => api?.startNewTrip());
     }
     api = null;
+  });
+
+  it("opens a blank draft when saved trips have no active id", () => {
+    resetStudioMemory({
+      activeTripId: null,
+      trips: [legacyRecord({ id: "trip-saved", destinationId: "lisbon" })],
+    });
+
+    const trip = renderProvider();
+
+    expect(screen.getByTestId("destination")).toHaveTextContent("none");
+    expect(trip.activeTripId).toBeNull();
+    expect(trip.trips).toHaveLength(1);
   });
 
   it("keeps legacy locked picks visible as the organizer choices", () => {
@@ -218,6 +231,23 @@ describe("TripProvider member picks", () => {
     expect(screen.getByTestId("chosen-stay")).toHaveTextContent("none");
     expect(screen.getByTestId("locked-flight")).toHaveTextContent("none");
     expect(screen.getByTestId("locked-stay")).toHaveTextContent("none");
+  });
+
+  it("replaces placeholders with the people who are going and keeps the organizer pick", () => {
+    const trip = renderProvider();
+
+    act(() => {
+      trip.chooseFlight(flightOffer({ airline: "Delta", price: 400, departureTime: "2026-06-01T08:00:00" }));
+      trip.setGoing(["Alex", "Sam"]);
+    });
+
+    expect(api?.state.members.map((member) => member.name)).toEqual(["Alex", "Sam"]);
+    expect(api?.state.members.every((member) => member.joined && !member.placeholder)).toBe(true);
+    expect(api?.state.members[0]?.flightId).toBe("Delta-JFK-LIS-2026-06-01T08:00:00-400");
+
+    act(() => trip.setGoing(["  "]));
+
+    expect(api?.state.members.map((member) => member.name)).toEqual(["Alex", "Sam"]);
   });
 
 });

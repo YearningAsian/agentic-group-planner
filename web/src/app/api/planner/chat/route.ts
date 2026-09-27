@@ -15,7 +15,6 @@ export async function POST(request: Request) {
       apiKey: env.META_MODEL_API_KEY,
       baseURL: env.META_MODEL_API_BASE_URL,
       model: env.PLANNER_CHAT_MODEL,
-      duffelToken: env.DUFFEL_ACCESS_TOKEN,
       signal: request.signal,
     });
   } catch (error) {
