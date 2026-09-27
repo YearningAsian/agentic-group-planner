@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <!--
-      Password reset (ADR 0023). The reset action sets redirectTo to
-      <app origin>/auth/callback?next=/reset-password, so the token hash is appended to that query.
-      /auth/callback verifies it as a recovery token, which signs the member in, then /reset-password
-      asks for the new password.
+      Password reset (ADR 0023). The link is built from the Site URL, not RedirectTo, because Supabase
+      swaps a redirect it doesn't allow (or a missing one) for the bare Site URL, and appending a
+      query to that yields an invalid link. /auth/callback verifies the recovery token, which signs
+      the member in, and sends them to /reset-password for the new password.
     -->
   </head>
   <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#0b1b2b;background:#eef3f6;">
@@ -19,7 +19,7 @@
           </p>
           <p style="margin:0 0 20px;">
             <a
-              href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=recovery"
+              href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery"
               style="display:inline-block;min-height:44px;padding:12px 20px;box-sizing:border-box;border-radius:999px;background:#0b1b2b;color:#ffffff;font-size:16px;text-decoration:none;"
               >Choose a new password</a
             >

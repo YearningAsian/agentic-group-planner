@@ -8,7 +8,7 @@ import { type DemoPersonKey, isDemoPersonKey } from "../demo-people";
 
 export type DemoSignInResult =
   | { ok: true; userId: string }
-  | { ok: false; reason: "disabled" | "invalid" | "not_seeded" | "failed"; message: string };
+  | { ok: false; reason: "disabled" | "invalid" | "not_seeded" | "rate_limited" | "failed"; message: string };
 
 const NOT_SEEDED = "Demo data isn't loaded. Run pnpm --filter web seed:demo";
 
@@ -41,7 +41,12 @@ export async function demoSignInSeeded(person: DemoPersonKey): Promise<DemoSignI
     email,
     password: demoPasswordFor(email, env.DEMO_SEED_SECRET!),
   });
-  if (error?.code === "invalid_credentials") return { ok: false, reason: "not_seeded", message: NOT_SEEDED };
+  // Older GoTrue releases send the message without a code.
+  const rejected = error?.code === "invalid_credentials" || (!error?.code && error?.message === "Invalid login credentials");
+  if (rejected) return { ok: false, reason: "not_seeded", message: NOT_SEEDED };
+  if (error?.code === "over_request_rate_limit" || error?.status === 429) {
+    return { ok: false, reason: "rate_limited", message: "Too many sign-ins just now. Wait a minute and try again." };
+  }
   if (error || !data.user) return { ok: false, reason: "failed", message: "Couldn't sign in. Try again." };
   return { ok: true, userId: data.user.id };
 }
